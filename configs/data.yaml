@@ -1,0 +1,28 @@
+raw_dir: data/raw
+bronze_dir: data/bronze
+silver_dir: data/silver
+gold_dir: data/gold
+audit_dir: data/audit
+
+sources:
+  backblaze:
+    raw_glob: "data/raw/backblaze/*.csv"
+    bronze_path: "data/bronze/backblaze"
+  smartz:
+    raw_glob: "data/raw/smartz/*.csv"
+    bronze_path: "data/bronze/smartz"
+  synthetic:
+    raw_glob: "data/raw/synthetic/*.parquet"
+    bronze_path: "data/bronze/synthetic"
+
+storage:
+  format: parquet
+  compression: zstd
+  partition_by: ["source_dataset", "year", "month"]
+
+telemetry_gap:
+  short_gap_days: 3
+  stale_gap_days: 7
+
+feature_maturity:
+  min_history_days: 30

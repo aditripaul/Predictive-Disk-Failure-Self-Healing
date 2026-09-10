@@ -1,0 +1,28 @@
+version: 1
+
+primary_horizon_days: 14
+horizons_days: [7, 14, 30]
+
+model:
+  type: lightgbm
+  params:
+    objective: binary
+    is_unbalance: true
+    num_leaves: 31
+    learning_rate: 0.05
+    n_estimators: 500
+
+threshold:
+  target_precision: 0.95
+  target_recall_range: [0.35, 0.50]
+  search_metric: auprc
+
+splits:
+  strategy: chronological
+  train_end: "2021-12-31"
+  validation_end: "2022-12-31"
+  test_end: "2023-12-31"
+
+mlflow:
+  tracking_uri: mlflow
+  experiment_name: disk-failure-prediction

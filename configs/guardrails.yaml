@@ -1,0 +1,63 @@
+version: 1
+
+conflict_resolution: "safety > operational > efficiency"
+
+rules:
+  - id: PRED_THRESHOLD
+    type: prediction
+    severity: hard
+    description: Only act above the high-confidence cutoff.
+
+  - id: FEATURE_CONFIDENCE
+    type: prediction
+    severity: hard
+    description: Require sufficient feature confidence for destructive actions.
+
+  - id: TELEMETRY_FRESHNESS
+    type: hard_pre_action
+    severity: hard
+    description: Block destructive action if telemetry is stale.
+
+  - id: HARD_NO_LAST_NODE
+    type: hard_pre_action
+    severity: hard
+    description: Never drain the last healthy node in a failure domain.
+
+  - id: HARD_QUORUM
+    type: hard_pre_action
+    severity: hard
+    description: Maintain replication quorum after the proposed drain.
+
+  - id: HARD_MAX_DRAINS
+    type: hard_pre_action
+    severity: hard
+    description: Limit concurrent drain operations.
+    params:
+      max_concurrent_drains: 1
+
+  - id: SOFT_HIGH_IO
+    type: soft_pre_action
+    severity: soft
+    description: Avoid migration during high I/O windows.
+
+  - id: OPS_MAINTENANCE
+    type: operational
+    severity: soft
+    description: Respect maintenance windows.
+
+  - id: OPS_RATE_LIMIT
+    type: operational
+    severity: soft
+    description: Enforce global action rate limits.
+    params:
+      max_actions_per_hour: 5
+
+  - id: POST_DATA_INTEGRITY
+    type: post_action
+    severity: hard
+    description: Verify data integrity after action; compensate on failure.
+
+  - id: POST_SERVICE_CONTINUITY
+    type: post_action
+    severity: hard
+    description: Verify service continuity after action; compensate on failure.

@@ -1,0 +1,24 @@
+version: 1
+
+checkpoint:
+  backend: sqlite
+  path: mlflow/agent_checkpoints.sqlite
+
+loop:
+  target_cycle_time_seconds: 300
+  cooldown_seconds: 3600
+  hysteresis_cycles_required: 2
+
+human_review:
+  critical_sla_hours: 1
+  non_critical_sla_hours: 24
+  timeout_fallback_action: cordon
+
+action_thresholds:
+  warn: 0.30
+  cordon: 0.60
+  migrate: 0.80
+  drain: 0.90
+
+feature_confidence:
+  min_confidence_for_destructive_action: 0.80

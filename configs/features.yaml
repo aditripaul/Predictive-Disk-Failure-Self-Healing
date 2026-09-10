@@ -1,0 +1,34 @@
+version: 1
+
+priority_smart_attributes:
+  - reallocated_sector_count
+  - current_pending_sector_count
+  - offline_uncorrectable
+  - reported_uncorrectable_errors
+  - raw_read_error_rate
+  - seek_error_rate
+  - spin_retry_count
+  - command_timeout
+  - power_on_hours
+  - smart_overall_health_normalized
+
+windows_days: [7, 14, 30]
+
+log1p_attributes:
+  - reallocated_sector_count
+  - current_pending_sector_count
+  - offline_uncorrectable
+  - reported_uncorrectable_errors
+  - command_timeout
+  - spin_retry_count
+
+clipping:
+  lower_percentile: 0.01
+  upper_percentile: 0.99
+
+spike_thresholds:
+  current_pending_sector_count: 10
+  reallocated_sector_count: 5
+
+feature_confidence:
+  recency_tau_hours: 48
