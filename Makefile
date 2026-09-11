@@ -1,5 +1,5 @@
 .PHONY: install lint test data-check \
-	ingest-backblaze ingest-smartz build-silver build-features build-labels train \
+	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train \
 	agent-demo dashboard api
 
 install:
@@ -20,6 +20,9 @@ ingest-backblaze:
 
 ingest-smartz:
 	python pipelines/ingest_smartz.py
+
+ingest-synthetic-stub:
+	python pipelines/ingest_synthetic_stub.py
 
 build-silver:
 	python pipelines/build_silver.py
