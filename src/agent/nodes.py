@@ -68,11 +68,21 @@ def make_plan_node(
         )
 
         action_id = _deterministic_action_id(state["run_id"], top_drive["drive_id"], tier)
+        maturity = top_drive["feature_maturity"]
         proposal = {
             "action_id": action_id,
             "drive_id": top_drive["drive_id"],
             "proposed_action": tier.value,
             "p_fail": top_drive["p_fail"],
+            "feature_confidence": top_drive["feature_confidence"],
+            "feature_maturity": maturity.value if hasattr(maturity, "value") else maturity,
+            "stale_telemetry": top_drive.get("stale_telemetry", False),
+            "is_last_healthy_node_in_domain": top_drive.get(
+                "is_last_healthy_node_in_domain", False
+            ),
+            "quorum_ok_after_action": top_drive.get("quorum_ok_after_action", True),
+            "high_io_period": top_drive.get("high_io_period", False),
+            "maintenance_window_active": top_drive.get("maintenance_window_active", False),
         }
         guardrail_result = deps.guardrail_evaluator(proposal)
 

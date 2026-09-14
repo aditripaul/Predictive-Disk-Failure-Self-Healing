@@ -1,15 +1,17 @@
 """Entry point for `make agent-demo`.
 
 Runs one MAPE-K cycle against a hardcoded in-memory fleet snapshot with the
-pass-all guardrail from Phase 6, so the agent core can be exercised before
-the real guardrail engine (Phase 7) and fleet simulator (Phase 8) exist.
+real Phase 7 guardrail engine, so the agent core can be exercised before the
+real fleet simulator (Phase 8) exists (fleet-topology context like quorum
+and last-node status defaults to safe assumptions until then).
 """
 
 from __future__ import annotations
 
 from data_contracts.schemas import FeatureMaturity
-from src.agent.deps import AgentDependencies, default_guardrail_pass_all
+from src.agent.deps import AgentDependencies
 from src.agent.graph import compiled_agent
+from src.guardrails.adapter import build_guardrail_evaluator
 
 DEMO_DRIVES = [
     {
@@ -50,7 +52,7 @@ def main() -> None:
     deps = AgentDependencies(
         fleet_state_provider=_fleet_state_provider,
         predictor=_predictor,
-        guardrail_evaluator=default_guardrail_pass_all,
+        guardrail_evaluator=build_guardrail_evaluator(),
         executor=_executor,
         validator=_validator,
     )
