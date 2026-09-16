@@ -9,7 +9,7 @@ and last-node status defaults to safe assumptions until then).
 from __future__ import annotations
 
 from data_contracts.schemas import FeatureMaturity
-from src.agent.deps import AgentDependencies, SqliteActionLedger
+from src.agent.deps import ActionLedger, AgentDependencies, SqliteActionLedger
 from src.agent.graph import compiled_agent
 from src.config import AgentSettings
 from src.guardrails.adapter import build_guardrail_evaluator
@@ -54,20 +54,22 @@ def _validator(execution_result: dict) -> dict:
     return {"data_integrity_ok": True, "service_continuity_ok": True, "quorum_ok": True}
 
 
-def build_demo_dependencies() -> AgentDependencies:
+def build_demo_dependencies(*, action_ledger: ActionLedger | None = None) -> AgentDependencies:
     """Reusable by anything that needs a runnable-but-not-real agent: the
     CLI demo below, and the FastAPI service's default wiring (src/api/main.py)
     until a real fleet simulator/model are plugged in for a given
-    deployment. Uses the persistent SqliteActionLedger (not the in-memory
-    one) so idempotent crash recovery is real, not merely available."""
-    ledger_path = AgentSettings.load().action_ledger_path
+    deployment. Defaults to the persistent SqliteActionLedger (not the
+    in-memory one) so idempotent crash recovery is real, not merely
+    available - pass `action_ledger=InMemoryActionLedger()` (e.g. in tests)
+    to avoid ever touching the real project sqlite file on disk."""
+    resolved_ledger = action_ledger or SqliteActionLedger(AgentSettings.load().action_ledger_path)
     return AgentDependencies(
         fleet_state_provider=_fleet_state_provider,
         predictor=_predictor,
         guardrail_evaluator=build_guardrail_evaluator(),
         executor=_executor,
         validator=_validator,
-        action_ledger=SqliteActionLedger(ledger_path),
+        action_ledger=resolved_ledger,
     )
 
 
