@@ -11,14 +11,22 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 import yaml
 
 import mlflow
 from src.models.evaluation import evaluate_at_threshold
+from src.models.explainability import (
+    build_explainer,
+    compute_shap_values,
+    global_feature_importance,
+)
 from src.models.features import assemble_training_frame, select_feature_columns
 from src.models.threshold import tune_threshold_for_precision
 from src.models.training import predict_proba_positive, train_lightgbm
+
+SHAP_BACKGROUND_SAMPLE_SIZE = 100
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
@@ -99,16 +107,33 @@ def main() -> None:
         mlflow.log_metric("test_auprc", results["test_metrics"]["auprc"])
         mlflow.lightgbm.log_model(model, name="model")
 
+        # SHAP global feature importance (docs/design_goal.md "Explainability
+        # by default"): background sample keeps TreeExplainer fast even on a
+        # large training set.
+        rng = np.random.default_rng(0)
+        background_size = min(SHAP_BACKGROUND_SAMPLE_SIZE, x_train.shape[0])
+        background = x_train[rng.choice(x_train.shape[0], size=background_size, replace=False)]
+        explainer = build_explainer(model, background)
+        shap_values = compute_shap_values(explainer, x_val)
+        feature_importance = global_feature_importance(shap_values, feature_columns)
+        results["shap_global_feature_importance"] = feature_importance[:20]
+
         audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
         audit_dir.mkdir(parents=True, exist_ok=True)
         report_path = audit_dir / "model_evaluation_report.json"
         report_path.write_text(json.dumps(results, indent=2, default=str))
 
+        shap_report_path = audit_dir / "shap_feature_importance.json"
+        shap_report_path.write_text(json.dumps(feature_importance, indent=2, default=str))
+        mlflow.log_artifact(str(shap_report_path))
+
         print(f"Trained model for {horizon_days}-day horizon on {x_train.shape[0]} rows.")
         print(f"Threshold: {threshold_result}")
         print(f"Validation metrics: {results['validation_metrics']}")
         print(f"Test metrics: {results['test_metrics']}")
+        print(f"Top 5 SHAP features: {feature_importance[:5]}")
         print(f"Wrote evaluation report to {report_path}")
+        print(f"Wrote SHAP feature importance to {shap_report_path}")
 
 
 if __name__ == "__main__":
