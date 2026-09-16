@@ -47,7 +47,13 @@ from the repository root.
 make install       # installs dependencies
 make lint          # sanity check: code style + type checks
 make test          # sanity check: full test suite
+make smoke         # fastest sanity check: does the whole system boot and respond?
 ```
+
+For every other operational command (running one layer of tests, a
+coverage report, cleaning generated files, etc.), see
+`docs/developer_guide.md` §3.1 — that table lists every `make` target this
+project has.
 
 ### See the agent make one decision
 
@@ -225,6 +231,21 @@ The provisional score, computed the moment a decision is made, uses the
 model's own confidence as a stand-in for correctness/necessity/timeliness
 (which genuinely can't be known yet) — treat a provisional score as "how
 confident was the system," and a final score as "was it actually right."
+
+### Which SMART readings drove the prediction?
+
+Every time a model is trained (`make train`), the system also computes a
+**global feature-importance ranking** using SHAP (a standard model-
+explainability technique): which SMART attributes and derived signals
+(rolling averages, slopes, spike counts, etc.) most influenced the model's
+predictions overall. That ranking is written to
+`data/audit/data_quality_reports/shap_feature_importance.json` after
+training, and logged alongside the model in MLflow. It answers "what does
+this model generally pay attention to," which is a useful sanity check —
+e.g. confirming the model is actually keying off reallocated-sector-count
+trends and not something spurious. This is a training-time, whole-model
+view; per-decision explanations in the audit trail (§5) come from the
+guardrail/trust-score system, not from SHAP directly.
 
 ---
 

@@ -177,7 +177,9 @@ project-root/
 ├── docs/
 │   ├── design_goal.md
 │   ├── dataset_strategy.md
-│   └── project_plan.md
+│   ├── project_plan.md
+│   ├── developer_guide.md
+│   └── user_guide.md
 │
 ├── configs/
 │   ├── data.yaml
@@ -213,7 +215,8 @@ project-root/
 │   ├── unit/
 │   ├── integration/
 │   ├── golden/
-│   └── chaos/
+│   ├── chaos/
+│   └── smoke/
 │
 ├── data/
 │   ├── raw/
@@ -236,7 +239,7 @@ project-root/
 |---|---|
 | Agent orchestration | LangGraph |
 | Checkpointing | SQLite / LangGraph saver |
-| Fleet-state cache | Redis |
+| Fleet-state cache | Redis (declared dependency; not yet wired — currently an in-memory stand-in, `src/guardrails/operational_state.py`) |
 | DataFrame processing | Polars |
 | SQL engine | DuckDB |
 | Columnar I/O | PyArrow |
@@ -247,7 +250,7 @@ project-root/
 | API | FastAPI |
 | Dashboard | Streamlit |
 | Testing | pytest, Hypothesis, optional Locust |
-| Logging | structlog / JSON logs |
+| Logging | structlog / JSON logs (declared dependency; not yet wired — pipelines currently use plain `print()`) |
 | Optional tracing | OpenTelemetry |
 
 ---
@@ -419,18 +422,28 @@ The project uses a `Makefile` for reproducible pipeline execution.
 
 | Command | Purpose |
 |---|---|
-| `make install` | Install dependencies |
-| `make lint` | Run linting and type checks |
-| `make test` | Run unit and integration tests |
+| `make install` | Install runtime + dev dependencies (`uv sync --extra dev`) |
+| `make lint` | Run ruff + mypy |
+| `make format` | Auto-format and fix lint issues |
+| `make test` | Run the full test suite (unit + integration + chaos + golden + smoke) |
+| `make test-unit` / `test-integration` / `test-chaos` / `test-golden` / `smoke` | Run one test layer only |
+| `make coverage` | Run the suite under pytest-cov; writes `htmlcov/index.html` |
+| `make ci` | `lint` + `test` — what CI runs |
+| `make clean` | Remove caches (never data or runtime state) |
+| `make clean-data` | Remove regenerated pipeline outputs (never raw source data) |
 | `make ingest-backblaze` | Ingest Backblaze raw data into Bronze |
 | `make ingest-smartz` | Ingest SMART-Z raw data into Bronze |
+| `make ingest-synthetic-stub` | Land the synthetic placeholder dataset into Bronze |
 | `make build-silver` | Build canonical Silver telemetry |
 | `make build-features` | Build Gold trajectory features |
 | `make build-labels` | Build failure labels and splits |
-| `make train` | Train model and log to MLflow |
+| `make train` | Train model, tune threshold, compute SHAP importance, log to MLflow |
+| `make final-report` | Aggregate chaos/latency/model reports into a final evaluation report |
 | `make agent-demo` | Run a minimal LangGraph agent demo |
 | `make dashboard` | Launch Streamlit dashboard |
 | `make api` | Launch FastAPI approval service |
+
+Full details on every target: `docs/developer_guide.md` §3.1.
 
 Example:
 
@@ -642,6 +655,7 @@ The FastAPI service exposes endpoints for human oversight and audit.
 Example endpoints:
 
 ```text
+POST /api/v1/agent/run-cycle
 GET  /api/v1/fleet/state
 GET  /api/v1/predictions/latest
 GET  /api/v1/actions/pending
@@ -651,6 +665,11 @@ GET  /api/v1/audit/decisions
 GET  /api/v1/reliability/trust-trend
 GET  /api/v1/guardrails/violations
 ```
+
+`POST /api/v1/agent/run-cycle` runs one MAPE-K decision cycle; approve/reject
+genuinely resume the paused LangGraph thread, not just update a record. No
+authentication exists on any endpoint yet — see `docs/developer_guide.md`
+§13 "Known gaps" before exposing this beyond local/trusted use.
 
 Launch API:
 

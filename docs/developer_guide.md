@@ -13,7 +13,7 @@ For running the system as an operator rather than modifying it, see
 
 ---
 
-## 1. Mental model in five sentences
+## 1. Highlevel overview
 
 A `FleetSimulator` (or, in production, a real fleet) reports drive state. A
 LangGraph **MAPE-K agent** (Monitor → Analyze → Plan → Execute → Validate)
@@ -66,9 +66,9 @@ catalog from `configs/guardrails.yaml`.
 ## 3. Environment
 
 ```bash
-uv sync --extra dev      # installs runtime + dev deps into .venv
-make lint                 # ruff + mypy (both must be clean; mypy runs in CI too)
-make test                 # full pytest suite
+make install      # uv sync --extra dev - installs runtime + dev deps into .venv
+make lint          # ruff + mypy (both must be clean; both run in CI too)
+make test          # full pytest suite
 ```
 
 Python 3.11+ is declared in `pyproject.toml`; mypy is configured for 3.12
@@ -78,8 +78,40 @@ version, only what mypy parses in stub files.
 
 Never invoke `python`, `ruff`, `mypy`, `pytest`, `streamlit`, or `uvicorn`
 directly in this repo — always through `uv run` (or a `make` target, which
-already does this). The Makefile learned this the hard way: every target
-used to call these tools bare and silently failed outside an activated venv.
+already does this). The Makefile learned this the hard way twice: every
+target used to call these tools bare (silently failing outside an activated
+venv), and separately `install` used to run plain `uv sync` without
+`--extra dev`, so a fresh clone's very first `make install && make lint`
+would fail with "ruff: command not found."
+
+### 3.1 Every `make` target
+
+| Target | What it does |
+|---|---|
+| `make install` | `uv sync --extra dev` |
+| `make lint` | `ruff check .` + `mypy src data_contracts` |
+| `make format` | `ruff format .` then `ruff check --fix .` |
+| `make test` | Full pytest suite (unit + integration + chaos + golden + smoke) |
+| `make test-unit` | `tests/unit/` only |
+| `make test-integration` | `tests/integration/` only |
+| `make test-chaos` | `tests/chaos/` only |
+| `make test-golden` / `make data-check` | `tests/golden/` only (same thing, two names) |
+| `make smoke` | `tests/smoke/` only — see §12 |
+| `make coverage` | Full suite under `pytest-cov`; writes `htmlcov/index.html` |
+| `make ci` | `lint` + `test` — exactly what CI runs |
+| `make clean` | Removes caches (`__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `htmlcov`, `.coverage`) — never touches data or runtime state |
+| `make clean-data` | Removes regenerated pipeline outputs (`data/bronze`, `data/silver`, `data/gold`, `data/audit/*/*`) — never touches `data/raw/` source data |
+| `make ingest-backblaze` / `ingest-smartz` / `ingest-synthetic-stub` | Bronze ingestion (§5) |
+| `make build-silver` / `build-features` / `build-labels` | Silver/Gold pipeline stages (§5) |
+| `make train` | Trains the model, tunes threshold, computes SHAP importance (§5.1) |
+| `make final-report` | `pipelines/generate_final_report.py` — aggregates chaos/latency/model reports |
+| `make agent-demo` | One MAPE-K cycle against the hardcoded demo fleet (§6) |
+| `make dashboard` | Streamlit UI (§10) |
+| `make api` | FastAPI service (§10) |
+
+`clean`/`clean-data` are intentionally split: `clean` is always safe to run
+without thinking; `clean-data` deletes real (if synthetic-derived) pipeline
+output, so it's separate and never invoked by anything else automatically.
 
 ---
 
@@ -159,6 +191,35 @@ and `make ingest-smartz` print a clear message and exit if
 frame has zero non-censored rows for the primary horizon — which is exactly
 what happens against the synthetic stub, since 10 days of history can never
 observe a 14-day horizon.
+
+### 5.1 Explainability (SHAP)
+
+`src/models/explainability.py` wraps `shap.TreeExplainer` (exact and fast
+for LightGBM) around the trained model:
+
+```python
+explainer = build_explainer(model, background)         # background: a sample of training rows
+shap_values = compute_shap_values(explainer, x_val)     # (n_rows, n_features)
+ranking = global_feature_importance(shap_values, feature_columns)  # sorted, mean |SHAP|
+explanation = top_contributing_features(shap_values[i], feature_columns, k=5)  # one row
+```
+
+`pipelines/train_model.py` calls this after training: it builds the
+explainer from a 100-row random sample of the training split (fast,
+representative), computes SHAP values over the validation split, and writes
+the top-20 global ranking to both `data/audit/data_quality_reports/
+model_evaluation_report.json` (under `shap_global_feature_importance`) and a
+standalone `shap_feature_importance.json`, plus logs the latter as an MLflow
+artifact. This is the *global* (training-time) explainability story.
+
+**Not yet wired**: `top_contributing_features` (the *per-prediction*
+explainer) isn't called anywhere at serving time — the agent's lean-state
+design (§6.1) keeps bulk feature vectors out of `AgentState`, so a real
+integration would need its own feature-vector lookup path (e.g. keyed by
+`drive_id` + `as_of` timestamp against the online feature store described in
+`docs/dataset_strategy.md` §20), not a field threaded through the graph.
+`data_contracts.schemas.PredictionOutput.top_contributing_features` exists
+and is ready to receive this once that lookup path is built.
 
 ---
 
@@ -442,9 +503,19 @@ tests/chaos/         full-stack scenarios (stale telemetry, correlated failure, 
                       human-review SLA timeout) + guardrail latency benchmark (<500ms budget)
 tests/golden/        synthetic 100-healthy/100-failing dataset; regenerate via
                       tests/golden/generate_golden_dataset.py if the schema changes
+tests/smoke/         boots the real default wiring (build_demo_dependencies) end-to-end and
+                      walks every documented API endpoint once — "does the shipped system work at all"
 ```
 
-Run everything: `make test`. Run one layer: `uv run pytest tests/chaos/`.
+Run everything: `make test`. Run one layer: `make test-unit` /
+`make test-integration` / `make test-chaos` / `make test-golden` (alias:
+`make data-check`) / `make smoke`. `make ci` runs exactly what
+`.github/workflows/ci.yml` runs (`lint` + `test`), so you can reproduce a CI
+failure locally before pushing. `make coverage` runs the full suite under
+`pytest-cov` and writes an HTML report to `htmlcov/` (open
+`htmlcov/index.html`) — there's no enforced coverage threshold yet, this is
+a local diagnostic only.
+
 Every new module should get a same-named test file; every new cross-module
 behavior (agent talking to guardrails, guardrails talking to the simulator,
 API talking to the orchestrator) should get an integration test that
@@ -454,19 +525,90 @@ in tests specifically to catch integration bugs that mocks would hide (this
 is how the "human review was a dead end" and "action ledger wasn't
 persistent" bugs were actually caught).
 
+**The golden dataset tests a weaker guarantee than the name suggests.**
+`tests/golden/test_golden_dataset.py` only checks that
+`build_golden_dataset()` itself produces the right shape/labels and
+round-trips through Parquet — it does **not** run the golden data through
+the real `src/features/*`/`src/labels/*` pipeline and diff against a
+checked-in expected-output snapshot. It currently provides zero protection
+against a silent change in feature/label values over time. If you need that
+guarantee, add a snapshot test that runs `build_gold_features`/
+`compute_labels` against the golden dataset and asserts against a committed
+expected-output file.
+
+**Smoke tests never touch real project files.** `tests/smoke/test_smoke.py`
+calls `build_demo_dependencies(action_ledger=InMemoryActionLedger())` and
+uses the default `:memory:` LangGraph checkpoint — running `make smoke`
+repeatedly (including in CI) writes nothing to `mlflow/`. If you write a new
+test that calls `build_demo_dependencies()`, always pass an explicit
+in-memory `action_ledger` unless you specifically intend to exercise the
+real persistent one.
+
 ---
 
 ## 13. Known gaps (don't be surprised by these)
+
+Data / model:
 
 - No real Backblaze/SMART-Z data has been ingested in this repo — the data
   pipeline is real and tested against synthetic fixtures only.
 - `predictor` is never backed by the trained Phase 5 model in `demo.py`/the
   API's default wiring — it's a hardcoded two-drive fixture. Wiring a real
   MLflow-registered model in is the natural next step (see §11).
-- `InMemoryAuditStore` doesn't persist across an API restart (only the
-  LangGraph checkpoint and action ledger do).
 - `src/reliability/batch.py` and `drift.py` aren't wired to any scheduled
-  job — they're ready to call, but nothing calls them periodically yet.
+  job — they're ready to call, but nothing calls them periodically yet, and
+  `drift.py`'s `retrain_recommended` flag doesn't trigger anything.
+- `src/agent/human_review_timeout.py` (SLA-overdue → safe-fallback logic) is
+  exercised only by `tests/chaos/test_chaos_scenarios.py` — nothing in the
+  running API/orchestrator periodically scans `store.list_pending_actions()`
+  for overdue reviews and applies it. **A pending action left un-decided
+  today sits in `pending_review` forever**, which is exactly the
+  indefinite-stall failure mode `docs/design_goal.md` says must not happen.
+
+Safety-critical defaults:
+
+- **`RuleContext`'s fleet-topology fields default to the *permissive* side
+  when not wired**, not the conservative one:
+  `is_last_healthy_node_in_domain` defaults to `False` (so `HARD_NO_LAST_NODE`
+  can never fire) and `quorum_ok_after_action` defaults to `True` (so
+  `HARD_QUORUM` can never fire) — see `src/agent/nodes.py`'s `plan()` and
+  `src/guardrails/adapter.py`'s `evaluate()`. `src/agent/demo.py`'s fixture
+  never populates either field, so **both of the two hardest safety
+  guardrails are silently disabled** in the default demo/API wiring today,
+  with no warning or log line. Any real deployment MUST wire real
+  fleet-topology data (e.g. from `FleetSimulator.is_last_healthy_node_in_domain`/
+  `quorum_ok_after_drain`, §8) into every drive dict the `predictor` returns
+  before enabling DRAIN in anything but a demo.
+
+Operational hardening still needed for production:
+
+- **No authentication on the FastAPI service at all** — every endpoint,
+  including `/api/v1/actions/{id}/approve|reject`, is open to any caller who
+  can reach the port. `operator_id`/`reason_code` are unverified free-text
+  fields, not derived from an authenticated identity.
+- **No locking around concurrent requests.** `InMemoryAuditStore.decide_action`
+  does a check-then-act on `action.status` with no lock; two concurrent
+  approve/reject calls (or two concurrent `/agent/run-cycle` calls with the
+  same `thread_id`) can both pass the check before either writes, and both
+  end up calling `self.app.invoke(...)` against the same LangGraph thread
+  concurrently. FastAPI's sync routes run in a thread pool, so this is a real
+  exposure, not theoretical.
+- **No FastAPI exception handlers.** `run_cycle()` has no try/except at all;
+  any exception inside `predictor`/`executor`/`validator`/`guardrail_evaluator`
+  produces a raw unhandled-exception 500. `_decide()` only catches
+  `KeyError`/`ValueError`; anything else also leaks a raw 500.
+- `InMemoryAuditStore` doesn't persist across an API restart (only the
+  LangGraph checkpoint and action ledger do) — the entire audit trail an
+  incident review would need is lost on restart.
 - `InMemoryOperationalState` (guardrail rate-limit/drain counters) is
   per-process, not shared across multiple API instances — a real deployment
-  needs the Redis-backed version the design doc describes.
+  needs the Redis-backed version the design doc describes. Note: `redis` is
+  already a `pyproject.toml` dependency but is never imported anywhere in
+  `src/`/`pipelines/` — it's a declared-but-unused placeholder, not partial
+  wiring.
+- No containerization (no Dockerfile/compose), no `.env`/secrets-management
+  pattern, no health-check endpoint (`GET /health`), no CORS/rate-limiting,
+  and `structlog` (declared as the intended logging stack) is never actually
+  used — every pipeline script and `agent/demo.py` use plain `print()`.
+- No coverage threshold is enforced anywhere (`pytest-cov` is installed but
+  only invoked via the local-only `make coverage`, not in CI).
