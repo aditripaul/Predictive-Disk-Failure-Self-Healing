@@ -3,6 +3,7 @@ version: 1
 checkpoint:
   backend: sqlite
   path: mlflow/agent_checkpoints.sqlite
+  action_ledger_path: mlflow/agent_action_ledger.sqlite
 
 loop:
   target_cycle_time_seconds: 300
