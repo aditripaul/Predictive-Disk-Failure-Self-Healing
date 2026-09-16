@@ -15,6 +15,7 @@ from langgraph.types import interrupt
 
 from data_contracts.schemas import ActionTier, FeatureMaturity
 from src.agent.deps import AgentDependencies
+from src.agent.hysteresis import apply_hysteresis, is_in_cooldown, record_action_taken
 from src.agent.state import AgentState
 from src.config import AgentSettings
 from src.models.action_tiers import determine_action_tier
@@ -64,17 +65,32 @@ def make_plan_node(
     *,
     action_thresholds: dict[str, float] | None = None,
     min_confidence_for_destructive_action: float | None = None,
+    hysteresis_cycles_required: int | None = None,
+    cooldown_seconds: int | None = None,
 ):
     """Thresholds default to configs/agent.yaml (via AgentSettings.load()),
-    resolved lazily so tests/demos can still override them explicitly."""
-    if action_thresholds is None or min_confidence_for_destructive_action is None:
-        settings = AgentSettings.load()
-        if action_thresholds is None:
-            action_thresholds = settings.action_thresholds
-        if min_confidence_for_destructive_action is None:
-            min_confidence_for_destructive_action = (
-                settings.min_confidence_for_destructive_action
-            )
+    resolved lazily so tests/demos can still override them explicitly. The
+    config read always happens (cheap YAML parse) rather than only when
+    something is missing, so mypy can prove `defaults` is never None here -
+    an `if needed: defaults = ...` pattern can't be proven safe across the
+    four independent `is None` checks below."""
+    defaults = AgentSettings.load()
+    resolved_action_thresholds: dict[str, float] = (
+        action_thresholds if action_thresholds is not None else defaults.action_thresholds
+    )
+    resolved_min_confidence: float = (
+        min_confidence_for_destructive_action
+        if min_confidence_for_destructive_action is not None
+        else defaults.min_confidence_for_destructive_action
+    )
+    resolved_hysteresis_cycles: int = (
+        hysteresis_cycles_required
+        if hysteresis_cycles_required is not None
+        else defaults.hysteresis_cycles_required
+    )
+    resolved_cooldown_seconds: int = (
+        cooldown_seconds if cooldown_seconds is not None else defaults.cooldown_seconds
+    )
 
     def plan(state: AgentState) -> dict[str, Any]:
         drives = state["prediction_summary"].get("drives", [])
@@ -86,16 +102,37 @@ def make_plan_node(
             }
 
         top_drive = max(drives, key=lambda d: d["p_fail"])
+        drive_id = top_drive["drive_id"]
         tier = determine_action_tier(
             p_fail=top_drive["p_fail"],
             feature_confidence=top_drive["feature_confidence"],
             feature_maturity=top_drive["feature_maturity"],
             stale_telemetry=top_drive.get("stale_telemetry", False),
-            action_thresholds=action_thresholds,
-            min_confidence_for_destructive_action=min_confidence_for_destructive_action,
+            action_thresholds=resolved_action_thresholds,
+            min_confidence_for_destructive_action=resolved_min_confidence,
         )
 
-        action_id = _deterministic_action_id(state["run_id"], top_drive["drive_id"], tier)
+        # Hysteresis (docs/design_goal.md section 13): an escalation tier
+        # only takes effect once sustained for `hysteresis_cycles_required`
+        # consecutive cycles - otherwise capped at WARN.
+        drive_risk_state = state.get("drive_risk_state", {})
+        tier, drive_risk_state = apply_hysteresis(
+            drive_risk_state,
+            drive_id,
+            tier,
+            hysteresis_cycles_required=resolved_hysteresis_cycles,
+        )
+
+        # Cooldown: a drive that was just acted on doesn't get re-escalated
+        # every subsequent cycle on the same evidence ("repeated actions
+        # require new evidence").
+        now = dt.datetime.fromisoformat(state["timestamp"])
+        if tier in {ActionTier.CORDON, ActionTier.MIGRATE, ActionTier.DRAIN} and is_in_cooldown(
+            drive_risk_state, drive_id, cooldown_seconds=resolved_cooldown_seconds, now=now
+        ):
+            tier = ActionTier.WARN
+
+        action_id = _deterministic_action_id(state["run_id"], drive_id, tier)
         proposal = {
             "action_id": action_id,
             "drive_id": top_drive["drive_id"],
@@ -120,6 +157,7 @@ def make_plan_node(
             "proposed_action": proposal,
             "guardrail_result": guardrail_result,
             "human_review_required": requires_review,
+            "drive_risk_state": drive_risk_state,
         }
 
     return plan
@@ -171,7 +209,15 @@ def make_execute_node(deps: AgentDependencies):
         final_action["proposed_action"] = state["guardrail_result"]["final_action"]
         result = deps.executor(final_action)
         deps.action_ledger.mark_executed(action_id, result)
-        return {"execution_result": result}
+
+        update: dict[str, Any] = {"execution_result": result}
+        tier = ActionTier(final_action["proposed_action"])
+        if tier in {ActionTier.CORDON, ActionTier.MIGRATE, ActionTier.DRAIN}:
+            now = dt.datetime.fromisoformat(state["timestamp"])
+            update["drive_risk_state"] = record_action_taken(
+                state.get("drive_risk_state", {}), final_action["drive_id"], now=now
+            )
+        return update
 
     return execute
 

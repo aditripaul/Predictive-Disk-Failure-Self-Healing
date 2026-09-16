@@ -27,3 +27,7 @@ class AgentState(TypedDict, total=False):
     validation_result: dict[str, Any]
     post_action_guardrail_result: dict[str, Any] | None
     decision_record_id: str
+    #: per-drive {consecutive_escalation_cycles, last_action_at} - small
+    #: counters, not telemetry, so still lean enough to checkpoint. Enforces
+    #: hysteresis/cooldown (docs/design_goal.md section 13).
+    drive_risk_state: dict[str, dict[str, Any]]

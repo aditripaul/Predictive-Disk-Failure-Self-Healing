@@ -4,6 +4,7 @@ from data_contracts.schemas import FeatureMaturity
 from src.agent.deps import AgentDependencies, InMemoryActionLedger, default_guardrail_pass_all
 from src.agent.graph import compiled_agent
 from src.guardrails.adapter import build_guardrail_evaluator
+from tests.support import IMMEDIATE_ESCALATION_PLAN_KWARGS
 
 HIGH_RISK_DRIVE = {
     "drive_id": "D-1",
@@ -58,7 +59,7 @@ def test_full_mape_k_cycle_executes_high_risk_drive():
     call_log: list[str] = []
     deps = _build_deps(call_log)
 
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         result = app.invoke({}, config={"configurable": {"thread_id": "fleet-1"}})
 
     assert result["proposed_action"]["proposed_action"] == "drain"
@@ -83,7 +84,7 @@ def test_low_confidence_prediction_downgrades_to_cordon_and_still_executes():
         validator=_validator,
     )
 
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         result = app.invoke({}, config={"configurable": {"thread_id": "fleet-2"}})
 
     assert result["proposed_action"]["proposed_action"] == "cordon"
@@ -104,7 +105,7 @@ def test_guardrail_block_routes_to_human_review_without_executing():
     deps = _build_deps(call_log)
     deps.guardrail_evaluator = blocking_guardrail
 
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         result = app.invoke({}, config={"configurable": {"thread_id": "fleet-3"}})
 
     assert result["human_review_required"] is True
@@ -121,7 +122,7 @@ def test_crash_recovery_replay_does_not_duplicate_execution():
     ledger = InMemoryActionLedger()
     deps = _build_deps(call_log, ledger=ledger)
 
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         config = {"configurable": {"thread_id": "fleet-crash"}}
         first = app.invoke({}, config=config)
         second = app.invoke({}, config=config)
@@ -149,7 +150,7 @@ def test_real_guardrail_engine_blocks_last_healthy_node_drain():
         validator=_validator,
     )
 
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         result = app.invoke({}, config={"configurable": {"thread_id": "fleet-real-guardrail"}})
 
     assert result["proposed_action"]["proposed_action"] == "drain"
@@ -181,7 +182,7 @@ def test_human_review_approval_resumes_and_executes_the_action():
     )
 
     config = {"configurable": {"thread_id": "fleet-resume-approve"}}
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         first = app.invoke({}, config=config)
         assert "__interrupt__" in first
         assert call_log == []
@@ -215,7 +216,7 @@ def test_human_review_rejection_resumes_without_executing():
 
 
     config = {"configurable": {"thread_id": "fleet-resume-reject"}}
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         app.invoke({}, config=config)
         second = app.invoke(
             Command(
@@ -227,3 +228,71 @@ def test_human_review_rejection_resumes_without_executing():
     assert second["human_decision"] == "rejected"
     assert second.get("execution_result") is None
     assert call_log == []
+
+
+def test_real_hysteresis_config_caps_first_cycle_and_escalates_on_the_second():
+    """No plan_kwargs override here - this exercises the actual
+    configs/agent.yaml default (hysteresis_cycles_required=2), proving
+    docs/design_goal.md section 13 ("a drive must remain high-risk for
+    multiple cycles before escalation") is real, not just a config value
+    that AgentSettings loads and nothing reads."""
+    call_log: list[str] = []
+    deps = AgentDependencies(
+        fleet_state_provider=_fleet_state_provider,
+        predictor=_predictor,
+        guardrail_evaluator=build_guardrail_evaluator(),
+        executor=_make_executor(call_log),
+        validator=_validator,
+    )
+
+    config = {"configurable": {"thread_id": "fleet-hysteresis"}}
+    with compiled_agent(deps) as app:  # real AgentSettings defaults, no override
+        first = app.invoke({}, config=config)
+        second = app.invoke({}, config=config)
+
+    # cycle 1: real p_fail/confidence would justify DRAIN, but hysteresis
+    # caps it at WARN since this is the drive's first high-risk cycle.
+    assert first["proposed_action"]["proposed_action"] == "warn"
+    assert first["execution_result"]["proposed_action"] == "warn"
+    # cycle 2: sustained for hysteresis_cycles_required=2, now let through.
+    assert second["proposed_action"]["proposed_action"] == "drain"
+    assert second["execution_result"]["proposed_action"] == "drain"
+    assert second["execution_result"]["success"] is True
+    assert call_log == [
+        first["proposed_action"]["action_id"],
+        second["proposed_action"]["action_id"],
+    ]
+
+
+def test_cooldown_prevents_re_drain_on_the_cycle_immediately_after_one():
+    """With hysteresis satisfied (cycle 3+), a drive that was just drained
+    should not be proposed for another destructive action on the very next
+    cycle - the default 3600s cooldown should downgrade it to WARN."""
+    call_log: list[str] = []
+    deps = AgentDependencies(
+        fleet_state_provider=_fleet_state_provider,
+        predictor=_predictor,
+        guardrail_evaluator=build_guardrail_evaluator(),
+        executor=_make_executor(call_log),
+        validator=_validator,
+    )
+
+    config = {"configurable": {"thread_id": "fleet-cooldown"}}
+    with compiled_agent(
+        deps, plan_kwargs={"hysteresis_cycles_required": 1}
+    ) as app:  # real cooldown default, only hysteresis relaxed
+        first = app.invoke({}, config=config)
+        second = app.invoke({}, config=config)
+
+    assert first["proposed_action"]["proposed_action"] == "drain"
+    assert first["execution_result"]["success"] is True
+    # cooldown downgrades the very next cycle's proposal to WARN, so the
+    # drive is never drained twice back-to-back on the same evidence.
+    assert second["proposed_action"]["proposed_action"] == "warn"
+    assert second["execution_result"]["proposed_action"] == "warn"
+    drain_calls = [
+        action_id
+        for action_id in call_log
+        if action_id == first["proposed_action"]["action_id"]
+    ]
+    assert len(drain_calls) == 1  # the drain itself was never executed twice

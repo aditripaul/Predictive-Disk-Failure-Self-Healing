@@ -9,6 +9,7 @@ from src.agent.orchestrator import AgentOrchestrator
 from src.api.main import app, get_orchestrator
 from src.api.store import InMemoryAuditStore, PendingAction, get_store
 from src.guardrails.adapter import build_guardrail_evaluator
+from tests.support import IMMEDIATE_ESCALATION_PLAN_KWARGS
 
 LAST_NODE_DRIVE = {
     "drive_id": "D-1",
@@ -49,7 +50,9 @@ def _build_orchestrator(store: InMemoryAuditStore, drives: list[dict]) -> AgentO
         executor=_executor,
         validator=_validator,
     )
-    graph = build_agent_graph(deps).compile(checkpointer=InMemorySaver())
+    graph = build_agent_graph(
+        deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS
+    ).compile(checkpointer=InMemorySaver())
     return AgentOrchestrator(app=graph, store=store)
 
 

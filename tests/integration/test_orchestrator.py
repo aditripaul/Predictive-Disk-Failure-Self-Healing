@@ -10,6 +10,7 @@ from src.agent.graph import compiled_agent
 from src.agent.orchestrator import AgentOrchestrator
 from src.api.store import InMemoryAuditStore
 from src.guardrails.adapter import build_guardrail_evaluator
+from tests.support import IMMEDIATE_ESCALATION_PLAN_KWARGS
 
 LAST_NODE_DRIVE = {
     "drive_id": "D-1",
@@ -57,7 +58,7 @@ def test_blocked_action_appears_in_pending_queue_and_run_cycle_reports_pending()
     )
     store = InMemoryAuditStore()
 
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         orchestrator = AgentOrchestrator(app=app, store=store)
         outcome = orchestrator.run_cycle("orch-thread-1")
 
@@ -102,7 +103,7 @@ def test_rejecting_a_pending_action_never_executes_it():
     )
     store = InMemoryAuditStore()
 
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         orchestrator = AgentOrchestrator(app=app, store=store)
         outcome = orchestrator.run_cycle("orch-thread-2")
         action_id = outcome["action_id"]
@@ -138,7 +139,7 @@ def test_low_risk_cycle_completes_with_monitor_tier_and_is_still_audited():
     )
     store = InMemoryAuditStore()
 
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         orchestrator = AgentOrchestrator(app=app, store=store)
         outcome = orchestrator.run_cycle("orch-thread-3")
 

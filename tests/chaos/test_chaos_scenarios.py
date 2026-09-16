@@ -21,6 +21,7 @@ from src.simulator.chaos import (
     make_action_timeout_hook,
 )
 from src.simulator.fleet import Drive, DriveState, FleetSimulator, Node, ReplicationGroup
+from tests.support import IMMEDIATE_ESCALATION_PLAN_KWARGS
 
 HIGH_RISK_DRIVE_ID = "D-1"
 
@@ -84,7 +85,7 @@ def test_stale_telemetry_downgrades_destructive_action_and_no_data_loss():
         validator=partial(validate_action, fleet),
     )
 
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         result = app.invoke({}, config={"configurable": {"thread_id": "chaos-stale"}})
 
     assert result["proposed_action"]["proposed_action"] == "cordon"
@@ -109,7 +110,7 @@ def test_correlated_multi_drive_failure_triggers_quorum_guardrail():
         validator=partial(validate_action, fleet),
     )
 
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         result = app.invoke({}, config={"configurable": {"thread_id": "chaos-correlated"}})
 
     assert result["guardrail_result"]["passed"] is False
@@ -136,7 +137,7 @@ def test_action_timeout_triggers_compensating_action_and_zero_data_loss():
         validator=partial(validate_action, fleet),
     )
 
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         result = app.invoke({}, config={"configurable": {"thread_id": "chaos-timeout"}})
 
     assert result["guardrail_result"]["passed"] is True  # guardrails were fine

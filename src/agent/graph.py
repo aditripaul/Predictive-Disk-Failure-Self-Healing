@@ -10,6 +10,7 @@ internal edge — this keeps each checkpointed step small and bounded.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from typing import Any
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, StateGraph
@@ -34,12 +35,19 @@ def _route_after_human_review(state: AgentState) -> str:
     return "execute" if state.get("human_decision") == "approved" else "rejected"
 
 
-def build_agent_graph(deps: AgentDependencies) -> StateGraph:
-    """Returns an uncompiled graph; call `.compile(checkpointer=...)` on it."""
+def build_agent_graph(
+    deps: AgentDependencies, *, plan_kwargs: dict[str, Any] | None = None
+) -> StateGraph:
+    """Returns an uncompiled graph; call `.compile(checkpointer=...)` on it.
+
+    `plan_kwargs` passes through to `make_plan_node` (action_thresholds,
+    min_confidence_for_destructive_action, hysteresis_cycles_required,
+    cooldown_seconds) - useful in tests that want deterministic single-cycle
+    escalation without waiting out real hysteresis/cooldown config."""
     graph = StateGraph(AgentState)
     graph.add_node("monitor", make_monitor_node(deps))
     graph.add_node("analyze", make_analyze_node(deps))
-    graph.add_node("plan", make_plan_node(deps))
+    graph.add_node("plan", make_plan_node(deps, **(plan_kwargs or {})))
     graph.add_node("execute", make_execute_node(deps))
     graph.add_node("validate", make_validate_node(deps))
     # Pauses via LangGraph's interrupt(); resuming with
@@ -63,12 +71,17 @@ def build_agent_graph(deps: AgentDependencies) -> StateGraph:
 
 
 @contextmanager
-def compiled_agent(deps: AgentDependencies, *, checkpoint_path: str = ":memory:"):
+def compiled_agent(
+    deps: AgentDependencies,
+    *,
+    checkpoint_path: str = ":memory:",
+    plan_kwargs: dict[str, Any] | None = None,
+):
     """Context manager yielding a compiled, checkpointed graph, e.g.:
 
         with compiled_agent(deps) as app:
             app.invoke({}, config={"configurable": {"thread_id": "fleet-1"}})
     """
-    graph = build_agent_graph(deps)
+    graph = build_agent_graph(deps, plan_kwargs=plan_kwargs)
     with SqliteSaver.from_conn_string(checkpoint_path) as checkpointer:
         yield graph.compile(checkpointer=checkpointer)

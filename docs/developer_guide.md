@@ -303,6 +303,20 @@ that thread via the checkpoint, so re-invoking the same thread after a
 "crash" reproduces the same `action_id`, and `execute` checks
 `action_ledger.is_executed(action_id)` before calling the real executor.
 
+**Hysteresis & cooldown** (`hysteresis.py`): `configs/agent.yaml`'s
+`hysteresis_cycles_required`/`cooldown_seconds` are enforced here, not just
+loaded and ignored. Plan tracks a per-drive `consecutive_escalation_cycles`
+counter in `AgentState.drive_risk_state` (small counters, not telemetry —
+still lean) and caps an escalation tier (cordon/migrate/drain) at WARN until
+it's been proposed that many consecutive cycles; Execute records a
+`last_action_at` timestamp after any escalation-tier action, and Plan
+downgrades to WARN again if the same drive is re-proposed within the
+cooldown window. `tests/unit/test_hysteresis.py` and
+`tests/integration/test_agent_graph.py::test_real_hysteresis_config_caps_first_cycle_and_escalates_on_the_second`/
+`::test_cooldown_prevents_re_drain_on_the_cycle_immediately_after_one` cover
+this against the real `configs/agent.yaml` defaults, not just a relaxed
+test override.
+
 ### 6.4 Orchestrator (`orchestrator.py`)
 
 `AgentOrchestrator` is the only thing that should call `.invoke()` in

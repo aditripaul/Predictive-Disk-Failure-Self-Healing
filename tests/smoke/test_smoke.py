@@ -25,6 +25,7 @@ from src.agent.graph import build_agent_graph, compiled_agent
 from src.agent.orchestrator import AgentOrchestrator
 from src.api.main import app, get_orchestrator
 from src.api.store import InMemoryAuditStore, get_store
+from tests.support import IMMEDIATE_ESCALATION_PLAN_KWARGS
 
 DOCUMENTED_GET_ENDPOINTS = [
     "/api/v1/fleet/state",
@@ -44,7 +45,7 @@ def test_agent_demo_wiring_completes_one_cycle_end_to_end():
     """The exact dependency wiring `make agent-demo` and the API's default
     lifespan use, run through one real MAPE-K cycle."""
     deps = _isolated_demo_deps()
-    with compiled_agent(deps) as agent_app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as agent_app:
         result = agent_app.invoke({}, config={"configurable": {"thread_id": "smoke"}})
 
     assert result["decision_record_id"]
@@ -55,7 +56,9 @@ def test_agent_demo_wiring_completes_one_cycle_end_to_end():
 @pytest.fixture
 def smoke_client():
     store = InMemoryAuditStore()
-    graph = build_agent_graph(_isolated_demo_deps()).compile(checkpointer=InMemorySaver())
+    graph = build_agent_graph(
+        _isolated_demo_deps(), plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS
+    ).compile(checkpointer=InMemorySaver())
     orchestrator = AgentOrchestrator(app=graph, store=store)
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_orchestrator] = lambda: orchestrator

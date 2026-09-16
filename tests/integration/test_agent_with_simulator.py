@@ -13,6 +13,7 @@ from src.agent.graph import compiled_agent
 from src.guardrails.adapter import build_guardrail_evaluator
 from src.simulator.actions import apply_action, validate_action
 from src.simulator.fleet import Drive, DriveState, FleetSimulator, Node, ReplicationGroup
+from tests.support import IMMEDIATE_ESCALATION_PLAN_KWARGS
 
 
 def _build_fleet() -> FleetSimulator:
@@ -83,7 +84,7 @@ def test_agent_drains_high_risk_drive_via_simulator_end_to_end():
         validator=partial(validate_action, fleet),
     )
 
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         result = app.invoke({}, config={"configurable": {"thread_id": "sim-fleet-1"}})
 
     assert result["proposed_action"]["drive_id"] == "D-1"
@@ -127,7 +128,7 @@ def test_agent_blocked_by_guardrail_when_draining_would_break_quorum():
         validator=partial(validate_action, fleet),
     )
 
-    with compiled_agent(deps) as app:
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
         result = app.invoke({}, config={"configurable": {"thread_id": "sim-fleet-2"}})
 
     assert result["guardrail_result"]["passed"] is False
