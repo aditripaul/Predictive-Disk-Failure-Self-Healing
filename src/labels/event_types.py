@@ -5,6 +5,8 @@ not silently become negative labels.
 
 from __future__ import annotations
 
+import datetime as dt
+
 import polars as pl
 
 CONFIRMED_FAILURE = "confirmed_failure"
@@ -17,7 +19,7 @@ STILL_ACTIVE = "still_active"
 FAILURE_EVENT_TYPES = {CONFIRMED_FAILURE, FAILURE_FOLLOWED_BY_REPLACEMENT}
 
 
-def classify_event_types(drive_metadata: pl.DataFrame, *, as_of_date: object) -> pl.DataFrame:
+def classify_event_types(drive_metadata: pl.DataFrame, *, as_of_date: dt.date) -> pl.DataFrame:
     """Adds `event_date` and `event_type` to a drive_metadata frame. The
     optional `failure_date` / `removal_date` columns (nullable dates) are
     treated as entirely absent if the source ingestion never populated them;

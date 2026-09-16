@@ -8,7 +8,7 @@ referenced here by id, not embedded.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+import datetime as dt
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -74,7 +74,7 @@ class CanonicalTelemetryRecord(BaseModel):
     """One row of the silver-layer canonical SMART telemetry table."""
 
     drive_id: str
-    date: date
+    date: dt.date
     source_dataset: SourceDataset
     drive_model: str
     model_family: str
@@ -85,8 +85,8 @@ class CanonicalTelemetryRecord(BaseModel):
     smart_raw_value: float
     smart_normalized_value: float | None = None
     smart_badness_value: float
-    failure_date: date | None = None
-    removal_date: date | None = None
+    failure_date: dt.date | None = None
+    removal_date: dt.date | None = None
     days_since_last_telemetry: int = 0
     telemetry_gap_flag: bool = False
     stale_telemetry_flag: bool = False
@@ -97,10 +97,10 @@ class DriveMetadata(BaseModel):
     """One row of the silver-layer drive metadata table."""
 
     drive_id: str
-    first_seen_date: date
-    last_seen_date: date
-    failure_date: date | None = None
-    replacement_date: date | None = None
+    first_seen_date: dt.date
+    last_seen_date: dt.date
+    failure_date: dt.date | None = None
+    replacement_date: dt.date | None = None
     model_family: str
     capacity_gb: float
     drive_type: DriveType = DriveType.UNKNOWN
@@ -115,7 +115,7 @@ class FeatureConfidence(BaseModel):
     enough to justify a destructive autonomous action."""
 
     drive_id: str
-    as_of: datetime
+    as_of: dt.datetime
     telemetry_coverage_30d: float = Field(ge=0.0, le=1.0)
     hours_since_last_telemetry: float
     attribute_coverage_factor: float = Field(ge=0.0, le=1.0)
@@ -128,14 +128,14 @@ class FeatureRecord(BaseModel):
     vector lives in Parquet and is looked up by (drive_id, date, feature_version)."""
 
     drive_id: str
-    date: date
+    date: dt.date
     feature_version: int
     feature_table_path: str
 
 
 class PredictionOutput(BaseModel):
     drive_id: str
-    as_of: datetime
+    as_of: dt.datetime
     model_name: str
     model_version: str
     horizon_days: int
@@ -151,7 +151,7 @@ class ActionProposal(BaseModel):
     proposed_action: ActionTier
     prediction: PredictionOutput
     rationale: str
-    created_at: datetime
+    created_at: dt.datetime
 
 
 class GuardrailViolation(BaseModel):
@@ -162,7 +162,7 @@ class GuardrailViolation(BaseModel):
 
 class GuardrailResult(BaseModel):
     action_id: str
-    evaluated_at: datetime
+    evaluated_at: dt.datetime
     passed: bool
     violations: list[GuardrailViolation] = Field(default_factory=list)
     final_action: ActionTier
@@ -171,7 +171,7 @@ class GuardrailResult(BaseModel):
 
 class ExecutionResult(BaseModel):
     action_id: str
-    executed_at: datetime
+    executed_at: dt.datetime
     success: bool
     compensating_action_triggered: bool = False
     error: str | None = None
@@ -179,7 +179,7 @@ class ExecutionResult(BaseModel):
 
 class ValidationResult(BaseModel):
     action_id: str
-    validated_at: datetime
+    validated_at: dt.datetime
     data_integrity_ok: bool
     service_continuity_ok: bool
     quorum_ok: bool
@@ -200,7 +200,7 @@ class TrustScoreRecord(BaseModel):
 class DecisionAuditRecord(BaseModel):
     decision_id: str
     run_id: str
-    timestamp: datetime
+    timestamp: dt.datetime
     drive_id: str
     fleet_snapshot_id: str
     prediction: PredictionOutput

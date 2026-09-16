@@ -34,4 +34,7 @@ def train_lightgbm(
 
 
 def predict_proba_positive(model: lgb.LGBMClassifier, x: np.ndarray) -> np.ndarray:
-    return model.predict_proba(x)[:, 1]
+    # lightgbm's stubs type predict_proba's return as a plain list, but it
+    # always returns an (n_samples, n_classes) ndarray at runtime.
+    probabilities = np.asarray(model.predict_proba(x))
+    return probabilities[:, 1]

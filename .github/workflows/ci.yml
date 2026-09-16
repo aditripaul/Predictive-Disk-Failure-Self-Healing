@@ -26,6 +26,7 @@ jobs:
       - name: Lint
         run: |
           uv run ruff check .
+          uv run mypy src data_contracts
 
       - name: Test
         run: uv run pytest

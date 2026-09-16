@@ -9,6 +9,8 @@ not trigger high-confidence destructive autonomous actions.
 
 from __future__ import annotations
 
+import datetime as dt
+
 import polars as pl
 
 DEFAULT_MIN_HISTORY_DAYS = 30
@@ -18,7 +20,7 @@ def build_drive_metadata(
     telemetry_df: pl.DataFrame,
     *,
     min_history_days: int = DEFAULT_MIN_HISTORY_DAYS,
-    as_of_date: object | None = None,
+    as_of_date: dt.date | None = None,
 ) -> pl.DataFrame:
     """`telemetry_df` must be at the drive-day grain (already deduplicated
     across SMART attributes) and must carry `stale_telemetry_flag`,

@@ -5,6 +5,9 @@ compensating actions on simulated failure (docs/design_goal.md sections
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from data_contracts.schemas import ActionTier
 from src.simulator.fleet import Drive, DriveState, FleetSimulator
 
@@ -24,7 +27,7 @@ def apply_action(
     simulator: FleetSimulator,
     action: dict,
     *,
-    fail_hook: callable | None = None,
+    fail_hook: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict:
     """Executes cordon/migrate/drain against the simulator. `fail_hook`, if
     provided, is called with `action` and may raise ExecutionError to

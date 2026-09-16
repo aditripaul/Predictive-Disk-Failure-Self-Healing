@@ -4,6 +4,11 @@ docs/dataset_strategy.md section 3.3).
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
+import numpy as np
+
 from src.simulator.actions import ExecutionError
 from src.simulator.fleet import DriveState, FleetSimulator
 
@@ -30,7 +35,7 @@ def inject_correlated_failure(
     return affected
 
 
-def make_action_timeout_hook(action_ids_to_fail: set[str]):
+def make_action_timeout_hook(action_ids_to_fail: set[str]) -> Callable[[dict[str, Any]], None]:
     """Returns a `fail_hook` for src.simulator.actions.apply_action that
     raises ExecutionError for any action_id in `action_ids_to_fail`,
     simulating an action timeout or node crash mid-execution."""
@@ -42,7 +47,9 @@ def make_action_timeout_hook(action_ids_to_fail: set[str]):
     return fail_hook
 
 
-def make_flaky_hook(fail_probability: float, *, rng) -> callable:
+def make_flaky_hook(
+    fail_probability: float, *, rng: np.random.Generator
+) -> Callable[[dict[str, Any]], None]:
     """Returns a `fail_hook` that raises ExecutionError with the given
     probability on each call, using the supplied `numpy.random.Generator`
     for determinism in tests."""
