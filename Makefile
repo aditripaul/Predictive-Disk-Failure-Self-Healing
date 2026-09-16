@@ -1,6 +1,6 @@
 .PHONY: install lint test data-check \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train \
-	agent-demo dashboard api
+	agent-demo dashboard api final-report
 
 install:
 	uv sync
@@ -44,3 +44,6 @@ dashboard:
 
 api:
 	uvicorn src.api.main:app --reload
+
+final-report:
+	python pipelines/generate_final_report.py
