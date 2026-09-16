@@ -1,19 +1,68 @@
-.PHONY: install lint test data-check \
+.PHONY: install lint format test test-unit test-integration test-chaos test-golden data-check \
+	smoke coverage ci clean clean-data \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train \
 	agent-demo dashboard api final-report
 
+# --- setup -----------------------------------------------------------------
+
 install:
-	uv sync
+	uv sync --extra dev
+
+# --- code quality ------------------------------------------------------------
 
 lint:
 	uv run ruff check .
 	uv run mypy src data_contracts
 
+format:
+	uv run ruff format .
+	uv run ruff check --fix .
+
+# --- tests -------------------------------------------------------------------
+# `test` runs everything; the test-* targets run one layer at a time (see
+# docs/developer_guide.md section 12 for what each layer actually exercises).
+
 test:
 	uv run pytest
 
-data-check:
+test-unit:
+	uv run pytest tests/unit
+
+test-integration:
+	uv run pytest tests/integration
+
+test-chaos:
+	uv run pytest tests/chaos
+
+test-golden:
 	uv run pytest tests/golden
+
+data-check: test-golden
+
+smoke:
+	uv run pytest tests/smoke
+
+coverage:
+	uv run pytest --cov=src --cov=data_contracts --cov=pipelines \
+		--cov-report=term-missing --cov-report=html
+
+# `ci` is what .github/workflows/ci.yml runs; use it to reproduce a CI
+# failure locally before pushing.
+ci: lint test
+
+# --- housekeeping --------------------------------------------------------------
+# `clean` only removes caches/build artifacts - never data or MLflow/agent
+# runtime state. `clean-data` removes regenerated pipeline outputs
+# (bronze/silver/gold/audit) but never raw source data under data/raw/.
+
+clean:
+	find . -type d \( -name "__pycache__" -o -name ".pytest_cache" \) -not -path "./.venv/*" -exec rm -rf {} +
+	rm -rf .mypy_cache .ruff_cache htmlcov .coverage
+
+clean-data:
+	rm -rf data/bronze/* data/silver/* data/gold/* data/audit/*/*
+
+# --- data pipeline -------------------------------------------------------------
 
 ingest-backblaze:
 	uv run python pipelines/ingest_backblaze.py
@@ -36,6 +85,11 @@ build-labels:
 train:
 	uv run python pipelines/train_model.py
 
+final-report:
+	uv run python pipelines/generate_final_report.py
+
+# --- services --------------------------------------------------------------
+
 agent-demo:
 	uv run python -m src.agent.demo
 
@@ -44,6 +98,3 @@ dashboard:
 
 api:
 	uv run uvicorn src.api.main:app --reload
-
-final-report:
-	uv run python pipelines/generate_final_report.py
