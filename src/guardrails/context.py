@@ -38,3 +38,15 @@ class RuleContext:
 
     def is_destructive(self) -> bool:
         return self.proposed_action in DESTRUCTIVE_TIERS
+
+
+@dataclass
+class PostActionContext:
+    """Input to the post-action guardrail rules (POST_DATA_INTEGRITY,
+    POST_SERVICE_CONTINUITY), evaluated in the Validate node after an action
+    has actually been executed against the fleet."""
+
+    action_id: str
+    proposed_action: ActionTier
+    data_integrity_ok: bool
+    service_continuity_ok: bool

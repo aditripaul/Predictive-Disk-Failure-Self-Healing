@@ -11,7 +11,7 @@ from data_contracts.schemas import (
     GuardrailSeverity,
     GuardrailViolation,
 )
-from src.guardrails.context import RuleContext
+from src.guardrails.context import PostActionContext, RuleContext
 
 
 def pred_threshold(ctx: RuleContext) -> GuardrailViolation | None:
@@ -113,6 +113,26 @@ def rate_limit(ctx: RuleContext) -> GuardrailViolation | None:
     return None
 
 
+def post_data_integrity(ctx: PostActionContext) -> GuardrailViolation | None:
+    if not ctx.data_integrity_ok:
+        return GuardrailViolation(
+            rule_id="POST_DATA_INTEGRITY",
+            severity=GuardrailSeverity.HARD,
+            message=f"Post-action data integrity check failed for {ctx.action_id}.",
+        )
+    return None
+
+
+def post_service_continuity(ctx: PostActionContext) -> GuardrailViolation | None:
+    if not ctx.service_continuity_ok:
+        return GuardrailViolation(
+            rule_id="POST_SERVICE_CONTINUITY",
+            severity=GuardrailSeverity.HARD,
+            message=f"Post-action service continuity check failed for {ctx.action_id}.",
+        )
+    return None
+
+
 #: Evaluated in this order; hard rules are listed first so, combined with the
 #: engine sorting violations by severity, "safety > operational > efficiency"
 #: conflict resolution (docs/design_goal.md section 14) is easy to audit.
@@ -126,4 +146,10 @@ ALL_RULES = (
     high_io,
     maintenance_window,
     rate_limit,
+)
+
+#: Evaluated in the Validate node, after an action has been executed.
+POST_ACTION_RULES = (
+    post_data_integrity,
+    post_service_continuity,
 )
