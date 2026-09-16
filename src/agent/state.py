@@ -20,6 +20,10 @@ class AgentState(TypedDict, total=False):
     guardrail_result: dict[str, Any]
     human_review_required: bool
     human_decision: str
+    human_review_operator_id: str
+    human_review_reason_code: str
+    human_review_comment: str
     execution_result: dict[str, Any]
     validation_result: dict[str, Any]
+    post_action_guardrail_result: dict[str, Any] | None
     decision_record_id: str

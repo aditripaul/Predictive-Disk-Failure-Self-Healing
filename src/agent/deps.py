@@ -7,6 +7,8 @@ Phase 8 supplies the real fleet simulator (state provider + executor).
 
 from __future__ import annotations
 
+import json
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -14,6 +16,12 @@ from typing import Any, Protocol
 FleetStateProvider = Callable[[], dict[str, Any]]
 Predictor = Callable[[dict[str, Any]], dict[str, Any]]
 GuardrailEvaluator = Callable[[dict[str, Any]], dict[str, Any]]
+PostActionGuardrailEvaluator = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
+#: Executor's return dict MUST include "drive_id" and "proposed_action"
+#: (mirroring the fields on the action it was given), in addition to
+#: "success"/"compensating_action_triggered"/"error" - the Validate node's
+#: post-action guardrail check depends on both being present on
+#: execution_result, not just on the original proposal.
 Executor = Callable[[dict[str, Any]], dict[str, Any]]
 Validator = Callable[[dict[str, Any]], dict[str, Any]]
 
@@ -43,6 +51,44 @@ class InMemoryActionLedger:
         return self._executed.get(action_id)
 
 
+class SqliteActionLedger:
+    """Persistent idempotency ledger, backed by SQLite. Unlike
+    InMemoryActionLedger, this survives a process crash/restart, which is
+    the entire point of idempotent action IDs (docs/design_goal.md section
+    5.4/10): a crash-recovery replay must be checked against durable state,
+    not process memory that the crash itself just wiped out."""
+
+    def __init__(self, db_path: str):
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS action_ledger "
+            "(action_id TEXT PRIMARY KEY, result_json TEXT NOT NULL)"
+        )
+        self._conn.commit()
+
+    def is_executed(self, action_id: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM action_ledger WHERE action_id = ?", (action_id,)
+        ).fetchone()
+        return row is not None
+
+    def mark_executed(self, action_id: str, result: dict[str, Any]) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO action_ledger (action_id, result_json) VALUES (?, ?)",
+            (action_id, json.dumps(result)),
+        )
+        self._conn.commit()
+
+    def get_result(self, action_id: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT result_json FROM action_ledger WHERE action_id = ?", (action_id,)
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def close(self) -> None:
+        self._conn.close()
+
+
 def default_guardrail_pass_all(action_proposal: dict[str, Any]) -> dict[str, Any]:
     """Trivial pass-through guardrail used before Phase 7's real engine is
     wired in. Never use this for anything but tests/demos."""
@@ -54,6 +100,14 @@ def default_guardrail_pass_all(action_proposal: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _default_post_action_guardrail_evaluator() -> PostActionGuardrailEvaluator:
+    # Local import to avoid a src.agent <-> src.guardrails import cycle at
+    # module-load time (guardrails never imports agent).
+    from src.guardrails.adapter import build_post_action_guardrail_evaluator
+
+    return build_post_action_guardrail_evaluator()
+
+
 @dataclass
 class AgentDependencies:
     fleet_state_provider: FleetStateProvider
@@ -62,3 +116,6 @@ class AgentDependencies:
     executor: Executor
     validator: Validator
     action_ledger: ActionLedger = field(default_factory=InMemoryActionLedger)
+    post_action_guardrail_evaluator: PostActionGuardrailEvaluator = field(
+        default_factory=_default_post_action_guardrail_evaluator
+    )

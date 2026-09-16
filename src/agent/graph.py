@@ -18,6 +18,7 @@ from src.agent.deps import AgentDependencies
 from src.agent.nodes import (
     make_analyze_node,
     make_execute_node,
+    make_human_review_node,
     make_monitor_node,
     make_plan_node,
     make_validate_node,
@@ -29,6 +30,10 @@ def _route_after_plan(state: AgentState) -> str:
     return "human_review" if state.get("human_review_required") else "execute"
 
 
+def _route_after_human_review(state: AgentState) -> str:
+    return "execute" if state.get("human_decision") == "approved" else "rejected"
+
+
 def build_agent_graph(deps: AgentDependencies) -> StateGraph:
     """Returns an uncompiled graph; call `.compile(checkpointer=...)` on it."""
     graph = StateGraph(AgentState)
@@ -37,9 +42,10 @@ def build_agent_graph(deps: AgentDependencies) -> StateGraph:
     graph.add_node("plan", make_plan_node(deps))
     graph.add_node("execute", make_execute_node(deps))
     graph.add_node("validate", make_validate_node(deps))
-    # Terminal placeholder: the FastAPI approval queue (Phase 10) resumes the
-    # cycle by re-invoking with human_review_required cleared.
-    graph.add_node("human_review", lambda state: {})
+    # Pauses via LangGraph's interrupt(); resuming with
+    # Command(resume={"approved": ..., "operator_id": ..., "reason_code": ...})
+    # continues execution from inside this node (see make_human_review_node).
+    graph.add_node("human_review", make_human_review_node(deps))
 
     graph.set_entry_point("monitor")
     graph.add_edge("monitor", "analyze")
@@ -47,9 +53,11 @@ def build_agent_graph(deps: AgentDependencies) -> StateGraph:
     graph.add_conditional_edges(
         "plan", _route_after_plan, {"execute": "execute", "human_review": "human_review"}
     )
+    graph.add_conditional_edges(
+        "human_review", _route_after_human_review, {"execute": "execute", "rejected": END}
+    )
     graph.add_edge("execute", "validate")
     graph.add_edge("validate", END)
-    graph.add_edge("human_review", END)
 
     return graph
 

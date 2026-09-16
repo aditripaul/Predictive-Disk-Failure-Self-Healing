@@ -1,3 +1,5 @@
+from langgraph.types import Command
+
 from data_contracts.schemas import FeatureMaturity
 from src.agent.deps import AgentDependencies, InMemoryActionLedger, default_guardrail_pass_all
 from src.agent.graph import compiled_agent
@@ -23,7 +25,12 @@ def _predictor(snapshot):
 def _make_executor(call_log: list[str]):
     def executor(action):
         call_log.append(action["action_id"])
-        return {"action_id": action["action_id"], "success": True}
+        return {
+            "action_id": action["action_id"],
+            "drive_id": action["drive_id"],
+            "proposed_action": action["proposed_action"],
+            "success": True,
+        }
 
     return executor
 
@@ -151,4 +158,72 @@ def test_real_guardrail_engine_blocks_last_healthy_node_drain():
         v["rule_id"] == "HARD_NO_LAST_NODE" for v in result["guardrail_result"]["violations"]
     )
     assert result["human_review_required"] is True
+    assert call_log == []
+    assert "__interrupt__" in result
+
+
+def test_human_review_approval_resumes_and_executes_the_action():
+    """The core Phase 10 exit criterion: approve/reject must actually
+    resume the LangGraph workflow, not dead-end at a terminal node."""
+
+    call_log: list[str] = []
+    last_node_drive = {**HIGH_RISK_DRIVE, "is_last_healthy_node_in_domain": True}
+
+    def fleet_state_provider():
+        return {"fleet_snapshot_id": "snap-5", "drives": [last_node_drive]}
+
+    deps = AgentDependencies(
+        fleet_state_provider=fleet_state_provider,
+        predictor=lambda snap: {"drives": snap["drives"]},
+        guardrail_evaluator=build_guardrail_evaluator(),
+        executor=_make_executor(call_log),
+        validator=_validator,
+    )
+
+    config = {"configurable": {"thread_id": "fleet-resume-approve"}}
+    with compiled_agent(deps) as app:
+        first = app.invoke({}, config=config)
+        assert "__interrupt__" in first
+        assert call_log == []
+
+        second = app.invoke(
+            Command(resume={"approved": True, "operator_id": "op-1", "reason_code": "CONFIRMED"}),
+            config=config,
+        )
+
+    assert second["human_decision"] == "approved"
+    assert second["human_review_operator_id"] == "op-1"
+    assert second["execution_result"]["success"] is True
+    assert second["validation_result"]["quorum_ok"] is True
+    assert len(call_log) == 1
+
+
+def test_human_review_rejection_resumes_without_executing():
+    call_log: list[str] = []
+    last_node_drive = {**HIGH_RISK_DRIVE, "is_last_healthy_node_in_domain": True}
+
+    def fleet_state_provider():
+        return {"fleet_snapshot_id": "snap-6", "drives": [last_node_drive]}
+
+    deps = AgentDependencies(
+        fleet_state_provider=fleet_state_provider,
+        predictor=lambda snap: {"drives": snap["drives"]},
+        guardrail_evaluator=build_guardrail_evaluator(),
+        executor=_make_executor(call_log),
+        validator=_validator,
+    )
+
+
+    config = {"configurable": {"thread_id": "fleet-resume-reject"}}
+    with compiled_agent(deps) as app:
+        app.invoke({}, config=config)
+        second = app.invoke(
+            Command(
+                resume={"approved": False, "operator_id": "op-1", "reason_code": "FALSE_POSITIVE"}
+            ),
+            config=config,
+        )
+
+    assert second["human_decision"] == "rejected"
+    assert second.get("execution_result") is None
     assert call_log == []

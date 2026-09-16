@@ -21,6 +21,7 @@ def build_provisional_assessment(agent_result: dict) -> dict:
     DecisionAuditRecord once Phase 10's audit store exists."""
     proposal = agent_result.get("proposed_action")
     guardrail_result = agent_result.get("guardrail_result")
+    post_action_guardrail_result = agent_result.get("post_action_guardrail_result")
     validation_result = agent_result.get("validation_result")
 
     decision_id = str(uuid.uuid4())
@@ -29,9 +30,14 @@ def build_provisional_assessment(agent_result: dict) -> dict:
         explanation = ["No drive exceeded the risk threshold this cycle; no action proposed."]
         return {"decision_id": decision_id, "trust_score": None, "explanation": explanation}
 
-    guardrail_severity = guardrail_severity_from_violations(
-        guardrail_result["violations"] if guardrail_result else []
-    )
+    # Merge pre-action (guardrail-blocked-before-execution) and post-action
+    # (POST_DATA_INTEGRITY/POST_SERVICE_CONTINUITY, evaluated in Validate)
+    # violations: either can independently justify a guardrail-multiplier
+    # veto in the trust score.
+    all_violations = list(guardrail_result["violations"]) if guardrail_result else []
+    if post_action_guardrail_result:
+        all_violations += post_action_guardrail_result["violations"]
+    guardrail_severity = guardrail_severity_from_violations(all_violations)
     safety_violation = safety_violation_from_validation(validation_result)
 
     trust_score = compute_provisional_trust_score(
@@ -72,6 +78,11 @@ def generate_explanation(
     elif agent_result.get("execution_result"):
         success = agent_result["execution_result"].get("success")
         lines.append("Action executed successfully." if success else "Action execution failed.")
+
+    post_action_guardrail_result = agent_result.get("post_action_guardrail_result")
+    if post_action_guardrail_result and not post_action_guardrail_result["passed"]:
+        rule_ids = [v["rule_id"] for v in post_action_guardrail_result["violations"]]
+        lines.append(f"Post-action checks failed: {', '.join(rule_ids)}.")
 
     if safety_violation:
         lines.append("SAFETY VIOLATION: data integrity or quorum check failed post-action.")
