@@ -2,22 +2,80 @@
 docs/design_goal.md section 15). Human review requires a mandatory
 operator id and reason code (docs/design_goal.md section 15 "Human Review
 Requirements").
+
+The compiled agent graph is opened once for the process lifetime (via the
+lifespan handler below) rather than per-request, since LangGraph threads
+must persist across the "propose -> pending review -> approve/reject ->
+resume" request sequence. It defaults to the same demo wiring as
+`make agent-demo` (src/agent/demo.py) until a real fleet simulator/model are
+plugged in for a given deployment; override `app.state.orchestrator` (or the
+`get_orchestrator` dependency, in tests) to use real ones.
 """
 
 from __future__ import annotations
 
+from contextlib import ExitStack, asynccontextmanager
+
 from fastapi import Depends, FastAPI, HTTPException
+from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import BaseModel, Field
 
+from src.agent.demo import build_demo_dependencies
+from src.agent.graph import build_agent_graph
+from src.agent.orchestrator import AgentOrchestrator
 from src.api.store import InMemoryAuditStore, get_store
+from src.config import AgentSettings
 
-app = FastAPI(title="Disk Failure Self-Healing Agent — Approval & Audit API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # A real (not :memory:) checkpoint path, so a paused (pending-review)
+    # thread survives an API process restart, not just a fresh request.
+    checkpoint_path = AgentSettings.load().checkpoint_path
+    with ExitStack() as stack:
+        checkpointer = stack.enter_context(SqliteSaver.from_conn_string(checkpoint_path))
+        deps = build_demo_dependencies()
+        compiled = build_agent_graph(deps).compile(checkpointer=checkpointer)
+        app.state.orchestrator = AgentOrchestrator(app=compiled, store=get_store())
+        yield
+
+
+app = FastAPI(
+    title="Disk Failure Self-Healing Agent — Approval & Audit API", lifespan=lifespan
+)
+
+
+def get_orchestrator() -> AgentOrchestrator:
+    """FastAPI dependency; overridden in tests to avoid the real demo graph."""
+    return app.state.orchestrator
 
 
 class ActionDecisionRequest(BaseModel):
     operator_id: str = Field(min_length=1)
     reason_code: str = Field(min_length=1)
     comment: str | None = None
+
+
+class RunCycleRequest(BaseModel):
+    thread_id: str = Field(min_length=1, default="default-fleet")
+
+
+@app.post("/api/v1/agent/run-cycle")
+def run_cycle(
+    body: RunCycleRequest = RunCycleRequest(),
+    orchestrator: AgentOrchestrator = Depends(get_orchestrator),
+    store: InMemoryAuditStore = Depends(get_store),
+):
+    """Runs one MAPE-K cycle and records its outcome (pending review, or a
+    trust-scored decision) to the audit/approval store. Also refreshes the
+    fleet-state/predictions read endpoints below."""
+    outcome = orchestrator.run_cycle(body.thread_id)
+    state = outcome.get("state", {})
+    if "fleet_snapshot_id" in state:
+        store.set_fleet_state({"fleet_snapshot_id": state["fleet_snapshot_id"]})
+    if "prediction_summary" in state:
+        store.set_latest_predictions(state["prediction_summary"].get("drives", []))
+    return outcome
 
 
 @app.get("/api/v1/fleet/state")
@@ -42,25 +100,29 @@ def get_pending_actions(store: InMemoryAuditStore = Depends(get_store)):
 def approve_action(
     action_id: str,
     body: ActionDecisionRequest,
-    store: InMemoryAuditStore = Depends(get_store),
+    orchestrator: AgentOrchestrator = Depends(get_orchestrator),
 ):
-    return _decide(store, action_id, approve=True, body=body)
+    return _decide(orchestrator, action_id, approve=True, body=body)
 
 
 @app.post("/api/v1/actions/{action_id}/reject")
 def reject_action(
     action_id: str,
     body: ActionDecisionRequest,
-    store: InMemoryAuditStore = Depends(get_store),
+    orchestrator: AgentOrchestrator = Depends(get_orchestrator),
 ):
-    return _decide(store, action_id, approve=False, body=body)
+    return _decide(orchestrator, action_id, approve=False, body=body)
 
 
 def _decide(
-    store: InMemoryAuditStore, action_id: str, *, approve: bool, body: ActionDecisionRequest
+    orchestrator: AgentOrchestrator,
+    action_id: str,
+    *,
+    approve: bool,
+    body: ActionDecisionRequest,
 ):
     try:
-        action = store.decide_action(
+        outcome = orchestrator.resume_after_decision(
             action_id,
             approve=approve,
             operator_id=body.operator_id,
@@ -71,7 +133,8 @@ def _decide(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return vars(action)
+    action = orchestrator.store.get_action(action_id)
+    return {"decision": vars(action), "resume_outcome": outcome}
 
 
 @app.get("/api/v1/audit/decisions")

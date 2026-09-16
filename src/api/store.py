@@ -21,6 +21,7 @@ class PendingAction:
     guardrail_violations: list[dict]
     fleet_snapshot_id: str
     created_at: str
+    thread_id: str = ""  # LangGraph thread to resume on approve/reject
     status: str = "pending"  # pending | approved | rejected
     operator_id: str | None = None
     reason_code: str | None = None
@@ -87,7 +88,9 @@ class InMemoryAuditStore:
 
     def add_decision(self, decision: dict) -> None:
         self._decisions.append(decision)
-        for v in decision.get("guardrail_result", {}).get("violations", []):
+        violations = list((decision.get("guardrail_result") or {}).get("violations", []))
+        violations += (decision.get("post_action_guardrail_result") or {}).get("violations", [])
+        for v in violations:
             self._guardrail_violations.append({**v, "action_id": decision.get("action_id")})
 
     def list_decisions(self) -> list[dict]:
