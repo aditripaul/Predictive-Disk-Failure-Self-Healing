@@ -156,13 +156,13 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
 
 ## 6. Project Documentation
 
-The project documentation is organized into three primary documents.
-
 | Document | Purpose |
 |---|---|
 | `docs/design_goal.md` | Project goal, architecture, safety invariants, guardrails, reliability framework, and success criteria |
 | `docs/dataset_strategy.md` | Datasets, preprocessing, labeling, feature engineering, leakage prevention, and feature governance |
 | `docs/project_plan.md` | Phase-wise execution plan, milestones, deliverables, tools, and exit criteria |
+| `docs/developer_guide.md` | How the implemented codebase is organized, how the pieces fit together, and how to extend it |
+| `docs/user_guide.md` | How to run, operate, and approve/reject decisions from the system — no code-reading required |
 
 ---
 
