@@ -152,6 +152,14 @@ curl http://localhost:8000/api/v1/reliability/trust-trend
 curl http://localhost:8000/api/v1/guardrails/violations
 ```
 
+**Export the audit trail as a file** (for compliance review or a
+spreadsheet), as CSV or Parquet:
+
+```bash
+curl "http://localhost:8000/api/v1/audit/decisions/export?format=csv" -o audit_decisions.csv
+curl "http://localhost:8000/api/v1/audit/decisions/export?format=parquet" -o audit_decisions.parquet
+```
+
 | Endpoint | What it returns |
 |---|---|
 | `POST /api/v1/agent/run-cycle` | Runs one decision cycle |
@@ -161,6 +169,7 @@ curl http://localhost:8000/api/v1/guardrails/violations
 | `POST /api/v1/actions/{id}/approve` | Approve a pending action |
 | `POST /api/v1/actions/{id}/reject` | Reject a pending action |
 | `GET /api/v1/audit/decisions` | Every decision ever made |
+| `GET /api/v1/audit/decisions/export?format=csv\|parquet` | Download the decision history as a file |
 | `GET /api/v1/reliability/trust-trend` | Trust scores over time |
 | `GET /api/v1/guardrails/violations` | Every guardrail rule that ever fired |
 

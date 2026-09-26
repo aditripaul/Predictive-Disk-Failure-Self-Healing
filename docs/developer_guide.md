@@ -523,8 +523,20 @@ Endpoints:
 | `GET /api/v1/actions/pending` | Approval queue |
 | `POST /api/v1/actions/{id}/approve` `/reject` | Resumes the paused thread |
 | `GET /api/v1/audit/decisions` | Full decision history |
+| `GET /api/v1/audit/decisions/export?format=csv\|parquet` | Decision history as a downloadable file |
 | `GET /api/v1/reliability/trust-trend` | Provisional/final trust scores over time |
 | `GET /api/v1/guardrails/violations` | Flattened violation log |
+
+**Audit export** (`src/reliability/audit_export.py`,
+docs/project_plan.md Phase 10 Key Task 6): decisions can carry nested,
+heterogeneous fields (`guardrail_result`, `execution_result`, `None` for
+either) that don't map cleanly onto a single flat row schema, so
+`decisions_to_dataframe` JSON-serializes every non-scalar field to a string
+column (keeping it `None` where the field itself is `None`) before handing
+the frame to Polars' `write_csv`/`write_parquet` — this is what lets a
+single export cover decisions from a mix of pending-review-only and
+fully-executed cycles without either format choking on inconsistent
+nested shapes.
 
 `src/dashboards/app.py` reads these endpoints via `requests` (not covered by
 automated tests — Streamlit apps aren't meaningfully testable under pytest;

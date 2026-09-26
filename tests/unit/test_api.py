@@ -199,6 +199,35 @@ def test_audit_decisions_and_trust_trend_read_endpoints(client):
     assert violations[0]["rule_id"] == "HARD_QUORUM"
 
 
+def test_export_decisions_csv_and_parquet(client):
+    test_client, store, _ = client
+    store.add_decision(
+        {
+            "action_id": "a1",
+            "drive_id": "D-1",
+            "timestamp": "2024-01-01T00:00:00Z",
+            "trust_score_provisional": 0.9,
+            "trust_score_final": None,
+            "execution_result": {"success": True},
+            "guardrail_result": {"violations": [{"rule_id": "HARD_QUORUM", "severity": "hard"}]},
+        }
+    )
+
+    csv_response = test_client.get("/api/v1/audit/decisions/export?format=csv")
+    assert csv_response.status_code == 200
+    assert csv_response.headers["content-type"].startswith("text/csv")
+    assert b"a1" in csv_response.content
+    assert b"success" in csv_response.content
+    assert b"true" in csv_response.content.lower()
+
+    parquet_response = test_client.get("/api/v1/audit/decisions/export?format=parquet")
+    assert parquet_response.status_code == 200
+    assert parquet_response.headers["content-disposition"].endswith('.parquet"')
+
+    unsupported = test_client.get("/api/v1/audit/decisions/export?format=xml")
+    assert unsupported.status_code == 400
+
+
 def test_pending_actions_lists_only_pending(client):
     test_client, store, _ = client
     store.add_pending_action(

@@ -17,6 +17,7 @@ from __future__ import annotations
 from contextlib import ExitStack, asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import Response
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import BaseModel, Field
 
@@ -25,6 +26,7 @@ from src.agent.graph import build_agent_graph
 from src.agent.orchestrator import AgentOrchestrator
 from src.api.store import InMemoryAuditStore, get_store
 from src.config import AgentSettings
+from src.reliability.audit_export import export_decisions_to_csv, export_decisions_to_parquet
 
 
 @asynccontextmanager
@@ -140,6 +142,32 @@ def _decide(
 @app.get("/api/v1/audit/decisions")
 def get_decisions(store: InMemoryAuditStore = Depends(get_store)):
     return {"decisions": store.list_decisions()}
+
+
+@app.get("/api/v1/audit/decisions/export")
+def export_decisions(
+    format: str = "csv",  # noqa: A002 - matches the query param name in docs/user_guide.md
+    store: InMemoryAuditStore = Depends(get_store),
+):
+    """Exports the full decision audit trail (docs/project_plan.md Phase 10
+    Key Task 6). `format` is `csv` (default) or `parquet`."""
+    decisions = store.list_decisions()
+    if format == "csv":
+        body = export_decisions_to_csv(decisions)
+        media_type = "text/csv"
+        filename = "audit_decisions.csv"
+    elif format == "parquet":
+        body = export_decisions_to_parquet(decisions)
+        media_type = "application/octet-stream"
+        filename = "audit_decisions.parquet"
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported export format: {format!r}")
+
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/v1/reliability/trust-trend")
