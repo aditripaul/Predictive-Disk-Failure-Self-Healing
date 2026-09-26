@@ -177,6 +177,19 @@ partition-by-drive_id / no-future-data pattern — the golden dataset test
 catch a leakage bug in logic they don't exercise, so add a test alongside
 any new rule.
 
+**Cross-vendor SMART harmonization** (`src/preprocess/smart_mapping.py`):
+SMART attribute IDs are standardized by spec (ID 5 is always "Reallocated
+Sector Count"), but the *column name* a source uses for "the raw value of
+attribute 5" varies — Backblaze uses `smart_5_raw`, SMART-Z is expected to
+use `smart_5_normalized` (`SOURCE_COLUMN_TEMPLATES`, best-effort until real
+SMART-Z files are ingested — verify and adjust the template then).
+`melt_smart_attributes` melts each `source_dataset` value with its own
+template before concatenating, so a mixed Backblaze+SMART-Z Bronze frame
+harmonizes into the same canonical attribute names — this is what makes the
+cross-vendor generalization objective (`docs/dataset_strategy.md` section 2)
+actually reachable once real SMART-Z data exists, rather than SMART-Z rows
+silently having no SMART columns after harmonization.
+
 **Slope is a secant approximation, not least-squares** (`src/features/derivatives.py`):
 `slope_W = delta_W / W`. This is a documented, deliberate simplification for
 speed; if validation ever shows it matters, replace it with a proper rolling

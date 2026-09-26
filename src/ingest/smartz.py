@@ -2,9 +2,10 @@
 
 SMART-Z ships 65 standardized SMART attributes per disk. Unlike Backblaze we
 do not hardcode a fixed attribute allowlist here: the source-to-canonical
-attribute mapping is a Phase 2 (silver harmonization) concern. This stage only
-requires a `drive_id` and `date` column to exist and passes the remaining
-columns through unchanged, stamped with provenance metadata.
+attribute mapping is a Phase 2 (silver harmonization) concern, implemented in
+`src/preprocess/smart_mapping.py::SOURCE_COLUMN_TEMPLATES["smartz"]`. This
+stage only requires a `drive_id` and `date` column to exist and passes the
+remaining columns through unchanged, stamped with provenance metadata.
 """
 
 from __future__ import annotations

@@ -10,7 +10,7 @@ from src.preprocess.quality_checks import (
     check_no_duplicate_drive_day_attribute,
     check_no_null_dates,
 )
-from src.preprocess.smart_mapping import melt_smart_attributes
+from src.preprocess.smart_mapping import build_canonical_attribute_map, melt_smart_attributes
 from src.preprocess.telemetry_gaps import compute_telemetry_gaps
 
 
@@ -52,6 +52,53 @@ def test_melt_smart_attributes_produces_long_canonical_rows():
         (pl.col("drive_id") == "B") & (pl.col("smart_attribute_name") == "reallocated_sector_count")
     )
     assert row_b_reallocated["smart_badness_value"][0] == 10.0
+
+
+def test_build_canonical_attribute_map_differs_per_source():
+    backblaze_map = build_canonical_attribute_map("backblaze")
+    smartz_map = build_canonical_attribute_map("smartz")
+    assert backblaze_map["smart_5_raw"] == "reallocated_sector_count"
+    assert smartz_map["smart_5_normalized"] == "reallocated_sector_count"
+    # same canonical attributes, different bronze column names
+    assert set(backblaze_map.values()) == set(smartz_map.values())
+
+
+def test_melt_smart_attributes_harmonizes_mixed_backblaze_and_smartz_sources():
+    """A single silver-harmonization pass over a Bronze frame containing
+    both sources must map each source's own column-naming convention to the
+    same canonical attribute names (docs/dataset_strategy.md section 2
+    cross-vendor generalization objective)."""
+    df = pl.DataFrame(
+        {
+            "drive_id": ["A", "Z1"],
+            "date": [dt.date(2024, 1, 1), dt.date(2024, 1, 1)],
+            "source_dataset": ["backblaze", "smartz"],
+            "smart_5_raw": [10, None],
+            "smart_5_normalized": [None, 99],
+        }
+    )
+    long_df = melt_smart_attributes(df)
+
+    assert set(long_df["smart_attribute_name"].unique()) == {"reallocated_sector_count"}
+    by_drive = {row["drive_id"]: row["smart_badness_value"] for row in long_df.to_dicts()}
+    assert by_drive["A"] == 10.0
+    assert by_drive["Z1"] == 99.0
+
+
+def test_melt_smart_attributes_skips_source_whose_template_columns_are_entirely_absent():
+    df = pl.DataFrame(
+        {
+            "drive_id": ["A", "Z1"],
+            "date": [dt.date(2024, 1, 1), dt.date(2024, 1, 1)],
+            "source_dataset": ["backblaze", "smartz"],
+            # only Backblaze's "_raw" template column exists at all; SMART-Z's
+            # "_normalized" template has no matching column anywhere in this
+            # frame, so its rows must be skipped rather than melted as nulls.
+            "smart_5_raw": [10, None],
+        }
+    )
+    long_df = melt_smart_attributes(df)
+    assert set(long_df["drive_id"].unique()) == {"A"}
 
 
 def test_compute_telemetry_gaps_flags_stale_and_short_gaps():
