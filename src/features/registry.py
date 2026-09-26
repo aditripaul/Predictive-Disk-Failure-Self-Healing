@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from src.features.cross_vendor import ATTRIBUTE_RATIOS
+
 
 class FeatureRegistryEntry(BaseModel):
     feature_name: str
@@ -86,6 +88,34 @@ def build_registry(
                         dtype="int16",
                     )
                 )
+
+    for numerator, _denominator, name in ATTRIBUTE_RATIOS:
+        if numerator in attributes:
+            entries.append(
+                FeatureRegistryEntry(
+                    feature_name=name,
+                    source_attribute=numerator,
+                    operation="cross_vendor_ratio",
+                )
+            )
+    if "reallocated_sector_count" in attributes:
+        entries.append(
+            FeatureRegistryEntry(
+                feature_name="reallocated_per_capacity",
+                source_attribute="reallocated_sector_count",
+                operation="cross_vendor_ratio",
+            )
+        )
+    for attr in attributes:
+        for window in windows_days:
+            entries.append(
+                FeatureRegistryEntry(
+                    feature_name=f"{attr}_{window}d_model_zscore",
+                    source_attribute=attr,
+                    window_days=window,
+                    operation="model_family_zscore",
+                )
+            )
 
     entries.append(
         FeatureRegistryEntry(

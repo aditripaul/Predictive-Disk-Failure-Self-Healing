@@ -190,6 +190,24 @@ cross-vendor generalization objective (`docs/dataset_strategy.md` section 2)
 actually reachable once real SMART-Z data exists, rather than SMART-Z rows
 silently having no SMART columns after harmonization.
 
+**Feature Family E — cross-vendor ratios and model-family z-scores**
+(`src/features/cross_vendor.py`, `docs/dataset_strategy.md` section 10.5):
+`add_attribute_ratios` computes vendor-agnostic ratios
+(`pending_to_reallocated_ratio`, `reallocated_per_capacity`,
+`uncorrectable_per_power_on_hour`) that normalize away absolute-count
+differences in reporting granularity across sources; each ratio is a no-op
+unless both of its input columns are present, so it degrades gracefully for
+whichever priority SMART attributes a given build actually has.
+`add_model_family_zscores` re-expresses each attribute's `{window}d_mean`
+rolling feature as a z-score relative to its own `model_family` (not the
+whole fleet), because "some drive models naturally report higher error
+counts" — a drive that is unremarkable for its model should not look
+anomalous just because other models run cleaner. Both are wired into
+`pipelines/build_gold_features.py::build_gold_features` right after
+`add_lifecycle_features`, and both are registered in
+`src/features/registry.py::build_registry` for auditability like every
+other feature family.
+
 **Slope is a secant approximation, not least-squares** (`src/features/derivatives.py`):
 `slope_W = delta_W / W`. This is a documented, deliberate simplification for
 speed; if validation ever shows it matters, replace it with a proper rolling

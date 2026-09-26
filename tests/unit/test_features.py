@@ -3,6 +3,7 @@ import datetime as dt
 import polars as pl
 
 from src.features.confidence import _recency_factor_scalar, add_feature_confidence
+from src.features.cross_vendor import add_attribute_ratios, add_model_family_zscores
 from src.features.derivatives import add_acceleration, add_deltas
 from src.features.events import add_positive_day_counts, add_spike_counts, add_zero_to_nonzero_flags
 from src.features.lifecycle import add_lifecycle_features
@@ -122,3 +123,52 @@ def test_build_registry_covers_all_families():
     assert "reallocated_sector_count_7d_spike_count" in names
     assert "drive_age_days" in names
     assert "feature_confidence" in names
+    assert "reallocated_per_capacity" in names
+    assert "reallocated_sector_count_7d_model_zscore" in names
+
+
+def test_add_attribute_ratios_computes_known_ratios():
+    df = pl.DataFrame(
+        {
+            "drive_id": ["A"],
+            "current_pending_sector_count": [4.0],
+            "reallocated_sector_count": [1.0],
+            "offline_uncorrectable": [9.0],
+            "power_on_hours": [899.0],
+            "capacity_gb": [4000.0],
+        }
+    )
+    out = add_attribute_ratios(df)
+    assert out["pending_to_reallocated_ratio"][0] == 4.0 / (1.0 + 1)
+    assert out["uncorrectable_per_power_on_hour"][0] == 9.0 / (899.0 + 1)
+    assert out["reallocated_per_capacity"][0] == 1.0 / 4000.0
+
+
+def test_add_attribute_ratios_is_a_noop_when_columns_missing():
+    df = pl.DataFrame({"drive_id": ["A"], "unrelated_column": [1.0]})
+    out = add_attribute_ratios(df)
+    assert out.columns == df.columns
+
+
+def test_add_model_family_zscores_normalizes_relative_to_model_family():
+    df = pl.DataFrame(
+        {
+            "drive_id": ["A", "B", "C", "D"],
+            "model_family": ["Seagate HDD", "Seagate HDD", "WD HDD", "WD HDD"],
+            "reallocated_sector_count_7d_mean": [0.0, 10.0, 100.0, 300.0],
+        }
+    )
+    out = add_model_family_zscores(df, ["reallocated_sector_count"], windows_days=(7,))
+    col = "reallocated_sector_count_7d_model_zscore"
+    assert col in out.columns
+    by_id = dict(zip(out["drive_id"], out[col], strict=True))
+    # each family's two members are equidistant from their own family mean,
+    # so they get opposite-signed z-scores despite very different raw scales.
+    assert by_id["A"] < 0 < by_id["B"]
+    assert by_id["C"] < 0 < by_id["D"]
+
+
+def test_add_model_family_zscores_is_a_noop_without_model_family_column():
+    df = pl.DataFrame({"drive_id": ["A"], "reallocated_sector_count_7d_mean": [1.0]})
+    out = add_model_family_zscores(df, ["reallocated_sector_count"], windows_days=(7,))
+    assert out.columns == df.columns

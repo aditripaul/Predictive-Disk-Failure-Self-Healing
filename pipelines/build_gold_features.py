@@ -15,6 +15,7 @@ import polars as pl
 import yaml
 
 from src.features.confidence import add_feature_confidence
+from src.features.cross_vendor import add_attribute_ratios, add_model_family_zscores
 from src.features.derivatives import add_acceleration, add_deltas
 from src.features.events import add_positive_day_counts, add_spike_counts, add_zero_to_nonzero_flags
 from src.features.lifecycle import add_lifecycle_features
@@ -50,6 +51,8 @@ def build_gold_features(canonical_long: pl.DataFrame, features_config: dict) -> 
         gold = add_spike_counts(gold, spike_thresholds, windows_days=windows_days)
     gold = add_zero_to_nonzero_flags(gold, available_attributes)
     gold = add_lifecycle_features(gold)
+    gold = add_attribute_ratios(gold)
+    gold = add_model_family_zscores(gold, available_attributes, windows_days=windows_days)
     gold = add_feature_confidence(
         gold,
         available_attributes,
