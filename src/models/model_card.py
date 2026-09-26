@@ -30,6 +30,7 @@ def build_model_card(
     test_metrics: dict[str, Any],
     shap_top_features: list[dict[str, Any]],
     train_row_count: int,
+    test_warning_lead_time: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "generated_at": dt.datetime.now(dt.UTC).isoformat(),
@@ -63,6 +64,7 @@ def build_model_card(
             "threshold_policy": threshold_result,
             "validation_metrics": validation_metrics,
             "test_metrics": test_metrics,
+            "test_warning_lead_time": test_warning_lead_time,
         },
         "explainability": {
             "method": "shap.TreeExplainer",
@@ -112,6 +114,7 @@ def render_model_card_markdown(card: dict[str, Any]) -> str:
         f"- Threshold policy: {evaluation['threshold_policy']}",
         f"- Validation metrics: {evaluation['validation_metrics']}",
         f"- Test metrics: {evaluation['test_metrics']}",
+        f"- Test warning lead time: {evaluation['test_warning_lead_time']}",
         "",
         "## Explainability",
         f"- Method: {card['explainability']['method']}",

@@ -37,6 +37,12 @@ def test_build_model_card_includes_evaluation_and_explainability():
     assert card["explainability"]["method"] == "shap.TreeExplainer"
     assert card["explainability"]["top_features"][0]["feature"] == "drive_age_days"
     assert len(card["limitations_and_risks"]) >= 1
+    assert card["evaluation"]["test_warning_lead_time"] is None
+
+
+def test_build_model_card_includes_warning_lead_time_when_provided():
+    card = _sample_card(test_warning_lead_time={"mean_lead_time_days": 4.5})
+    assert card["evaluation"]["test_warning_lead_time"]["mean_lead_time_days"] == 4.5
 
 
 def test_render_model_card_markdown_contains_key_sections():

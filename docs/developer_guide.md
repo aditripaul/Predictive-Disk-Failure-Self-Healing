@@ -298,6 +298,37 @@ dataset version actually used, so "what data trained this model" is
 answerable from a file, not from memory of when the pipelines were last
 run.
 
+### 5.4 Secondary evaluation metrics
+
+`src/models/evaluation.py` (docs/dataset_strategy.md section 15
+"Secondary metrics"), beyond AUPRC and the confusion-matrix-derived
+precision/recall:
+
+- **Calibration** (`compute_calibration`): bins predictions into 10
+  equal-width buckets over `[0, 1]` and compares each bucket's mean
+  predicted probability to its observed fraction of positives.
+  `expected_calibration_error` is the bin-count-weighted mean absolute
+  gap; `brier_score` is the mean squared error of the raw probabilities.
+  Folded into `evaluate_at_threshold`'s return dict under `"calibration"`.
+- **Precision at top-K** (`precision_at_k` / `precision_at_k_fractions`):
+  out of the K highest-scored drive-days, what fraction actually failed —
+  a ranking-quality metric independent of the chosen operating threshold.
+  `evaluate_at_threshold` includes it for the top 1%/5%/10% of whatever
+  population it's called on.
+- **Warning lead time** (`compute_warning_lead_time_days`): for drives
+  with a genuine failure event (`event_type` in
+  `src/labels/event_types.py::FAILURE_EVENT_TYPES` — `pipelines/
+  train_model.py` filters the test split to these before calling), the
+  number of days before the actual failure that the score first crossed
+  the operating threshold, aggregated as mean/median/min/max plus
+  `warning_coverage` (the fraction of failed drives that got any warning
+  at all). Reported separately from `evaluate_at_threshold` because it
+  needs per-drive-day `days_to_event`/`event_type`, not just
+  `(y_true, y_scores)` arrays.
+
+All three are written to `model_evaluation_report.json` and surfaced in
+the model card (§5.2).
+
 ---
 
 ## 6. The MAPE-K agent (`src/agent/`)

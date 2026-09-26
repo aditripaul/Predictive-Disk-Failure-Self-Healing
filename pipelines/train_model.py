@@ -17,7 +17,8 @@ import yaml
 
 import mlflow
 from src.labels.dataset_version import latest_dataset_version
-from src.models.evaluation import evaluate_at_threshold
+from src.labels.event_types import FAILURE_EVENT_TYPES
+from src.models.evaluation import compute_warning_lead_time_days, evaluate_at_threshold
 from src.models.explainability import (
     build_explainer,
     compute_shap_values,
@@ -104,11 +105,34 @@ def main() -> None:
             y_test, test_scores, threshold_result["threshold"]
         )
 
+        # Warning lead time (docs/dataset_strategy.md section 15): restrict
+        # to drive-days belonging to drives with a genuine failure event
+        # before asking "how early did the score cross threshold".
+        test_with_scores = splits["test"].with_columns(pl.Series("_p_fail_score", test_scores))
+        failing_test_rows = test_with_scores.filter(
+            pl.col("event_type").is_in(list(FAILURE_EVENT_TYPES))
+        )
+        results["test_warning_lead_time"] = compute_warning_lead_time_days(
+            failing_test_rows,
+            score_column="_p_fail_score",
+            threshold=threshold_result["threshold"],
+        )
+
         mlflow.log_params({"horizon_days": horizon_days, **model_config["model"]["params"]})
         mlflow.log_metric("validation_auprc", results["validation_metrics"]["auprc"])
         mlflow.log_metric("validation_precision", results["validation_metrics"]["precision"])
         mlflow.log_metric("validation_recall", results["validation_metrics"]["recall"])
         mlflow.log_metric("test_auprc", results["test_metrics"]["auprc"])
+        mlflow.log_metric(
+            "test_expected_calibration_error",
+            results["test_metrics"]["calibration"]["expected_calibration_error"],
+        )
+        mlflow.log_metric("test_brier_score", results["test_metrics"]["calibration"]["brier_score"])
+        if results["test_warning_lead_time"]["mean_lead_time_days"] is not None:
+            mlflow.log_metric(
+                "test_mean_warning_lead_time_days",
+                results["test_warning_lead_time"]["mean_lead_time_days"],
+            )
         mlflow.lightgbm.log_model(model, name="model")
 
         # SHAP global feature importance (docs/design_goal.md "Explainability
@@ -146,6 +170,7 @@ def main() -> None:
             test_metrics=results["test_metrics"],
             shap_top_features=feature_importance[:20],
             train_row_count=x_train.shape[0],
+            test_warning_lead_time=results["test_warning_lead_time"],
         )
         model_cards_dir = Path(data_config["audit_dir"]) / "model_cards"
         model_cards_dir.mkdir(parents=True, exist_ok=True)
@@ -160,6 +185,7 @@ def main() -> None:
         print(f"Threshold: {threshold_result}")
         print(f"Validation metrics: {results['validation_metrics']}")
         print(f"Test metrics: {results['test_metrics']}")
+        print(f"Test warning lead time: {results['test_warning_lead_time']}")
         print(f"Top 5 SHAP features: {feature_importance[:5]}")
         print(f"Wrote evaluation report to {report_path}")
         print(f"Wrote SHAP feature importance to {shap_report_path}")
