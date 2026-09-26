@@ -267,6 +267,21 @@ integration would need its own feature-vector lookup path (e.g. keyed by
 `data_contracts.schemas.PredictionOutput.top_contributing_features` exists
 and is ready to receive this once that lookup path is built.
 
+### 5.2 Model card
+
+`src/models/model_card.py` (docs/project_plan.md Phase 6 Key Task 7 /
+Deliverables "Model card"): `build_model_card` assembles model details,
+intended use/out-of-scope, training data provenance (feature registry
+version, dataset version — `"unversioned"` until dataset versioning writes
+one), the threshold policy and validation/test metrics, the SHAP top-20
+global ranking, and known limitations into one dict;
+`render_model_card_markdown` renders it to a human-readable Markdown file.
+`pipelines/train_model.py` writes both
+`data/audit/model_cards/v{model_version}_h{horizon}d.{json,md}` and logs
+them as MLflow artifacts on every training run, so a reviewer can read one
+file to understand what a specific model version is and is not validated
+for, rather than reconstructing that from scattered metrics and params.
+
 ---
 
 ## 6. The MAPE-K agent (`src/agent/`)

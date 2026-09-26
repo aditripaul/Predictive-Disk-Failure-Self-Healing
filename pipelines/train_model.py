@@ -23,6 +23,7 @@ from src.models.explainability import (
     global_feature_importance,
 )
 from src.models.features import assemble_training_frame, select_feature_columns
+from src.models.model_card import build_model_card, render_model_card_markdown
 from src.models.threshold import tune_threshold_for_precision
 from src.models.training import predict_proba_positive, train_lightgbm
 
@@ -30,11 +31,13 @@ SHAP_BACKGROUND_SAMPLE_SIZE = 100
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
+FEATURES_CONFIG_PATH = Path("configs/features.yaml")
 
 
 def main() -> None:
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
+    features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())
 
     gold_dir = Path(data_config["gold_dir"])
     features_path = gold_dir / "features" / "part.parquet"
@@ -127,6 +130,28 @@ def main() -> None:
         shap_report_path.write_text(json.dumps(feature_importance, indent=2, default=str))
         mlflow.log_artifact(str(shap_report_path))
 
+        model_card = build_model_card(
+            horizon_days=horizon_days,
+            model_params=model_config["model"]["params"],
+            model_version=model_config["version"],
+            feature_registry_version=features_config["version"],
+            dataset_version=data_config.get("dataset_version"),
+            feature_columns=feature_columns,
+            threshold_result=threshold_result,
+            validation_metrics=results["validation_metrics"],
+            test_metrics=results["test_metrics"],
+            shap_top_features=feature_importance[:20],
+            train_row_count=x_train.shape[0],
+        )
+        model_cards_dir = Path(data_config["audit_dir"]) / "model_cards"
+        model_cards_dir.mkdir(parents=True, exist_ok=True)
+        model_card_json_path = model_cards_dir / f"v{model_config['version']}_h{horizon_days}d.json"
+        model_card_md_path = model_cards_dir / f"v{model_config['version']}_h{horizon_days}d.md"
+        model_card_json_path.write_text(json.dumps(model_card, indent=2, default=str))
+        model_card_md_path.write_text(render_model_card_markdown(model_card))
+        mlflow.log_artifact(str(model_card_json_path))
+        mlflow.log_artifact(str(model_card_md_path))
+
         print(f"Trained model for {horizon_days}-day horizon on {x_train.shape[0]} rows.")
         print(f"Threshold: {threshold_result}")
         print(f"Validation metrics: {results['validation_metrics']}")
@@ -134,6 +159,7 @@ def main() -> None:
         print(f"Top 5 SHAP features: {feature_importance[:5]}")
         print(f"Wrote evaluation report to {report_path}")
         print(f"Wrote SHAP feature importance to {shap_report_path}")
+        print(f"Wrote model card to {model_card_md_path}")
 
 
 if __name__ == "__main__":
