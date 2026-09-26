@@ -333,6 +333,13 @@ production code — it's the glue between the compiled graph and the API's
   `PendingAction`'s `thread_id`, marks it decided in the store, then
   actually resumes the LangGraph thread via `Command(resume=...)`.
 
+Both methods time their `.invoke()` call (`time.perf_counter()`) and surface
+`cycle_duration_seconds` in the outcome dict and the decision record —
+docs/design_goal.md section 26's "< 5 minutes" target was previously
+unmeasured anywhere. A cycle exceeding `AgentSettings.target_cycle_time_seconds`
+(from `configs/agent.yaml`'s `loop.target_cycle_time_seconds`) prints a
+warning; it's a soft signal, not a hard failure.
+
 Every decision record includes `date` (the cycle's timestamp date — this
 system doesn't yet track a prediction's "as of" drive-day separately from
 wall-clock time, so this is an approximation), `horizon_days` (from

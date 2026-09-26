@@ -9,6 +9,7 @@ than only updating the store.
 from __future__ import annotations
 
 import datetime as dt
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -16,7 +17,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from src.api.store import InMemoryAuditStore, PendingAction
-from src.config import ModelSettings
+from src.config import AgentSettings, ModelSettings
 from src.reliability.audit import build_provisional_assessment
 
 
@@ -25,14 +26,19 @@ class AgentOrchestrator:
     app: CompiledStateGraph
     store: InMemoryAuditStore
     horizon_days: int = field(default_factory=lambda: ModelSettings.load().primary_horizon_days)
+    target_cycle_time_seconds: float = field(
+        default_factory=lambda: AgentSettings.load().target_cycle_time_seconds
+    )
 
     def run_cycle(self, thread_id: str) -> dict[str, Any]:
         config = {"configurable": {"thread_id": thread_id}}
         # LangGraph's own examples use this exact {} + configurable-dict
         # invoke() shape; mypy's overload resolution for Pregel.invoke is
         # overly strict about the plain-dict config literal here.
+        start = time.perf_counter()
         result = self.app.invoke({}, config=config)  # type: ignore[call-overload]
-        return self._handle_result(thread_id, result)
+        duration_seconds = time.perf_counter() - start
+        return self._handle_result(thread_id, result, cycle_duration_seconds=duration_seconds)
 
     def resume_after_decision(
         self,
@@ -59,6 +65,7 @@ class AgentOrchestrator:
         )
 
         config = {"configurable": {"thread_id": action.thread_id}}
+        start = time.perf_counter()
         result = self.app.invoke(  # type: ignore[call-overload]
             Command(
                 resume={
@@ -70,9 +77,27 @@ class AgentOrchestrator:
             ),
             config=config,
         )
-        return self._handle_result(action.thread_id, result)
+        # This times only the resume-to-completion span (Execute onward),
+        # not the human's response time - the wait for a human decision
+        # isn't part of the "loop cycle time" target this measures.
+        duration_seconds = time.perf_counter() - start
+        return self._handle_result(
+            action.thread_id, result, cycle_duration_seconds=duration_seconds
+        )
 
-    def _handle_result(self, thread_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    def _handle_result(
+        self, thread_id: str, result: dict[str, Any], *, cycle_duration_seconds: float
+    ) -> dict[str, Any]:
+        if cycle_duration_seconds > self.target_cycle_time_seconds:
+            # docs/design_goal.md section 26 target: < 5 minutes. This is a
+            # soft signal (print, not an exception) - a slow cycle isn't
+            # unsafe, just worth noticing.
+            print(
+                f"WARNING: MAPE-K cycle for thread {thread_id} took "
+                f"{cycle_duration_seconds:.2f}s, exceeding the "
+                f"{self.target_cycle_time_seconds:.0f}s target."
+            )
+
         if "__interrupt__" in result:
             payload = result["__interrupt__"][0].value
             proposal = payload["proposal"]
@@ -89,7 +114,12 @@ class AgentOrchestrator:
                     thread_id=thread_id,
                 )
             )
-            return {"status": "pending_review", "action_id": proposal["action_id"], "state": result}
+            return {
+                "status": "pending_review",
+                "action_id": proposal["action_id"],
+                "state": result,
+                "cycle_duration_seconds": cycle_duration_seconds,
+            }
 
         assessment = build_provisional_assessment(result)
         if assessment["trust_score"] is not None:
@@ -121,9 +151,15 @@ class AgentOrchestrator:
                     "trust_score_final": trust_score.trust_score_final,
                     "safety_violation": trust_score.safety_violation,
                     "guardrail_severity": trust_score.guardrail_severity.value,
+                    "cycle_duration_seconds": cycle_duration_seconds,
                     "guardrail_result": result.get("guardrail_result"),
                     "post_action_guardrail_result": result.get("post_action_guardrail_result"),
                     "feature_explanations": assessment["explanation"],
                 }
             )
-        return {"status": "completed", "result": result, "state": result}
+        return {
+            "status": "completed",
+            "result": result,
+            "state": result,
+            "cycle_duration_seconds": cycle_duration_seconds,
+        }

@@ -23,6 +23,7 @@ def load_yaml(name: str) -> dict:
 class AgentSettings:
     checkpoint_path: str
     action_ledger_path: str
+    target_cycle_time_seconds: float
     cooldown_seconds: int
     hysteresis_cycles_required: int
     critical_sla_hours: float
@@ -37,6 +38,7 @@ class AgentSettings:
         return cls(
             checkpoint_path=raw["checkpoint"]["path"],
             action_ledger_path=raw["checkpoint"]["action_ledger_path"],
+            target_cycle_time_seconds=raw["loop"]["target_cycle_time_seconds"],
             cooldown_seconds=raw["loop"]["cooldown_seconds"],
             hysteresis_cycles_required=raw["loop"]["hysteresis_cycles_required"],
             critical_sla_hours=raw["human_review"]["critical_sla_hours"],

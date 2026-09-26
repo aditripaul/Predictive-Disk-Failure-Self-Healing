@@ -148,3 +148,45 @@ def test_low_risk_cycle_completes_with_monitor_tier_and_is_still_audited():
     decisions = store.list_decisions()
     assert len(decisions) == 1
     assert decisions[0]["trust_score_provisional"] == 0.05
+
+
+def test_run_cycle_measures_and_records_cycle_duration():
+    """docs/design_goal.md section 26 target: loop cycle time < 5 minutes.
+    This was previously unmeasured anywhere (project_plan.md Phase 6 exit
+    criterion "Loop cycle time is measurable")."""
+    deps = AgentDependencies(
+        fleet_state_provider=lambda: {"fleet_snapshot_id": "snap-4", "drives": [HEALTHY_DRIVE]},
+        predictor=lambda snap: {"drives": snap["drives"]},
+        guardrail_evaluator=build_guardrail_evaluator(),
+        executor=_make_executor([]),
+        validator=_validator,
+    )
+    store = InMemoryAuditStore()
+
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
+        orchestrator = AgentOrchestrator(app=app, store=store)
+        outcome = orchestrator.run_cycle("orch-thread-timing")
+
+    assert isinstance(outcome["cycle_duration_seconds"], float)
+    assert outcome["cycle_duration_seconds"] >= 0.0
+    assert outcome["cycle_duration_seconds"] < orchestrator.target_cycle_time_seconds
+
+    decisions = store.list_decisions()
+    assert isinstance(decisions[0]["cycle_duration_seconds"], float)
+
+
+def test_slow_cycle_logs_a_warning_against_the_configured_target(capsys):
+    deps = AgentDependencies(
+        fleet_state_provider=lambda: {"fleet_snapshot_id": "snap-5", "drives": [HEALTHY_DRIVE]},
+        predictor=lambda snap: {"drives": snap["drives"]},
+        guardrail_evaluator=build_guardrail_evaluator(),
+        executor=_make_executor([]),
+        validator=_validator,
+    )
+    store = InMemoryAuditStore()
+
+    with compiled_agent(deps, plan_kwargs=IMMEDIATE_ESCALATION_PLAN_KWARGS) as app:
+        orchestrator = AgentOrchestrator(app=app, store=store, target_cycle_time_seconds=0.0)
+        orchestrator.run_cycle("orch-thread-slow")
+
+    assert "exceeding the" in capsys.readouterr().out
