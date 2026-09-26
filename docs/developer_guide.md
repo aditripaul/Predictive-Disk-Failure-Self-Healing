@@ -272,15 +272,31 @@ and is ready to receive this once that lookup path is built.
 `src/models/model_card.py` (docs/project_plan.md Phase 6 Key Task 7 /
 Deliverables "Model card"): `build_model_card` assembles model details,
 intended use/out-of-scope, training data provenance (feature registry
-version, dataset version — `"unversioned"` until dataset versioning writes
-one), the threshold policy and validation/test metrics, the SHAP top-20
-global ranking, and known limitations into one dict;
-`render_model_card_markdown` renders it to a human-readable Markdown file.
-`pipelines/train_model.py` writes both
+version, dataset version — see §5.3 below), the threshold policy and
+validation/test metrics, the SHAP top-20 global ranking, and known
+limitations into one dict; `render_model_card_markdown` renders it to a
+human-readable Markdown file. `pipelines/train_model.py` writes both
 `data/audit/model_cards/v{model_version}_h{horizon}d.{json,md}` and logs
 them as MLflow artifacts on every training run, so a reviewer can read one
 file to understand what a specific model version is and is not validated
 for, rather than reconstructing that from scattered metrics and params.
+`dataset_version` reads `"unversioned"` if `make build-labels` was never
+run (no version record exists yet to read back).
+
+### 5.3 Dataset versioning
+
+`src/labels/dataset_version.py` (docs/dataset_strategy.md section 4,
+`audit/dataset_versions/`): every `make build-labels` run writes an
+immutable, timestamped record — `version_id` (a UTC timestamp), the
+feature-registry and model-config versions used, and a `sha256` content
+hash + row count + date range + per-split row counts for the gold
+features/labels files that went into it — to
+`data/audit/dataset_versions/{version_id}.json`. `latest_dataset_version`
+reads the most recent one back (`version_id` sorts chronologically);
+`pipelines/train_model.py` calls it to stamp the model card with the
+dataset version actually used, so "what data trained this model" is
+answerable from a file, not from memory of when the pipelines were last
+run.
 
 ---
 

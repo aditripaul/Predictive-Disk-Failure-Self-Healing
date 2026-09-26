@@ -14,6 +14,7 @@ from pathlib import Path
 import polars as pl
 import yaml
 
+from src.labels.dataset_version import build_dataset_version_record, write_dataset_version
 from src.labels.event_types import classify_event_types
 from src.labels.imbalance import class_distribution_report, compute_scale_pos_weight
 from src.labels.labeling import compute_labels
@@ -25,11 +26,13 @@ from src.labels.splits import (
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
+FEATURES_CONFIG_PATH = Path("configs/features.yaml")
 
 
 def main() -> None:
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
+    features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())
 
     silver_dir = Path(data_config["silver_dir"])
     gold_dir = Path(data_config["gold_dir"])
@@ -70,7 +73,18 @@ def main() -> None:
 
     labels_dir = gold_dir / "labels"
     labels_dir.mkdir(parents=True, exist_ok=True)
-    labels.write_parquet(labels_dir / "part.parquet", compression="zstd")
+    labels_path = labels_dir / "part.parquet"
+    labels.write_parquet(labels_path, compression="zstd")
+
+    audit_root = Path(data_config["audit_dir"])
+    dataset_version_record = build_dataset_version_record(
+        features_path=features_path,
+        labels=labels,
+        labels_path=labels_path,
+        feature_registry_version=features_config["version"],
+        model_config_version=model_config["version"],
+    )
+    dataset_version_path = write_dataset_version(dataset_version_record, audit_root)
 
     imbalance_report = {
         "class_distribution": class_distribution_report(labels),
@@ -87,6 +101,7 @@ def main() -> None:
 
     print(f"Wrote {labels.height} label rows to {labels_dir}")
     print(f"Wrote imbalance report to {audit_dir / 'label_imbalance_report.json'}")
+    print(f"Wrote dataset version {dataset_version_record['version_id']} to {dataset_version_path}")
 
 
 if __name__ == "__main__":

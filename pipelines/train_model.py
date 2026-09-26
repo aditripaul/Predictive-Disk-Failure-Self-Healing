@@ -16,6 +16,7 @@ import polars as pl
 import yaml
 
 import mlflow
+from src.labels.dataset_version import latest_dataset_version
 from src.models.evaluation import evaluate_at_threshold
 from src.models.explainability import (
     build_explainer,
@@ -130,12 +131,15 @@ def main() -> None:
         shap_report_path.write_text(json.dumps(feature_importance, indent=2, default=str))
         mlflow.log_artifact(str(shap_report_path))
 
+        dataset_version_record = latest_dataset_version(Path(data_config["audit_dir"]))
         model_card = build_model_card(
             horizon_days=horizon_days,
             model_params=model_config["model"]["params"],
             model_version=model_config["version"],
             feature_registry_version=features_config["version"],
-            dataset_version=data_config.get("dataset_version"),
+            dataset_version=(
+                dataset_version_record["version_id"] if dataset_version_record else None
+            ),
             feature_columns=feature_columns,
             threshold_result=threshold_result,
             validation_metrics=results["validation_metrics"],
