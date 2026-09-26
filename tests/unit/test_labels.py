@@ -5,7 +5,11 @@ import polars as pl
 from src.labels.event_types import classify_event_types
 from src.labels.imbalance import class_distribution_report, compute_scale_pos_weight
 from src.labels.labeling import compute_labels_for_horizon
-from src.labels.splits import add_chronological_split, apply_drive_level_holdout
+from src.labels.splits import (
+    add_chronological_split,
+    apply_drive_level_holdout,
+    apply_vendor_holdout,
+)
 
 
 def _metadata() -> pl.DataFrame:
@@ -66,6 +70,32 @@ def test_add_chronological_split_and_drive_holdout():
     holdout = apply_drive_level_holdout(df, holdout_fraction=0.2, seed=1)
     assert "validation" in holdout["split"].unique()
     assert (holdout["split"] == "validation").sum() == 4
+
+
+def test_apply_vendor_holdout_reassigns_smartz_rows_regardless_of_chronological_split():
+    df = pl.DataFrame(
+        {
+            "drive_id": ["bb1", "bb2", "sz1", "sz2"],
+            "date": [dt.date(2022, 1, 1)] * 4,
+            "source_dataset": ["backblaze", "backblaze", "smartz", "smartz"],
+        }
+    )
+    df = add_chronological_split(df, train_end="2022-12-31", validation_end="2023-12-31")
+    assert set(df["split"].unique()) == {"train"}
+
+    out = apply_vendor_holdout(df)
+    by_id = {row["drive_id"]: row for row in out.to_dicts()}
+    assert by_id["bb1"]["split"] == "train"
+    assert by_id["bb1"]["split_strategy"] == "chronological"
+    assert by_id["sz1"]["split"] == "external_smartz"
+    assert by_id["sz1"]["split_strategy"] == "vendor_holdout"
+    assert by_id["sz2"]["split"] == "external_smartz"
+
+
+def test_apply_vendor_holdout_is_a_noop_without_source_column():
+    df = pl.DataFrame({"drive_id": ["a"], "split": ["train"], "split_strategy": ["chronological"]})
+    out = apply_vendor_holdout(df)
+    assert out["split"].to_list() == ["train"]
 
 
 def test_imbalance_reporting():

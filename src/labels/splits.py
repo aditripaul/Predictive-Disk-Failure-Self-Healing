@@ -68,6 +68,34 @@ def apply_drive_level_holdout(
     return df
 
 
+def apply_vendor_holdout(
+    df: pl.DataFrame,
+    *,
+    source_column: str = "source_dataset",
+    external_source: str = "smartz",
+) -> pl.DataFrame:
+    """External split (docs/dataset_strategy.md section 9.3/9.4): every row
+    from `external_source` is reassigned `split="external_smartz"` and
+    `split_strategy="vendor_holdout"`, overriding whatever the chronological
+    (+ drive-holdout) split assigned. SMART-Z exists to test cross-vendor
+    generalization and identify Backblaze-specific overfitting, so it must
+    never leak into train/validation - it is evaluation-only. A no-op if the
+    frame carries no `source_column` (e.g. a Backblaze-only build)."""
+    if source_column not in df.columns:
+        return df
+
+    is_external = pl.col(source_column) == external_source
+    return df.with_columns(
+        pl.when(is_external).then(pl.lit("external_smartz")).otherwise(pl.col("split")).alias(
+            "split"
+        ),
+        pl.when(is_external)
+        .then(pl.lit("vendor_holdout"))
+        .otherwise(pl.col("split_strategy"))
+        .alias("split_strategy"),
+    )
+
+
 def _to_date(value: str | dt.date) -> dt.date:
     if isinstance(value, dt.date):
         return value

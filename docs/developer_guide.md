@@ -177,6 +177,21 @@ partition-by-drive_id / no-future-data pattern — the golden dataset test
 catch a leakage bug in logic they don't exercise, so add a test alongside
 any new rule.
 
+**SMART-Z is an external validation split, never train/validation/test**
+(`src/labels/splits.py::apply_vendor_holdout`, `docs/dataset_strategy.md`
+section 9.3/9.4): `pipelines/build_labels.py` runs
+`add_chronological_split` → `apply_drive_level_holdout` →
+`apply_vendor_holdout`, and that last call unconditionally reassigns every
+row whose `source_dataset == "smartz"` to `split="external_smartz"` /
+`split_strategy="vendor_holdout"`, overriding whatever the chronological
+split computed for it. This exists to measure Backblaze-specific
+overfitting and cross-vendor generalization, which is only a meaningful
+test if SMART-Z never leaks into training. On a Backblaze-only build no row
+has `source_dataset == "smartz"`, so the reassignment matches nothing and
+the split is effectively untouched; the function is also a structural
+no-op if `source_dataset` isn't present on the frame at all (e.g. a
+hand-built test fixture).
+
 **Cross-vendor SMART harmonization** (`src/preprocess/smart_mapping.py`):
 SMART attribute IDs are standardized by spec (ID 5 is always "Reallocated
 Sector Count"), but the *column name* a source uses for "the raw value of

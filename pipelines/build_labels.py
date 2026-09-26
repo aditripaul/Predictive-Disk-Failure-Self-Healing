@@ -17,7 +17,11 @@ import yaml
 from src.labels.event_types import classify_event_types
 from src.labels.imbalance import class_distribution_report, compute_scale_pos_weight
 from src.labels.labeling import compute_labels
-from src.labels.splits import add_chronological_split, apply_drive_level_holdout
+from src.labels.splits import (
+    add_chronological_split,
+    apply_drive_level_holdout,
+    apply_vendor_holdout,
+)
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
@@ -37,7 +41,9 @@ def main() -> None:
             "Missing gold features or drive metadata; run `make build-features` first."
         )
 
-    drive_days = pl.read_parquet(features_path).select(["drive_id", "date"])
+    features = pl.read_parquet(features_path)
+    drive_day_columns = [c for c in ("drive_id", "date", "source_dataset") if c in features.columns]
+    drive_days = features.select(drive_day_columns)
     drive_metadata = pl.read_parquet(metadata_path)
 
     as_of_date = drive_days["date"].max()
@@ -54,6 +60,13 @@ def main() -> None:
         validation_end=splits_cfg["validation_end"],
     )
     labels = apply_drive_level_holdout(labels)
+    if "source_dataset" in drive_days.columns:
+        labels = labels.join(
+            drive_days.select(["drive_id", "date", "source_dataset"]),
+            on=["drive_id", "date"],
+            how="left",
+        )
+    labels = apply_vendor_holdout(labels)
 
     labels_dir = gold_dir / "labels"
     labels_dir.mkdir(parents=True, exist_ok=True)
