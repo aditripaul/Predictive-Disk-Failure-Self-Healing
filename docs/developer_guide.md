@@ -177,6 +177,25 @@ partition-by-drive_id / no-future-data pattern — the golden dataset test
 catch a leakage bug in logic they don't exercise, so add a test alongside
 any new rule.
 
+**Gold labels schema validation** (`src/labels/schema_validation.py`,
+docs/project_plan.md Phase 1 "Data validation: Pandera with Polars
+backend, or native Polars schema checks + pytest"): `pandera` was a
+declared but entirely unused dependency — `src/preprocess/
+quality_checks.py` already covers the "native Polars checks" half of
+that either/or for bronze/silver invariants (null dates, duplicate
+drive-day-attribute rows, capacity, failure-date ordering), but nothing
+used Pandera itself, and nothing validated the gold label table's schema
+at all. `validate_gold_labels` runs a `pandera.polars.DataFrameSchema`
+(dtypes, nullability, and `isin` checks for `label`/`split`/
+`split_strategy`/`horizon_days`) with `lazy=True`, so a violation raises
+`pandera.errors.SchemaErrors` listing every failing check at once, not
+just the first. `pipelines/build_labels.py` calls it right before writing
+the label Parquet file. Writing this schema caught a real, if harmless,
+inconsistency: `compute_labels_for_horizon` built `horizon_days` via
+`pl.lit(horizon_days)`, which Polars infers as `Int32` for a bare Python
+int, while every other integer column in the table used `Int64` -
+`src/labels/labeling.py` now pins it to `Int64` explicitly.
+
 **SMART-Z is an external validation split, never train/validation/test**
 (`src/labels/splits.py::apply_vendor_holdout`, `docs/dataset_strategy.md`
 section 9.3/9.4): `pipelines/build_labels.py` runs

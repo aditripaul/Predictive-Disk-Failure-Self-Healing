@@ -18,6 +18,7 @@ from src.labels.dataset_version import build_dataset_version_record, write_datas
 from src.labels.event_types import classify_event_types
 from src.labels.imbalance import class_distribution_report, compute_scale_pos_weight
 from src.labels.labeling import compute_labels
+from src.labels.schema_validation import validate_gold_labels
 from src.labels.splits import (
     add_chronological_split,
     apply_drive_level_holdout,
@@ -70,6 +71,7 @@ def main() -> None:
             how="left",
         )
     labels = apply_vendor_holdout(labels)
+    labels = validate_gold_labels(labels, horizons_days=model_config["horizons_days"])
 
     labels_dir = gold_dir / "labels"
     labels_dir.mkdir(parents=True, exist_ok=True)

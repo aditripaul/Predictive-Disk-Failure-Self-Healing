@@ -55,7 +55,7 @@ def compute_labels_for_horizon(
     days_to_event = (pl.col("event_date") - pl.col("date")).dt.total_days()
 
     out = joined.with_columns(
-        pl.lit(horizon_days).alias("horizon_days"),
+        pl.lit(horizon_days, dtype=pl.Int64).alias("horizon_days"),
         label.alias("label"),
         (observable_until_horizon | event_within_horizon).alias("observable_until_horizon"),
         days_to_event.alias("days_to_event"),
