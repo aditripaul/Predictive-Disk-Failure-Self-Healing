@@ -105,6 +105,7 @@ would fail with "ruff: command not found."
 | `make ingest-backblaze` / `ingest-smartz` / `ingest-synthetic-stub` | Bronze ingestion (§5) |
 | `make build-silver` / `build-features` / `build-labels` | Silver/Gold pipeline stages (§5) |
 | `make train` | Trains the model, tunes threshold, computes SHAP importance (§5.1) |
+| `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (§5.7) — `train-lstm` requires `uv sync --extra torch` |
 | `make final-report` | `pipelines/generate_final_report.py` — aggregates chaos/latency/model reports |
 | `make agent-demo` | One MAPE-K cycle against the hardcoded demo fleet (§6) |
 | `make dashboard` | Streamlit UI (§10) |
@@ -156,6 +157,7 @@ make build-silver                                               → data/silver/
 make build-features                                              → data/gold/features/
 make build-labels                                                 → data/gold/labels/
 make train                                                        → MLflow run + data/audit/.../model_evaluation_report.json
+make build-sequences / train-lstm (optional, §5.7)              → data/gold/sequences/ + lstm_evaluation_report.json
 ```
 
 Each stage is a thin `pipelines/*.py` script that reads YAML config, calls
@@ -435,6 +437,51 @@ the top of `main()` and replaces its `print(...)` calls with
 `src/agent/demo.py`, and `AgentOrchestrator._handle_result`'s slow-cycle
 signal (§6.4) is now `logger.warning("mapek_cycle_exceeded_target", ...)`
 instead of a bare print.
+
+### 5.7 Optional LSTM / sequence branch
+
+docs/dataset_strategy.md section 10.7 (Feature Family G) and section 16.2
+describe an **optional** deep-learning comparison branch, explicitly
+"compared against the tree-based baseline, not assumed to be superior."
+It is intentionally kept out of the default install and the primary
+training pipeline:
+
+- `src/features/sequences.py` (pure Polars/NumPy, no new dependency):
+  `build_sequence_tensors` turns the gold wide-features table into one
+  `[time_steps, features]` sequence per drive (its last `time_steps` days
+  of the configured attributes, sorted by date; a drive with less history
+  is left-padded with zeros rather than dropped, since a young drive is
+  exactly the case early signal matters most for). `compute_time_decay_
+  weights`/`apply_time_decay_weights` implement the doc's `weight_t =
+  exp(-lambda * age_in_days)` formula directly on the tensor, damping
+  older days before the sequence ever reaches a model.
+  `write_sequence_tensors`/`load_sequence_tensors` persist it as a
+  memory-mapped `.npy` file (never a large in-memory array, per the doc's
+  storage recommendation) plus a small Parquet/JSON metadata sidecar.
+  `make build-sequences` (`pipelines/build_sequences.py`) writes
+  `data/gold/sequences/`, configured by `configs/features.yaml`'s
+  `sequences:` section.
+- `src/models/lstm.py` **requires `uv sync --extra torch`** (`torch` is a
+  `pyproject.toml` optional extra, not part of the default install) and
+  is never imported by `pipelines/train_model.py` or anything else in the
+  default dependency closure - only by its own entry point. `SequenceLSTM`
+  is a small `nn.LSTM` + dropout + linear classifier; `train_lstm` uses
+  `BCEWithLogitsLoss(pos_weight=...)` for the same class imbalance the
+  tree models handle via `is_unbalance`/`scale_pos_weight`.
+- `make train-lstm` (`pipelines/train_lstm.py`) joins the sequence
+  tensors back to the gold labels for the primary horizon (by
+  `drive_id`+`as_of_date`), applies the time-decay weights, trains on the
+  `train` split, tunes a threshold and evaluates on `validation`/`test`
+  exactly like the primary pipeline, and writes
+  `data/audit/data_quality_reports/lstm_evaluation_report.json` with a
+  `recommendation` field comparing its test AUPRC against the primary
+  model's (`model_evaluation_report.json`, if one exists) - it never
+  replaces the primary model.
+- `tests/unit/test_lstm.py` guards its `torch` import with
+  `pytest.importorskip`, so `make test` (the default dev install) skips
+  it cleanly rather than failing; it only actually runs once `torch` is
+  installed. `tests/unit/test_sequences.py` has no such guard since
+  `src/features/sequences.py` has no torch dependency.
 
 ---
 

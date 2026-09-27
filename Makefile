@@ -1,6 +1,7 @@
 .PHONY: install lint format test test-unit test-integration test-chaos test-golden test-property \
 	data-check smoke coverage ci clean clean-data \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train \
+	build-sequences train-lstm \
 	agent-demo dashboard api final-report
 
 # --- setup -----------------------------------------------------------------
@@ -87,6 +88,14 @@ build-labels:
 
 train:
 	uv run python pipelines/train_model.py
+
+# Optional LSTM comparison branch (docs/dataset_strategy.md section 16.2).
+# Requires `uv sync --extra torch` first - not part of the default install.
+build-sequences:
+	uv run python pipelines/build_sequences.py
+
+train-lstm:
+	uv run python pipelines/train_lstm.py
 
 final-report:
 	uv run python pipelines/generate_final_report.py

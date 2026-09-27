@@ -32,3 +32,21 @@ spike_thresholds:
 
 feature_confidence:
   recency_tau_hours: 48
+
+# Sequence tensors for the optional LSTM branch (docs/dataset_strategy.md
+# section 10.7 Feature Family G). Only consumed by `make build-sequences`
+# / `make train-lstm`; the primary pipeline ignores this section entirely.
+sequences:
+  time_steps: 30
+  time_decay_lambda: 0.1
+  attributes:
+    - reallocated_sector_count
+    - current_pending_sector_count
+    - offline_uncorrectable
+    - reported_uncorrectable_errors
+    - raw_read_error_rate
+    - seek_error_rate
+    - spin_retry_count
+    - command_timeout
+    - power_on_hours
+    - smart_overall_health_normalized
