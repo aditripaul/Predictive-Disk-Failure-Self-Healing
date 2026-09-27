@@ -14,7 +14,11 @@ import json
 import subprocess
 from pathlib import Path
 
+from src.logging_config import configure_logging, get_logger
+
 DATA_CONFIG_PATH = Path("configs/data.yaml")
+
+logger = get_logger(__name__)
 
 
 def _run_pytest(node_ids: list[str]) -> dict:
@@ -82,18 +86,19 @@ def build_report() -> dict:
 
 
 def main() -> None:
+    configure_logging()
     report = build_report()
     out_dir = Path("data/audit/data_quality_reports")
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "final_evaluation_report.json"
     out_path.write_text(json.dumps(report, indent=2, default=str))
-    print(f"Wrote final evaluation report to {out_path}")
+    logger.info("final_evaluation_report_written", path=str(out_path))
 
     for key in ("chaos_test_results", "guardrail_latency_results", "crash_recovery_replay_results"):
-        print(f"{key}: passed={report[key]['passed']}")
+        logger.info("report_section", section=key, passed=report[key]["passed"])
     for key in ("prediction_precision_recall", "label_imbalance", "cross_dataset_generalization"):
         status = report[key].get("status", "available")
-        print(f"{key}: {status}")
+        logger.info("report_section", section=key, status=status)
 
 
 if __name__ == "__main__":

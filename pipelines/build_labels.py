@@ -24,13 +24,17 @@ from src.labels.splits import (
     apply_drive_level_holdout,
     apply_vendor_holdout,
 )
+from src.logging_config import configure_logging, get_logger
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
 FEATURES_CONFIG_PATH = Path("configs/features.yaml")
 
+logger = get_logger(__name__)
+
 
 def main() -> None:
+    configure_logging()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
     features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())
@@ -101,9 +105,15 @@ def main() -> None:
         json.dumps(imbalance_report, indent=2, default=str)
     )
 
-    print(f"Wrote {labels.height} label rows to {labels_dir}")
-    print(f"Wrote imbalance report to {audit_dir / 'label_imbalance_report.json'}")
-    print(f"Wrote dataset version {dataset_version_record['version_id']} to {dataset_version_path}")
+    logger.info("gold_labels_written", row_count=labels.height, path=str(labels_dir))
+    logger.info(
+        "label_imbalance_report_written", path=str(audit_dir / "label_imbalance_report.json")
+    )
+    logger.info(
+        "dataset_version_written",
+        version_id=dataset_version_record["version_id"],
+        path=str(dataset_version_path),
+    )
 
 
 if __name__ == "__main__":

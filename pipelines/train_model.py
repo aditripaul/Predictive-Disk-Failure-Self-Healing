@@ -18,6 +18,7 @@ import yaml
 import mlflow
 from src.labels.dataset_version import latest_dataset_version
 from src.labels.event_types import FAILURE_EVENT_TYPES
+from src.logging_config import configure_logging, get_logger
 from src.models.evaluation import compute_warning_lead_time_days, evaluate_at_threshold
 from src.models.explainability import (
     build_explainer,
@@ -36,8 +37,11 @@ DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
 FEATURES_CONFIG_PATH = Path("configs/features.yaml")
 
+logger = get_logger(__name__)
+
 
 def main() -> None:
+    configure_logging()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
     features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())
@@ -208,15 +212,17 @@ def main() -> None:
         mlflow.log_artifact(str(model_card_json_path))
         mlflow.log_artifact(str(model_card_md_path))
 
-        print(f"Trained model for {horizon_days}-day horizon on {x_train.shape[0]} rows.")
-        print(f"Threshold: {threshold_result}")
-        print(f"Validation metrics: {results['validation_metrics']}")
-        print(f"Test metrics: {results['test_metrics']}")
-        print(f"Test warning lead time: {results['test_warning_lead_time']}")
-        print(f"Top 5 SHAP features: {feature_importance[:5]}")
-        print(f"Wrote evaluation report to {report_path}")
-        print(f"Wrote SHAP feature importance to {shap_report_path}")
-        print(f"Wrote model card to {model_card_md_path}")
+        logger.info(
+            "model_trained", horizon_days=horizon_days, train_row_count=x_train.shape[0]
+        )
+        logger.info("threshold_tuned", **threshold_result)
+        logger.info("validation_metrics", **results["validation_metrics"])
+        logger.info("test_metrics", **results["test_metrics"])
+        logger.info("test_warning_lead_time", **results["test_warning_lead_time"])
+        logger.info("top_shap_features", features=feature_importance[:5])
+        logger.info("evaluation_report_written", path=str(report_path))
+        logger.info("shap_feature_importance_written", path=str(shap_report_path))
+        logger.info("model_card_written", path=str(model_card_md_path))
 
 
 if __name__ == "__main__":

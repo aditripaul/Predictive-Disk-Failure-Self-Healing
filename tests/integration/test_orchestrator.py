@@ -189,4 +189,4 @@ def test_slow_cycle_logs_a_warning_against_the_configured_target(capsys):
         orchestrator = AgentOrchestrator(app=app, store=store, target_cycle_time_seconds=0.0)
         orchestrator.run_cycle("orch-thread-slow")
 
-    assert "exceeding the" in capsys.readouterr().out
+    assert "mapek_cycle_exceeded_target" in capsys.readouterr().out

@@ -22,9 +22,12 @@ from src.features.lifecycle import add_lifecycle_features
 from src.features.pivot import pivot_badness_wide
 from src.features.registry import build_registry
 from src.features.windows import add_rolling_aggregates
+from src.logging_config import configure_logging, get_logger
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 FEATURES_CONFIG_PATH = Path("configs/features.yaml")
+
+logger = get_logger(__name__)
 
 
 def build_gold_features(canonical_long: pl.DataFrame, features_config: dict) -> pl.DataFrame:
@@ -63,6 +66,7 @@ def build_gold_features(canonical_long: pl.DataFrame, features_config: dict) -> 
 
 
 def main() -> None:
+    configure_logging()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())
 
@@ -89,8 +93,15 @@ def main() -> None:
         json.dumps([e.model_dump() for e in registry], indent=2, default=str)
     )
 
-    print(f"Wrote {gold.height} gold feature rows ({len(gold.columns)} columns) to {out_path}")
-    print(f"Wrote {len(registry)} feature registry entries to {registry_path}")
+    logger.info(
+        "gold_features_written",
+        row_count=gold.height,
+        column_count=len(gold.columns),
+        path=str(out_path),
+    )
+    logger.info(
+        "feature_registry_written", entry_count=len(registry), path=str(registry_path)
+    )
 
 
 if __name__ == "__main__":

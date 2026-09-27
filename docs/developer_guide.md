@@ -368,6 +368,25 @@ the search result (`best_params`, `best_value`, trial count) is written to
 `model_evaluation_report.json` and the tuned params are logged to MLflow
 under a `tuned_` prefix.
 
+### 5.6 Structured logging
+
+`src/logging_config.py` (docs/design_goal.md / docs/project_plan.md
+"Logging / audit: structlog / JSON logs" — "Per-decision rationale,
+guardrail status, explainability... query-friendly, append-only"):
+`structlog` was a declared but entirely unused dependency — every pipeline
+script and `src/agent/demo.py` used plain `print()`, which can't be
+filtered, queried, or shipped to a log aggregator as structured events.
+`configure_logging(json_output=False)` sets up the process-wide structlog
+pipeline (console renderer by default, for interactive `make` runs;
+`json_output=True` renders newline-delimited JSON, the audit-friendly
+format for a real deployment); `get_logger(__name__)` returns a bound
+logger. Every `pipelines/*.py` entry point calls `configure_logging()` at
+the top of `main()` and replaces its `print(...)` calls with
+`logger.info(event_name, **fields)` / `logger.warning(...)`; so does
+`src/agent/demo.py`, and `AgentOrchestrator._handle_result`'s slow-cycle
+signal (§6.4) is now `logger.warning("mapek_cycle_exceeded_target", ...)`
+instead of a bare print.
+
 ---
 
 ## 6. The MAPE-K agent (`src/agent/`)
@@ -801,8 +820,6 @@ Operational hardening still needed for production:
   `src/`/`pipelines/` — it's a declared-but-unused placeholder, not partial
   wiring.
 - No containerization (no Dockerfile/compose), no `.env`/secrets-management
-  pattern, no health-check endpoint (`GET /health`), no CORS/rate-limiting,
-  and `structlog` (declared as the intended logging stack) is never actually
-  used — every pipeline script and `agent/demo.py` use plain `print()`.
+  pattern, no health-check endpoint (`GET /health`), no CORS/rate-limiting.
 - No coverage threshold is enforced anywhere (`pytest-cov` is installed but
   only invoked via the local-only `make coverage`, not in CI).

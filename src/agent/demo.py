@@ -13,6 +13,9 @@ from src.agent.deps import ActionLedger, AgentDependencies, SqliteActionLedger
 from src.agent.graph import compiled_agent
 from src.config import AgentSettings
 from src.guardrails.adapter import build_guardrail_evaluator
+from src.logging_config import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 DEMO_DRIVES = [
     {
@@ -41,7 +44,11 @@ def _predictor(snapshot: dict) -> dict:
 
 
 def _executor(action: dict) -> dict:
-    print(f"[executor] performing {action['proposed_action']} on {action['drive_id']}")
+    logger.info(
+        "demo_executor_performing_action",
+        proposed_action=action["proposed_action"],
+        drive_id=action["drive_id"],
+    )
     return {
         "action_id": action["action_id"],
         "drive_id": action["drive_id"],
@@ -74,17 +81,21 @@ def build_demo_dependencies(*, action_ledger: ActionLedger | None = None) -> Age
 
 
 def main() -> None:
+    configure_logging()
     deps = build_demo_dependencies()
     checkpoint_path = AgentSettings.load().checkpoint_path
 
     with compiled_agent(deps, checkpoint_path=checkpoint_path) as app:
         result = app.invoke({}, config={"configurable": {"thread_id": "demo-fleet"}})
 
-    print(f"proposed_action: {result['proposed_action']}")
-    print(f"guardrail_result: {result['guardrail_result']}")
-    print(f"execution_result: {result['execution_result']}")
-    print(f"validation_result: {result['validation_result']}")
-    print(f"decision_record_id: {result['decision_record_id']}")
+    logger.info(
+        "demo_cycle_completed",
+        proposed_action=result["proposed_action"],
+        guardrail_result=result["guardrail_result"],
+        execution_result=result["execution_result"],
+        validation_result=result["validation_result"],
+        decision_record_id=result["decision_record_id"],
+    )
 
 
 if __name__ == "__main__":

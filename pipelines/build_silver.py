@@ -14,6 +14,7 @@ from pathlib import Path
 import polars as pl
 import yaml
 
+from src.logging_config import configure_logging, get_logger
 from src.preprocess.feature_maturity import build_drive_metadata
 from src.preprocess.identifiers import normalize_identifiers
 from src.preprocess.quality_checks import run_all_checks
@@ -21,6 +22,8 @@ from src.preprocess.smart_mapping import melt_smart_attributes
 from src.preprocess.telemetry_gaps import compute_telemetry_gaps
 
 CONFIG_PATH = Path("configs/data.yaml")
+
+logger = get_logger(__name__)
 
 
 def build_silver(bronze_root: Path, config: dict) -> tuple[pl.DataFrame, pl.DataFrame, list[dict]]:
@@ -51,6 +54,7 @@ def build_silver(bronze_root: Path, config: dict) -> tuple[pl.DataFrame, pl.Data
 
 
 def main() -> None:
+    configure_logging()
     config = yaml.safe_load(CONFIG_PATH.read_text())
     silver_dir = Path(config["silver_dir"])
     audit_dir = Path(config["audit_dir"]) / "data_quality_reports"
@@ -72,12 +76,16 @@ def main() -> None:
     )
 
     failed = [r for r in quality_reports if not r["passed"]]
-    print(f"Wrote {canonical_long.height} canonical telemetry rows to {canonical_dir}")
-    print(f"Wrote {drive_metadata.height} drive metadata rows to {metadata_dir}")
+    logger.info(
+        "canonical_telemetry_written", row_count=canonical_long.height, path=str(canonical_dir)
+    )
+    logger.info(
+        "drive_metadata_written", row_count=drive_metadata.height, path=str(metadata_dir)
+    )
     if failed:
-        print(f"WARNING: {len(failed)} data quality check(s) failed: {failed}")
+        logger.warning("data_quality_checks_failed", failed_count=len(failed), failed=failed)
     else:
-        print("All data quality checks passed.")
+        logger.info("data_quality_checks_passed")
 
 
 if __name__ == "__main__":

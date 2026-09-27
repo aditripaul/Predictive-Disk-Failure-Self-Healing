@@ -18,7 +18,10 @@ from langgraph.types import Command
 
 from src.api.store import InMemoryAuditStore, PendingAction
 from src.config import AgentSettings, ModelSettings
+from src.logging_config import get_logger
 from src.reliability.audit import build_provisional_assessment
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -90,12 +93,13 @@ class AgentOrchestrator:
     ) -> dict[str, Any]:
         if cycle_duration_seconds > self.target_cycle_time_seconds:
             # docs/design_goal.md section 26 target: < 5 minutes. This is a
-            # soft signal (print, not an exception) - a slow cycle isn't
-            # unsafe, just worth noticing.
-            print(
-                f"WARNING: MAPE-K cycle for thread {thread_id} took "
-                f"{cycle_duration_seconds:.2f}s, exceeding the "
-                f"{self.target_cycle_time_seconds:.0f}s target."
+            # soft signal (a log warning, not an exception) - a slow cycle
+            # isn't unsafe, just worth noticing.
+            logger.warning(
+                "mapek_cycle_exceeded_target",
+                thread_id=thread_id,
+                cycle_duration_seconds=round(cycle_duration_seconds, 2),
+                target_cycle_time_seconds=self.target_cycle_time_seconds,
             )
 
         if "__interrupt__" in result:
