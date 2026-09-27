@@ -102,6 +102,7 @@ would fail with "ruff: command not found."
 | `make ci` | `lint` + `test` — exactly what CI runs |
 | `make clean` | Removes caches (`__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `htmlcov`, `.coverage`) — never touches data or runtime state |
 | `make clean-data` | Removes regenerated pipeline outputs (`data/bronze`, `data/silver`, `data/gold`, `data/audit/*/*`) — never touches `data/raw/` source data |
+| `make download-backblaze` / `download-smartz` | Configurable raw-data download (§5.0) |
 | `make ingest-backblaze` / `ingest-smartz` / `ingest-synthetic-stub` | Bronze ingestion (§5) |
 | `make build-silver` / `build-features` / `build-labels` | Silver/Gold pipeline stages (§5) |
 | `make train` | Trains the model, tunes threshold, computes SHAP importance (§5.1) |
@@ -151,6 +152,54 @@ would make `PRED_THRESHOLD` block every legitimate migrate action.
 ---
 
 ## 5. Data pipeline (Phases 1–5)
+
+### 5.0 Configurable raw-data download
+
+`src/ingest/download.py` (`make download-backblaze` / `make
+download-smartz`, `pipelines/download_backblaze.py` /
+`pipelines/download_smartz.py`): Backblaze publishes its quarterly Hard
+Drive Stats archives as ZIP files at a stable URL
+(`https://f001.backblazeb2.com/file/Backblaze-Hard-Drive-Data/data_<quarter>.zip`).
+**No quarter is ever hardcoded as a real default anywhere in this
+codebase** - the time period is entirely up to you, configured either way:
+
+```yaml
+# configs/data.yaml
+download:
+  backblaze:
+    quarters: ["Q1_2025", "Q2_2025"]   # an explicit list, or...
+    start_quarter: "Q1_2025"           # ...an inclusive range (used only
+    end_quarter: "Q4_2025"             # if `quarters` is empty)
+```
+
+or per-run without touching the config file:
+
+```bash
+make download-backblaze ARGS="--quarters Q1_2025 Q2_2025"
+make download-backblaze ARGS="--start-quarter Q1_2025 --end-quarter Q4_2025"
+```
+
+`--quarters`/`quarters` always wins over the range if both are given.
+`generate_quarter_range`/`parse_quarter`/`format_quarter` implement the
+range expansion (e.g. `("Q3_2025", "Q2_2026")` ->
+`["Q3_2025", "Q4_2025", "Q1_2026", "Q2_2026"]`), and `resolve_quarters`
+is the single place that merges CLI args and config, raising a clear
+error if neither a list nor a range is configured, rather than silently
+downloading nothing. Downloads are streamed to disk in fixed-size chunks
+(never held fully in memory) and are idempotent per quarter - a
+`.{quarter}.downloaded` marker file skips a quarter that's already
+present, and if the ZIP itself is already on disk (e.g. an extraction
+that got interrupted) it's reused rather than re-fetched over the
+network. **These are multi-hundred-MB-to-multi-GB downloads that expand
+to many GB uncompressed** - make sure you have disk headroom before
+running this against more than one or two quarters.
+
+SMART-Z has no public bulk-download API (docs/dataset_strategy.md
+section 3.2); `download_smartz` requires a directly-configured
+`download.smartz.url` (set only once you've requested access) and raises
+a clear, actionable `ValueError` otherwise instead of silently doing
+nothing - the same "no real code path defaults to anything you haven't
+configured" principle.
 
 ```text
 make ingest-backblaze / ingest-smartz / ingest-synthetic-stub   → data/bronze/

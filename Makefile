@@ -1,5 +1,6 @@
 .PHONY: install lint format test test-unit test-integration test-chaos test-golden test-property \
 	data-check smoke coverage ci clean clean-data \
+	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train \
 	build-sequences train-lstm score-fleet \
 	agent-demo dashboard api final-report
@@ -65,6 +66,19 @@ clean:
 
 clean-data:
 	rm -rf data/bronze/* data/silver/* data/gold/* data/audit/*/*
+
+# --- data download ---------------------------------------------------------
+# Configurable time period, no default quarter is hardcoded: set
+# download.backblaze.quarters (or start_quarter/end_quarter) in
+# configs/data.yaml, or override per-run with ARGS, e.g.:
+#   make download-backblaze ARGS="--quarters Q1_2025 Q2_2025"
+#   make download-backblaze ARGS="--start-quarter Q1_2025 --end-quarter Q4_2025"
+
+download-backblaze:
+	uv run python pipelines/download_backblaze.py $(ARGS)
+
+download-smartz:
+	uv run python pipelines/download_smartz.py $(ARGS)
 
 # --- data pipeline -------------------------------------------------------------
 

@@ -15,6 +15,27 @@ sources:
     raw_glob: "data/raw/synthetic/*.parquet"
     bronze_path: "data/bronze/synthetic"
 
+# Configurable raw-data download (docs/dataset_strategy.md section 3;
+# `make download-backblaze` / `make download-smartz`,
+# src/ingest/download.py). Backblaze publishes quarterly archives named
+# "Q<n>_<year>" - configure the time period one of two ways (nothing here
+# is a real default; pick whichever fits and fill it in yourself):
+#   1. An explicit list:      quarters: ["Q1_2026", "Q2_2026"]
+#   2. An inclusive range:    start_quarter: "Q1_2026"
+#                             end_quarter:   "Q4_2026"
+# `quarters` takes priority if both are set. Either can be overridden
+# per-run without editing this file: --quarters / --start-quarter+--end-quarter.
+download:
+  backblaze:
+    base_url: "https://f001.backblazeb2.com/file/Backblaze-Hard-Drive-Data"
+    quarters: []
+    start_quarter: null
+    end_quarter: null
+  smartz:
+    # SMART-Z has no public bulk-download API - set this only once you've
+    # requested access and have a direct archive URL.
+    url: null
+
 storage:
   format: parquet
   compression: zstd
