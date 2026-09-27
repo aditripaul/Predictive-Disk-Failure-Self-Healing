@@ -15,6 +15,7 @@ plugged in for a given deployment; override `app.state.orchestrator` (or the
 from __future__ import annotations
 
 from contextlib import ExitStack, asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import Response
@@ -25,7 +26,8 @@ from src.agent.demo import build_demo_dependencies
 from src.agent.graph import build_agent_graph
 from src.agent.orchestrator import AgentOrchestrator
 from src.api.store import InMemoryAuditStore, get_store
-from src.config import AgentSettings
+from src.config import AgentSettings, ModelSettings, load_yaml
+from src.reliability.analytics import failure_rate_by_model_family
 from src.reliability.audit_export import export_decisions_to_csv, export_decisions_to_parquet
 
 
@@ -168,6 +170,25 @@ def export_decisions(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/api/v1/analytics/failure-rate-by-model-family")
+def get_failure_rate_by_model_family(horizon_days: int | None = None):
+    """Reads analytics from DuckDB (docs/project_plan.md Phase 10 Key Task
+    3), querying the gold features/labels Parquet files directly on disk
+    rather than through the in-memory audit store. Returns `[]` before
+    `make build-features`/`make build-labels` have ever been run."""
+    data_config = load_yaml("data.yaml")
+    gold_dir = Path(data_config["gold_dir"])
+    resolved_horizon = (
+        horizon_days if horizon_days is not None else ModelSettings.load().primary_horizon_days
+    )
+    rows = failure_rate_by_model_family(
+        gold_dir / "features" / "part.parquet",
+        gold_dir / "labels" / "part.parquet",
+        horizon_days=resolved_horizon,
+    )
+    return {"horizon_days": resolved_horizon, "failure_rate_by_model_family": rows}
 
 
 @app.get("/api/v1/reliability/trust-trend")

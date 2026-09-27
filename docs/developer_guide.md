@@ -586,6 +586,7 @@ Endpoints:
 | `POST /api/v1/actions/{id}/approve` `/reject` | Resumes the paused thread |
 | `GET /api/v1/audit/decisions` | Full decision history |
 | `GET /api/v1/audit/decisions/export?format=csv\|parquet` | Decision history as a downloadable file |
+| `GET /api/v1/analytics/failure-rate-by-model-family?horizon_days=N` | DuckDB analytics over the gold Parquet layer |
 | `GET /api/v1/reliability/trust-trend` | Provisional/final trust scores over time |
 | `GET /api/v1/guardrails/violations` | Flattened violation log |
 
@@ -599,6 +600,19 @@ the frame to Polars' `write_csv`/`write_parquet` — this is what lets a
 single export cover decisions from a mix of pending-review-only and
 fully-executed cycles without either format choking on inconsistent
 nested shapes.
+
+**DuckDB analytics** (`src/reliability/analytics.py`,
+docs/project_plan.md Phase 10 Key Task 3 "Read analytics from DuckDB"):
+`duckdb` was a declared but entirely unused dependency — every other read
+path in this codebase goes through Polars or the in-memory
+`InMemoryAuditStore`. `failure_rate_by_model_family` is the one place it's
+used for real: it joins the gold features and labels Parquet files
+directly on disk via DuckDB's `read_parquet(...)` (out-of-core - neither
+file is loaded into a Polars/pandas DataFrame first) and groups by
+`model_family`, which is exactly the "out-of-core SQL over Parquet" role
+the design docs describe for it. `GET /api/v1/analytics/
+failure-rate-by-model-family` exposes it; it returns `[]` before `make
+build-features`/`make build-labels` have been run, rather than erroring.
 
 `src/dashboards/app.py` reads these endpoints via `requests` (not covered by
 automated tests — Streamlit apps aren't meaningfully testable under pytest;

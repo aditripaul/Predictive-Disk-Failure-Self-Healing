@@ -228,6 +228,62 @@ def test_export_decisions_csv_and_parquet(client):
     assert unsupported.status_code == 400
 
 
+def test_analytics_failure_rate_by_model_family_reads_gold_parquet(client, tmp_path, monkeypatch):
+    import datetime as dt
+
+    import polars as pl
+
+    import src.api.main as api_main
+
+    test_client, _, _ = client
+    gold_dir = tmp_path / "gold"
+    (gold_dir / "features").mkdir(parents=True)
+    (gold_dir / "labels").mkdir(parents=True)
+
+    pl.DataFrame(
+        {
+            "drive_id": ["A", "B"],
+            "date": [dt.date(2024, 1, 1), dt.date(2024, 1, 1)],
+            "model_family": ["Seagate HDD", "WD HDD"],
+        }
+    ).write_parquet(gold_dir / "features" / "part.parquet")
+    pl.DataFrame(
+        {
+            "drive_id": ["A", "B"],
+            "date": [dt.date(2024, 1, 1), dt.date(2024, 1, 1)],
+            "horizon_days": [14, 14],
+            "label": [1, 0],
+        }
+    ).write_parquet(gold_dir / "labels" / "part.parquet")
+
+    monkeypatch.setattr(
+        api_main, "load_yaml", lambda name: {"gold_dir": str(gold_dir)}
+    )
+
+    response = test_client.get("/api/v1/analytics/failure-rate-by-model-family?horizon_days=14")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["horizon_days"] == 14
+    by_family = {row["model_family"]: row for row in body["failure_rate_by_model_family"]}
+    assert by_family["Seagate HDD"]["failure_rate"] == 1.0
+    assert by_family["WD HDD"]["failure_rate"] == 0.0
+
+
+def test_analytics_failure_rate_returns_empty_before_gold_data_exists(
+    client, tmp_path, monkeypatch
+):
+    import src.api.main as api_main
+
+    test_client, _, _ = client
+    monkeypatch.setattr(
+        api_main, "load_yaml", lambda name: {"gold_dir": str(tmp_path / "nonexistent_gold")}
+    )
+
+    response = test_client.get("/api/v1/analytics/failure-rate-by-model-family?horizon_days=14")
+    assert response.status_code == 200
+    assert response.json()["failure_rate_by_model_family"] == []
+
+
 def test_pending_actions_lists_only_pending(client):
     test_client, store, _ = client
     store.add_pending_action(
