@@ -33,8 +33,10 @@ def train_lightgbm(
     return model
 
 
-def predict_proba_positive(model: lgb.LGBMClassifier, x: np.ndarray) -> np.ndarray:
-    # lightgbm's stubs type predict_proba's return as a plain list, but it
-    # always returns an (n_samples, n_classes) ndarray at runtime.
+def predict_proba_positive(model: Any, x: np.ndarray) -> np.ndarray:
+    # Works for any sklearn-style classifier with predict_proba (LightGBM,
+    # XGBoost, scikit-learn's LogisticRegression, ...) - lightgbm's own
+    # stubs type predict_proba's return as a plain list, but it always
+    # returns an (n_samples, n_classes) ndarray at runtime.
     probabilities = np.asarray(model.predict_proba(x))
     return probabilities[:, 1]

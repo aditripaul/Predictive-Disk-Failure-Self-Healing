@@ -257,6 +257,21 @@ frame has zero non-censored rows for the primary horizon — which is exactly
 what happens against the synthetic stub, since 10 days of history can never
 observe a 14-day horizon.
 
+**Model selection: LightGBM or XGBoost** (`configs/model.yaml`'s
+`model.type`, docs/design_goal.md/docs/project_plan.md "ML models: XGBoost
+/ LightGBM"): `xgboost` was a declared but entirely unused dependency, and
+`model.type` in the config was read nowhere - `pipelines/train_model.py`
+always trained LightGBM regardless of what it said. `model.type: xgboost`
+now trains via `src/models/xgboost_training.py::train_xgboost`, which
+computes `scale_pos_weight = negative_count / positive_count`
+(docs/dataset_strategy.md section 15's XGBoost-specific imbalance
+mitigation, the counterpart to LightGBM's `is_unbalance`) directly from
+the training labels rather than requiring it as a param. Everything
+downstream (`predict_proba_positive`, SHAP's `TreeExplainer`, MLflow
+logging, the model card) works with either model type; the Optuna search
+(§5.5) remains LightGBM-only and raises a clear error if enabled together
+with `model.type: xgboost`, rather than silently ignoring the setting.
+
 ### 5.1 Explainability (SHAP)
 
 `src/models/explainability.py` wraps `shap.TreeExplainer` (exact and fast

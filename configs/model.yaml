@@ -4,7 +4,7 @@ primary_horizon_days: 14
 horizons_days: [7, 14, 30]
 
 model:
-  type: lightgbm
+  type: lightgbm  # lightgbm | xgboost (src/models/training.py, src/models/xgboost_training.py)
   params:
     objective: binary
     is_unbalance: true

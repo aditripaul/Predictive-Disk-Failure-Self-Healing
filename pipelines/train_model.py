@@ -30,6 +30,7 @@ from src.models.hyperparameter_tuning import tune_lightgbm_hyperparameters
 from src.models.model_card import build_model_card, render_model_card_markdown
 from src.models.threshold import tune_threshold_for_precision
 from src.models.training import predict_proba_positive, train_lightgbm
+from src.models.xgboost_training import train_xgboost
 
 SHAP_BACKGROUND_SAMPLE_SIZE = 100
 
@@ -90,12 +91,23 @@ def main() -> None:
     x_val = splits["validation"].select(feature_columns).fill_null(0.0).to_numpy()
     y_val = splits["validation"]["label"].to_numpy()
 
+    model_type = model_config["model"].get("type", "lightgbm")
+
     with mlflow.start_run():
-        results: dict = {"horizon_days": horizon_days, "feature_columns": feature_columns}
+        results: dict = {
+            "horizon_days": horizon_days,
+            "feature_columns": feature_columns,
+            "model_type": model_type,
+        }
 
         hp_search_cfg = model_config.get("hyperparameter_search", {})
         model_params = model_config["model"]["params"]
-        if hp_search_cfg.get("enabled", False):
+        if model_type == "xgboost" and hp_search_cfg.get("enabled", False):
+            raise ValueError(
+                "hyperparameter_search is only implemented for model.type: lightgbm "
+                "(src/models/hyperparameter_tuning.py); disable it or switch model.type."
+            )
+        if model_type == "lightgbm" and hp_search_cfg.get("enabled", False):
             search_result = tune_lightgbm_hyperparameters(
                 x_train,
                 y_train,
@@ -118,7 +130,12 @@ def main() -> None:
 
         # Retrain on the FULL training partition with the (possibly tuned)
         # params - the search above only ever sees a subsample.
-        model = train_lightgbm(x_train, y_train, params=model_params)
+        if model_type == "xgboost":
+            model = train_xgboost(x_train, y_train, params=model_params)
+        elif model_type == "lightgbm":
+            model = train_lightgbm(x_train, y_train, params=model_params)
+        else:
+            raise ValueError(f"Unknown model.type: {model_type!r} (expected lightgbm or xgboost)")
 
         val_scores = predict_proba_positive(model, x_val)
         threshold_result = tune_threshold_for_precision(
@@ -164,7 +181,10 @@ def main() -> None:
                 "test_mean_warning_lead_time_days",
                 results["test_warning_lead_time"]["mean_lead_time_days"],
             )
-        mlflow.lightgbm.log_model(model, name="model")
+        if model_type == "xgboost":
+            mlflow.xgboost.log_model(model, name="model")
+        else:
+            mlflow.lightgbm.log_model(model, name="model")
 
         # SHAP global feature importance (docs/design_goal.md "Explainability
         # by default"): background sample keeps TreeExplainer fast even on a
@@ -191,6 +211,7 @@ def main() -> None:
             horizon_days=horizon_days,
             model_params=model_params,
             model_version=model_config["version"],
+            model_type=model_type,
             feature_registry_version=features_config["version"],
             dataset_version=(
                 dataset_version_record["version_id"] if dataset_version_record else None

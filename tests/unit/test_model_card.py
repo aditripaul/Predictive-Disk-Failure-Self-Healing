@@ -26,6 +26,16 @@ def test_build_model_card_reports_unversioned_dataset_when_absent():
     assert card["model_details"]["primary_horizon_days"] == 14
 
 
+def test_build_model_card_defaults_model_type_to_lightgbm():
+    card = _sample_card()
+    assert card["model_details"]["type"] == "lightgbm"
+
+
+def test_build_model_card_reports_xgboost_model_type():
+    card = _sample_card(model_type="xgboost")
+    assert card["model_details"]["type"] == "xgboost"
+
+
 def test_build_model_card_carries_dataset_version_when_present():
     card = _sample_card(dataset_version="2026-01-01_v3")
     assert card["training_data"]["dataset_version"] == "2026-01-01_v3"

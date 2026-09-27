@@ -22,6 +22,7 @@ def build_model_card(
     horizon_days: int,
     model_params: dict[str, Any],
     model_version: int,
+    model_type: str = "lightgbm",
     feature_registry_version: int,
     dataset_version: str | None,
     feature_columns: list[str],
@@ -35,7 +36,7 @@ def build_model_card(
     return {
         "generated_at": dt.datetime.now(dt.UTC).isoformat(),
         "model_details": {
-            "type": "lightgbm",
+            "type": model_type,
             "version": model_version,
             "params": model_params,
             "primary_horizon_days": horizon_days,
