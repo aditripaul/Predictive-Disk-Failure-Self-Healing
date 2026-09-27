@@ -348,6 +348,26 @@ precision/recall:
 All three are written to `model_evaluation_report.json` and surfaced in
 the model card (§5.2).
 
+### 5.5 Optuna hyperparameter search
+
+`src/models/hyperparameter_tuning.py` (docs/project_plan.md Phase 6
+"Threshold tuning: Use Optuna. Subsample for search. Retrain best
+configuration on full training partition."; RAM Practices "Use subsampled
+Optuna search."): `optuna` was a declared but entirely unused dependency.
+`tune_lightgbm_hyperparameters` runs a `TPESampler` study over a
+configurable `search_space` (`{param: [low, high]}`; an all-int range
+samples `suggest_int`, otherwise `suggest_float`), training each trial on
+a random *subsample* of the training partition and scoring AUPRC on the
+*full*, never-subsampled validation split, so the objective reflects real
+generalization rather than a subsample artifact. It never retrains on the
+full partition itself - `pipelines/train_model.py` does that with the
+returned `best_params`, per the doc's explicit "retrain on full partition"
+instruction. Gated by `configs/model.yaml`'s `hyperparameter_search.enabled`
+(default `false`, so `make train` stays fast/deterministic); when enabled,
+the search result (`best_params`, `best_value`, trial count) is written to
+`model_evaluation_report.json` and the tuned params are logged to MLflow
+under a `tuned_` prefix.
+
 ---
 
 ## 6. The MAPE-K agent (`src/agent/`)

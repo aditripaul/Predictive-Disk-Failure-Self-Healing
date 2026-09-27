@@ -17,6 +17,20 @@ threshold:
   target_recall_range: [0.35, 0.50]
   search_metric: auprc
 
+# Optuna-based hyperparameter search (docs/project_plan.md Phase 6
+# "Threshold tuning: Use Optuna. Subsample for search. Retrain best
+# configuration on full training partition."). Disabled by default so
+# `make train` stays fast/deterministic; enable for a real tuning run.
+hyperparameter_search:
+  enabled: false
+  n_trials: 20
+  subsample_fraction: 0.3
+  seed: 0
+  search_space:
+    num_leaves: [15, 63]
+    learning_rate: [0.01, 0.2]
+    n_estimators: [100, 800]
+
 splits:
   strategy: chronological
   train_end: "2021-12-31"

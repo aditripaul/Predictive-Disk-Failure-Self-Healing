@@ -25,6 +25,7 @@ from src.models.explainability import (
     global_feature_importance,
 )
 from src.models.features import assemble_training_frame, select_feature_columns
+from src.models.hyperparameter_tuning import tune_lightgbm_hyperparameters
 from src.models.model_card import build_model_card, render_model_card_markdown
 from src.models.threshold import tune_threshold_for_precision
 from src.models.training import predict_proba_positive, train_lightgbm
@@ -82,13 +83,39 @@ def main() -> None:
     mlflow.set_tracking_uri(model_config["mlflow"]["tracking_uri"])
     mlflow.set_experiment(model_config["mlflow"]["experiment_name"])
 
-    with mlflow.start_run():
-        model = train_lightgbm(x_train, y_train, params=model_config["model"]["params"])
+    x_val = splits["validation"].select(feature_columns).fill_null(0.0).to_numpy()
+    y_val = splits["validation"]["label"].to_numpy()
 
+    with mlflow.start_run():
         results: dict = {"horizon_days": horizon_days, "feature_columns": feature_columns}
 
-        x_val = splits["validation"].select(feature_columns).fill_null(0.0).to_numpy()
-        y_val = splits["validation"]["label"].to_numpy()
+        hp_search_cfg = model_config.get("hyperparameter_search", {})
+        model_params = model_config["model"]["params"]
+        if hp_search_cfg.get("enabled", False):
+            search_result = tune_lightgbm_hyperparameters(
+                x_train,
+                y_train,
+                x_val,
+                y_val,
+                base_params=model_config["model"]["params"],
+                search_space=hp_search_cfg["search_space"],
+                n_trials=hp_search_cfg.get("n_trials", 20),
+                subsample_fraction=hp_search_cfg.get("subsample_fraction", 0.3),
+                seed=hp_search_cfg.get("seed", 0),
+            )
+            model_params = search_result["best_params"]
+            results["hyperparameter_search"] = {
+                "best_params": search_result["best_params"],
+                "best_value": search_result["best_value"],
+                "n_trials": search_result["n_trials"],
+                "subsample_size": search_result["subsample_size"],
+            }
+            mlflow.log_params({f"tuned_{k}": v for k, v in search_result["best_params"].items()})
+
+        # Retrain on the FULL training partition with the (possibly tuned)
+        # params - the search above only ever sees a subsample.
+        model = train_lightgbm(x_train, y_train, params=model_params)
+
         val_scores = predict_proba_positive(model, x_val)
         threshold_result = tune_threshold_for_precision(
             y_val, val_scores, target_precision=model_config["threshold"]["target_precision"]
@@ -118,7 +145,7 @@ def main() -> None:
             threshold=threshold_result["threshold"],
         )
 
-        mlflow.log_params({"horizon_days": horizon_days, **model_config["model"]["params"]})
+        mlflow.log_params({"horizon_days": horizon_days, **model_params})
         mlflow.log_metric("validation_auprc", results["validation_metrics"]["auprc"])
         mlflow.log_metric("validation_precision", results["validation_metrics"]["precision"])
         mlflow.log_metric("validation_recall", results["validation_metrics"]["recall"])
@@ -158,7 +185,7 @@ def main() -> None:
         dataset_version_record = latest_dataset_version(Path(data_config["audit_dir"]))
         model_card = build_model_card(
             horizon_days=horizon_days,
-            model_params=model_config["model"]["params"],
+            model_params=model_params,
             model_version=model_config["version"],
             feature_registry_version=features_config["version"],
             dataset_version=(
