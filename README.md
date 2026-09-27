@@ -425,12 +425,13 @@ The project uses a `Makefile` for reproducible pipeline execution.
 | `make install` | Install runtime + dev dependencies (`uv sync --extra dev`) |
 | `make lint` | Run ruff + mypy |
 | `make format` | Auto-format and fix lint issues |
-| `make test` | Run the full test suite (unit + integration + chaos + golden + smoke) |
-| `make test-unit` / `test-integration` / `test-chaos` / `test-golden` / `smoke` | Run one test layer only |
+| `make test` | Run the full test suite (unit + integration + chaos + golden + property + smoke) |
+| `make test-unit` / `test-integration` / `test-chaos` / `test-golden` / `test-property` / `smoke` | Run one test layer only |
 | `make coverage` | Run the suite under pytest-cov; writes `htmlcov/index.html` |
 | `make ci` | `lint` + `test` — what CI runs |
 | `make clean` | Remove caches (never data or runtime state) |
-| `make clean-data` | Remove regenerated pipeline outputs (never raw source data) |
+| `make clean-data` | Remove regenerated pipeline outputs, preserving `.gitkeep` placeholders (never raw source data) |
+| `make download-backblaze` / `download-smartz` | Configurable raw-data download — see §14 |
 | `make ingest-backblaze` | Ingest Backblaze raw data into Bronze |
 | `make ingest-smartz` | Ingest SMART-Z raw data into Bronze |
 | `make ingest-synthetic-stub` | Land the synthetic placeholder dataset into Bronze |
@@ -438,12 +439,17 @@ The project uses a `Makefile` for reproducible pipeline execution.
 | `make build-features` | Build Gold trajectory features |
 | `make build-labels` | Build failure labels and splits |
 | `make train` | Train model, tune threshold, compute SHAP importance, log to MLflow |
+| `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (`train-lstm` needs `uv sync --extra torch`) |
+| `make score-fleet` | Batch-score the current fleet with the latest trained model |
 | `make final-report` | Aggregate chaos/latency/model reports into a final evaluation report |
 | `make agent-demo` | Run a minimal LangGraph agent demo |
 | `make dashboard` | Launch Streamlit dashboard |
 | `make api` | Launch FastAPI approval service |
 
-Full details on every target: `docs/developer_guide.md` §3.1.
+Full details on every target: `docs/developer_guide.md` §3.1. For a
+step-by-step walkthrough of running all of this end-to-end — with
+synthetic data (fast, offline) or real Backblaze/SMART-Z data — see
+**§14** below, or `docs/developer_guide.md` §12.1.
 
 Example:
 
@@ -457,26 +463,56 @@ make train
 
 ---
 
-## 14. Vertical Slice Quickstart
+## 14. End-to-End Testing: Synthetic Data vs. Real Data
 
-For early validation, run a minimal end-to-end slice:
+Full details and verified command output: `docs/developer_guide.md` §12.1.
+Two ways to exercise the whole system, from raw data to a decision.
 
-1. Download one month of Backblaze data for one drive model.
-2. Compute three simple features:
-   - 7-day rolling mean;
-   - 7-day delta;
-   - drive age.
-3. Train a dummy XGBoost model.
-4. Run a 3-node LangGraph workflow:
+### A. Synthetic data (fast, offline, no download)
 
-```text
-Monitor → Analyze → Plan
+Agent/API loop only, no data pipeline needed:
+
+```bash
+make smoke        # one real MAPE-K cycle + every documented API endpoint, in-memory
+make agent-demo   # one real MAPE-K cycle against a hardcoded 2-drive fleet, printed live
 ```
 
-5. Apply one hardcoded guardrail.
-6. Print a provisional trust score.
+Full data pipeline, bronze through gold labels:
 
-This validates the core architecture before building the full pipeline.
+```bash
+make ingest-synthetic-stub   # 5 drives x 10 days -> data/bronze/synthetic/
+make build-silver
+make build-features
+make build-labels
+```
+
+**`make train` is then *expected* to fail** with a clear `ValueError`
+("No rows with an observed non-censored 14-day label...") — the
+synthetic stub has only 10 days of history and zero failures, so no row
+can reach horizon observability. That failure is itself the meaningful
+check: the pipeline refuses to silently train on data that can't support
+a real label. Clean up with `make clean-data` between runs.
+
+### B. Real data (Backblaze, optionally SMART-Z)
+
+```bash
+# configs/data.yaml -> download.backblaze.quarters: ["Q1_2025"]  (start with ONE)
+make download-backblaze
+make ingest-backblaze
+make build-silver
+make build-features
+make build-labels
+make train          # trains, tunes threshold, logs to MLflow, writes a model card
+make score-fleet    # batch-scores the current fleet -> data/audit/predictions/
+```
+
+**Disk space warning:** one Backblaze quarterly archive is ~1-1.5GB
+compressed and expands to several GB of CSV. Check `df -h` before
+configuring more than one or two quarters.
+
+`make score-fleet`'s output is a standalone batch report — it is *not*
+wired into `make agent-demo`/`make api`, which always run against the
+hardcoded demo fleet (see `docs/developer_guide.md` §5.8 for why).
 
 ---
 

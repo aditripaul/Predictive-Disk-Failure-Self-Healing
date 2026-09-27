@@ -65,7 +65,8 @@ clean:
 	rm -rf .mypy_cache .ruff_cache htmlcov .coverage
 
 clean-data:
-	rm -rf data/bronze/* data/silver/* data/gold/* data/audit/*/*
+	find data/bronze data/silver data/gold data/audit -type f -not -name ".gitkeep" -delete
+	find data/bronze data/silver data/gold data/audit -mindepth 1 -type d -empty -delete
 
 # --- data download ---------------------------------------------------------
 # Configurable time period, no default quarter is hardcoded: set

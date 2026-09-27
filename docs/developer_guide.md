@@ -101,7 +101,7 @@ would fail with "ruff: command not found."
 | `make coverage` | Full suite under `pytest-cov`; writes `htmlcov/index.html` |
 | `make ci` | `lint` + `test` — exactly what CI runs |
 | `make clean` | Removes caches (`__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `htmlcov`, `.coverage`) — never touches data or runtime state |
-| `make clean-data` | Removes regenerated pipeline outputs (`data/bronze`, `data/silver`, `data/gold`, `data/audit/*/*`) — never touches `data/raw/` source data |
+| `make clean-data` | Removes regenerated pipeline outputs (`data/bronze`, `data/silver`, `data/gold`, `data/audit/*/*`), preserving every `.gitkeep` placeholder — never touches `data/raw/` source data |
 | `make download-backblaze` / `download-smartz` | Configurable raw-data download (§5.0) |
 | `make ingest-backblaze` / `ingest-smartz` / `ingest-synthetic-stub` | Bronze ingestion (§5) |
 | `make build-silver` / `build-features` / `build-labels` | Silver/Gold pipeline stages (§5) |
@@ -955,6 +955,115 @@ repeatedly (including in CI) writes nothing to `mlflow/`. If you write a new
 test that calls `build_demo_dependencies()`, always pass an explicit
 in-memory `action_ledger` unless you specifically intend to exercise the
 real persistent one.
+
+### 12.1 End-to-end walkthrough: synthetic data vs. real data
+
+The automated suite (§12 above) is the fast, CI-safe way to know the
+system works. This section is for manually walking the *data pipeline*
+end-to-end yourself — either entirely offline with synthetic data, or
+against real Backblaze/SMART-Z data.
+
+#### A. Synthetic data (fast, offline, no download)
+
+**Agent/API loop only, no data pipeline needed:**
+
+```bash
+make smoke        # one real MAPE-K cycle + every documented API endpoint, in-memory
+make agent-demo   # one real MAPE-K cycle against a hardcoded 2-drive fleet, printed live
+```
+
+Both use the real guardrail engine, trust-score math, and LangGraph
+graph — just synthetic/hardcoded fleet data instead of a trained model's
+real predictions. `make smoke`/`make test` never write to `mlflow/`;
+`make agent-demo` does (it uses the real persistent `SqliteActionLedger`
+and checkpoint, by design — see `src/agent/demo.py`).
+
+**Full data pipeline, bronze through gold labels:**
+
+```bash
+make ingest-synthetic-stub   # 5 drives x 10 days -> data/bronze/synthetic/
+make build-silver            # -> data/silver/{canonical_telemetry,drive_metadata}/
+make build-features          # -> data/gold/features/part.parquet (~195 columns)
+make build-labels            # -> data/gold/labels/part.parquet + dataset_versions/*.json
+```
+
+Each stage logs a structured `*_written` event with the row/column count
+and output path (`src/logging_config.py`) - use that to confirm each
+stage actually produced rows before moving to the next.
+
+**`make train` is then expected to fail**, with a clear `ValueError`:
+`"No rows with an observed (non-censored) 14-day label..."`. The
+synthetic stub is intentionally trivial (10 days of history, zero
+failures - see `src/ingest/synthetic_stub.py`), so no row can ever reach
+14-day horizon observability. That failure *is* the meaningful check
+here: it confirms the pipeline refuses to silently train on data that
+cannot support a real label, rather than producing a garbage model (see
+§5's "Real data gap" note). Don't be alarmed by it.
+
+For a synthetic dataset with actual failure trajectories (useful for
+exercising labeling/imbalance logic by hand, e.g. in a notebook), see
+`tests/golden/generate_golden_dataset.py` (100 healthy + 100 failing
+drives, 60 days each, real degrading SMART trajectories) - run
+`make test-golden` for the automated version of this check. Per §12,
+that test only validates the golden dataset's own shape; it does not run
+it through `src/features/*`/`src/labels/*`, so it isn't a substitute for
+the synthetic-stub walkthrough above if what you're validating is the
+gold-feature/label pipeline itself.
+
+Clean up between runs: `make clean-data` (removes everything under
+`data/bronze`, `data/silver`, `data/gold`, `data/audit/*/*`, preserving
+every `.gitkeep`; never touches `data/raw/` or `mlflow/`).
+
+#### B. Real data (Backblaze, optionally SMART-Z)
+
+1. **Configure a time period** (§5.0) - nothing downloads by default:
+
+   ```yaml
+   # configs/data.yaml
+   download:
+     backblaze:
+       quarters: ["Q1_2025"]   # start with ONE quarter - see the warning below
+   ```
+
+2. **Run the full pipeline:**
+
+   ```bash
+   make download-backblaze   # streams + extracts the configured quarter(s)
+   make ingest-backblaze     # -> data/bronze/backblaze/
+   make build-silver
+   make build-features
+   make build-labels
+   make train                # LightGBM/XGBoost, threshold tuning, SHAP, model card, MLflow run
+   make score-fleet          # batch-scores the current fleet -> data/audit/predictions/{date}.json
+   ```
+
+   Real Backblaze CSVs must carry `date`, `serial_number`, `model`,
+   `capacity_bytes`, `failure` (`src/ingest/backblaze.py::REQUIRED_COLUMNS`)
+   - true for every quarterly archive Backblaze has published.
+
+3. **`make score-fleet` output is a standalone batch report, not wired
+   into `make agent-demo`/`make api`.** Those still run against the
+   hardcoded demo fleet regardless of whether you've trained a real model
+   - see §5.8 for exactly why (the live loop's lean `AgentState` can't
+   carry `PredictionOutput`'s full nested `FeatureConfidence`). To see the
+   trained model's real predictions, read
+   `data/audit/predictions/{date}.json` or the MLflow run directly
+   (`configs/model.yaml`'s `mlflow.tracking_uri`).
+
+4. **Disk space warning, from experience**: a single Backblaze quarterly
+   archive is roughly 1-1.5GB compressed and expands to several GB of CSV
+   across 90+ daily files once extracted. Check `df -h` before configuring
+   more than one or two quarters. `make clean-data` deliberately never
+   touches `data/raw/` (it's expensive to re-download) - if you need to
+   reclaim space from raw archives, remove them manually:
+   `rm -rf data/raw/backblaze/_archives data/raw/backblaze/*.csv`.
+
+5. **SMART-Z**: `make download-smartz` requires a directly-configured
+   `download.smartz.url` (§5.0 - there's no public bulk-download API).
+   Once ingested via `make ingest-smartz`, its rows flow through the same
+   silver/gold pipeline and are automatically excluded from
+   train/validation/test as an external validation split
+   (`split=external_smartz` - `src/labels/splits.py::apply_vendor_holdout`).
 
 ---
 

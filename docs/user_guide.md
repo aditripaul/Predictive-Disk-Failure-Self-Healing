@@ -302,19 +302,29 @@ The demo/dashboard defaults ship with a hardcoded two-drive scenario so the
 system is runnable with zero setup. To run it against real Backblaze
 SMART-telemetry data instead:
 
-1. Download Backblaze's quarterly hard-drive-stats CSVs into `data/raw/backblaze/`.
-2. Run the pipeline in order:
+1. Tell it which quarter(s) of Backblaze data you want in
+   `configs/data.yaml` (e.g. `download.backblaze.quarters: ["Q1_2025"]` —
+   nothing downloads until you set this), then download and run the
+   pipeline in order:
    ```bash
+   make download-backblaze
    make ingest-backblaze
    make build-silver
    make build-features
    make build-labels
    make train
+   make score-fleet
    ```
-3. Each step prints where it wrote its output and a data-quality report.
+2. Each step prints where it wrote its output and a data-quality report.
+   `make score-fleet` writes a fleet-wide risk report to
+   `data/audit/predictions/` — it's a separate batch report, not something
+   the dashboard/API reads automatically.
+3. A single quarter's archive is roughly 1-1.5GB compressed and several GB
+   once extracted, so check you have disk space free before starting.
 
 Without real data, every one of these steps still runs correctly against
 the small built-in synthetic dataset (`make ingest-synthetic-stub`), which
 is useful for confirming the pipeline itself works, but `make train` will
 tell you plainly that there isn't enough real history to train a meaningful
-model — that message is expected, not an error in the system.
+model — that message is expected, not an error in the system. See
+`docs/developer_guide.md` §12.1 for the full walkthrough of both paths.
