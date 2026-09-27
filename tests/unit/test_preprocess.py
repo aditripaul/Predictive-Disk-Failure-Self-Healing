@@ -2,6 +2,7 @@ import datetime as dt
 
 import polars as pl
 
+from src.preprocess.failure_events import derive_failure_date
 from src.preprocess.feature_maturity import build_drive_metadata
 from src.preprocess.identifiers import infer_model_family, normalize_drive_id, parse_capacity_gb
 from src.preprocess.quality_checks import (
@@ -12,6 +13,34 @@ from src.preprocess.quality_checks import (
 )
 from src.preprocess.smart_mapping import build_canonical_attribute_map, melt_smart_attributes
 from src.preprocess.telemetry_gaps import compute_telemetry_gaps
+
+
+def test_derive_failure_date_broadcasts_the_failure_day_to_every_row():
+    df = pl.DataFrame(
+        {
+            "drive_id": ["A", "A", "A", "B", "B"],
+            "date": [
+                dt.date(2024, 1, 1),
+                dt.date(2024, 1, 2),
+                dt.date(2024, 1, 3),
+                dt.date(2024, 1, 1),
+                dt.date(2024, 1, 2),
+            ],
+            "failure": [0, 0, 1, 0, 0],
+        }
+    )
+    out = derive_failure_date(df)
+    by_drive = {row["drive_id"]: row["failure_date"] for row in out.to_dicts()}
+    a_rows = out.filter(pl.col("drive_id") == "A")
+    assert (a_rows["failure_date"] == dt.date(2024, 1, 3)).all()
+    assert out.filter(pl.col("drive_id") == "B")["failure_date"].is_null().all()
+    assert by_drive["A"] == dt.date(2024, 1, 3)
+
+
+def test_derive_failure_date_is_a_noop_without_a_failure_column():
+    df = pl.DataFrame({"drive_id": ["A"], "date": [dt.date(2024, 1, 1)]})
+    out = derive_failure_date(df)
+    assert "failure_date" not in out.columns
 
 
 def test_normalize_drive_id_trims_and_uppercases():

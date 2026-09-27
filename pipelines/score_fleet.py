@@ -21,19 +21,18 @@ import yaml
 import mlflow
 from src.logging_config import configure_logging, get_logger
 from src.models.features import select_feature_columns
-from src.models.serving import propose_actions, score_latest_drive_day
+from src.models.serving import (
+    join_feature_maturity,
+    latest_row_per_drive,
+    propose_actions,
+    score_latest_drive_day,
+)
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
 AGENT_CONFIG_PATH = Path("configs/agent.yaml")
 
 logger = get_logger(__name__)
-
-
-def _latest_row_per_drive(gold_features: pl.DataFrame) -> pl.DataFrame:
-    return (
-        gold_features.sort(["drive_id", "date"]).group_by("drive_id", maintain_order=True).last()
-    )
 
 
 def main() -> None:
@@ -43,11 +42,16 @@ def main() -> None:
     agent_config = yaml.safe_load(AGENT_CONFIG_PATH.read_text())
 
     gold_dir = Path(data_config["gold_dir"])
+    silver_dir = Path(data_config["silver_dir"])
     features_path = gold_dir / "features" / "part.parquet"
+    metadata_path = silver_dir / "drive_metadata" / "part.parquet"
     if not features_path.exists():
         raise FileNotFoundError(f"{features_path} not found; run `make build-features` first.")
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"{metadata_path} not found; run `make build-silver` first.")
 
-    latest_features = _latest_row_per_drive(pl.read_parquet(features_path))
+    latest_features = latest_row_per_drive(pl.read_parquet(features_path))
+    latest_features = join_feature_maturity(latest_features, pl.read_parquet(metadata_path))
 
     mlflow.set_tracking_uri(model_config["mlflow"]["tracking_uri"])
     experiment_name = model_config["mlflow"]["experiment_name"]

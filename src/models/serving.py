@@ -35,9 +35,14 @@ from src.models.action_tiers import determine_action_tier
 from src.models.training import predict_proba_positive
 
 #: Columns every row of `latest_features` must carry beyond the model's
-#: own feature columns - all produced by the existing gold-feature
-#: pipeline (src/preprocess/telemetry_gaps.py, src/features/confidence.py,
-#: src/preprocess/feature_maturity.py joined in).
+#: own feature columns. `telemetry_coverage_30d`/`hours_since_last_
+#: telemetry`/`attribute_coverage_factor`/`feature_confidence` are
+#: computed directly into the gold features table
+#: (`src/preprocess/telemetry_gaps.py`, `src/features/confidence.py`).
+#: `feature_maturity` is NOT - it's a per-drive (not per-drive-day)
+#: classification computed only in Silver's `drive_metadata` table
+#: (`src/preprocess/feature_maturity.py::build_drive_metadata`), so
+#: callers must join it in themselves - see `join_feature_maturity`.
 REQUIRED_CONFIDENCE_COLUMNS = (
     "telemetry_coverage_30d",
     "hours_since_last_telemetry",
@@ -45,6 +50,26 @@ REQUIRED_CONFIDENCE_COLUMNS = (
     "feature_confidence",
     "feature_maturity",
 )
+
+
+def latest_row_per_drive(gold_features: pl.DataFrame) -> pl.DataFrame:
+    """Each drive's most recent gold-feature row - the "current state of
+    the fleet" snapshot batch scoring operates on."""
+    return (
+        gold_features.sort(["drive_id", "date"]).group_by("drive_id", maintain_order=True).last()
+    )
+
+
+def join_feature_maturity(
+    latest_features: pl.DataFrame, drive_metadata: pl.DataFrame
+) -> pl.DataFrame:
+    """`feature_maturity` (WARMUP/MATURE/STALE/DECOMMISSIONED) lives only
+    in Silver's `drive_metadata` table, never in the gold features table
+    itself - `score_latest_drive_day` will raise a clear `ValueError` if
+    it's missing, so callers must join it in via this function first."""
+    return latest_features.join(
+        drive_metadata.select(["drive_id", "feature_maturity"]), on="drive_id", how="left"
+    )
 
 
 def score_latest_drive_day(

@@ -322,9 +322,11 @@ SMART-telemetry data instead:
 3. A single quarter's archive is roughly 1-1.5GB compressed and several GB
    once extracted, so check you have disk space free before starting.
 
-Without real data, every one of these steps still runs correctly against
-the small built-in synthetic dataset (`make ingest-synthetic-stub`), which
-is useful for confirming the pipeline itself works, but `make train` will
-tell you plainly that there isn't enough real history to train a meaningful
-model — that message is expected, not an error in the system. See
-`docs/developer_guide.md` §12.1 for the full walkthrough of both paths.
+Without real data, every one of these steps — including `make train` and
+`make score-fleet` — still runs correctly against the small built-in
+synthetic dataset (`make ingest-synthetic-stub`), which generates its own
+mix of healthy and failing drives so training has something real to
+learn from. It's useful for confirming the pipeline itself works, but its
+near-perfect accuracy is an artifact of noise-free synthetic data, not a
+preview of real-world performance. See `docs/developer_guide.md` §12.1
+for the full walkthrough of both paths.

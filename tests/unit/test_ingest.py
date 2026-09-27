@@ -1,3 +1,4 @@
+import datetime as dt
 from pathlib import Path
 
 import polars as pl
@@ -74,8 +75,25 @@ def test_ingest_smartz_file_lands_bronze_partitions(tmp_path: Path):
 
 def test_synthetic_stub_shape():
     df = build_synthetic_stub()
-    assert df.height == 5 * 10
-    assert df["drive_id"].n_unique() == 5
+    assert df["drive_id"].n_unique() == 6 + 9  # healthy + failing drives
+    assert df.height > 0
+
+
+def test_synthetic_stub_has_both_failing_and_healthy_drives():
+    df = build_synthetic_stub()
+    failure_counts = df.group_by("drive_id").agg(pl.col("failure").sum().alias("failures"))
+    failing = failure_counts.filter(pl.col("failures") > 0)
+    healthy = failure_counts.filter(pl.col("failures") == 0)
+    assert failing.height == 9
+    assert healthy.height == 6
+    # exactly one failure day per failing drive
+    assert (failing["failures"] == 1).all()
+
+
+def test_synthetic_stub_spans_the_default_chronological_split_boundaries():
+    df = build_synthetic_stub()
+    assert df["date"].min() <= dt.date(2021, 6, 1)
+    assert df["date"].max() >= dt.date(2023, 1, 1)
 
 
 def test_ingest_synthetic_stub_lands_bronze(tmp_path: Path):

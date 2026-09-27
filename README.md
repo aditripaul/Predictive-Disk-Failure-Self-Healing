@@ -477,21 +477,24 @@ make smoke        # one real MAPE-K cycle + every documented API endpoint, in-me
 make agent-demo   # one real MAPE-K cycle against a hardcoded 2-drive fleet, printed live
 ```
 
-Full data pipeline, bronze through gold labels:
+Full data pipeline, bronze through a real trained model — this genuinely
+completes end-to-end:
 
 ```bash
-make ingest-synthetic-stub   # 5 drives x 10 days -> data/bronze/synthetic/
+make ingest-synthetic-stub   # 15 drives, 2021-01-01..2023-06-01 -> data/bronze/synthetic/
 make build-silver
 make build-features
 make build-labels
+make train           # trains, tunes threshold, logs to MLflow, writes a model card
+make score-fleet     # batch-scores the current fleet -> data/audit/predictions/
 ```
 
-**`make train` is then *expected* to fail** with a clear `ValueError`
-("No rows with an observed non-censored 14-day label...") — the
-synthetic stub has only 10 days of history and zero failures, so no row
-can reach horizon observability. That failure is itself the meaningful
-check: the pipeline refuses to silently train on data that can't support
-a real label. Clean up with `make clean-data` between runs.
+The synthetic stub generates real degrading failure trajectories spread
+across the default chronological split boundaries, so every split has
+both real failures and healthy drives to learn from. Expect a
+suspiciously perfect AUPRC (~1.0) — the trajectories are noise-free by
+design, so this confirms the pipeline plumbing works, not that the model
+is good. Clean up with `make clean-data` between runs.
 
 ### B. Real data (Backblaze, optionally SMART-Z)
 

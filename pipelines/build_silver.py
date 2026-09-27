@@ -15,6 +15,7 @@ import polars as pl
 import yaml
 
 from src.logging_config import configure_logging, get_logger
+from src.preprocess.failure_events import derive_failure_date
 from src.preprocess.feature_maturity import build_drive_metadata
 from src.preprocess.identifiers import normalize_identifiers
 from src.preprocess.quality_checks import run_all_checks
@@ -33,6 +34,7 @@ def build_silver(bronze_root: Path, config: dict) -> tuple[pl.DataFrame, pl.Data
 
     wide = pl.concat([pl.read_parquet(p) for p in bronze_files], how="diagonal_relaxed")
     wide = normalize_identifiers(wide.lazy()).collect()
+    wide = derive_failure_date(wide)
 
     gap_cfg = config["telemetry_gap"]
     drive_day = compute_telemetry_gaps(

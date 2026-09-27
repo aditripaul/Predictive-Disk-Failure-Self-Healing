@@ -4,7 +4,12 @@ import numpy as np
 import polars as pl
 
 from data_contracts.schemas import ActionTier, FeatureMaturity
-from src.models.serving import propose_actions, score_latest_drive_day
+from src.models.serving import (
+    join_feature_maturity,
+    latest_row_per_drive,
+    propose_actions,
+    score_latest_drive_day,
+)
 from src.models.training import train_lightgbm
 
 ACTION_THRESHOLDS = {"warn": 0.30, "cordon": 0.60, "migrate": 0.80, "drain": 0.90}
@@ -156,3 +161,36 @@ def test_propose_actions_rationale_and_prediction_are_populated():
     assert d1_proposal.prediction.drive_id == "D-1"
     assert "p_fail=0.950" in d1_proposal.rationale
     assert d1_proposal.created_at == AS_OF
+
+
+def test_latest_row_per_drive_picks_the_most_recent_date():
+    df = pl.DataFrame(
+        {
+            "drive_id": ["A", "A", "B"],
+            "date": [dt.date(2024, 1, 1), dt.date(2024, 1, 3), dt.date(2024, 1, 2)],
+            "p_fail_input": [1.0, 2.0, 3.0],
+        }
+    )
+    out = latest_row_per_drive(df)
+    by_drive = {row["drive_id"]: row for row in out.to_dicts()}
+    assert by_drive["A"]["date"] == dt.date(2024, 1, 3)
+    assert by_drive["A"]["p_fail_input"] == 2.0
+    assert by_drive["B"]["date"] == dt.date(2024, 1, 2)
+
+
+def test_join_feature_maturity_adds_the_per_drive_column():
+    """feature_maturity lives only in Silver's drive_metadata table, never
+    in gold features - this is what pipelines/score_fleet.py relies on to
+    satisfy score_latest_drive_day's REQUIRED_CONFIDENCE_COLUMNS check."""
+    latest_features = pl.DataFrame({"drive_id": ["A", "B"], "some_feature": [1.0, 2.0]})
+    drive_metadata = pl.DataFrame(
+        {
+            "drive_id": ["A", "B"],
+            "feature_maturity": [FeatureMaturity.MATURE.value, FeatureMaturity.WARMUP.value],
+            "unrelated_metadata_column": ["x", "y"],
+        }
+    )
+    out = join_feature_maturity(latest_features, drive_metadata)
+    by_drive = {row["drive_id"]: row["feature_maturity"] for row in out.to_dicts()}
+    assert by_drive == {"A": "MATURE", "B": "WARMUP"}
+    assert "unrelated_metadata_column" not in out.columns

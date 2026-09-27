@@ -306,9 +306,13 @@ against real Backblaze/SMART-Z archives in this repo. `make ingest-backblaze`
 and `make ingest-smartz` print a clear message and exit if
 `data/raw/{backblaze,smartz}/` is empty. `make train` fails with a clear
 `ValueError` (not a cryptic LightGBM stack trace) if the assembled training
-frame has zero non-censored rows for the primary horizon — which is exactly
-what happens against the synthetic stub, since 10 days of history can never
-observe a 14-day horizon.
+frame has zero non-censored rows for the primary horizon; against the
+synthetic stub (`src/ingest/synthetic_stub.py`, §12.1) that no longer
+happens by default - the stub now spans multiple years with real degrading
+failure trajectories, so `make train` genuinely completes end-to-end
+offline. The error path itself is still real and still worth knowing about
+(e.g. if you narrow `configs/model.yaml`'s split boundaries against a
+small real dataset and end up with an empty split).
 
 **Model selection: LightGBM or XGBoost** (`configs/model.yaml`'s
 `model.type`, docs/design_goal.md/docs/project_plan.md "ML models: XGBoost
@@ -978,41 +982,67 @@ real predictions. `make smoke`/`make test` never write to `mlflow/`;
 `make agent-demo` does (it uses the real persistent `SqliteActionLedger`
 and checkpoint, by design — see `src/agent/demo.py`).
 
-**Full data pipeline, bronze through gold labels:**
+**Full data pipeline, bronze through a real trained model:**
 
 ```bash
-make ingest-synthetic-stub   # 5 drives x 10 days -> data/bronze/synthetic/
+make ingest-synthetic-stub   # 15 drives, 2021-01-01..2023-06-01 -> data/bronze/synthetic/
 make build-silver            # -> data/silver/{canonical_telemetry,drive_metadata}/
-make build-features          # -> data/gold/features/part.parquet (~195 columns)
+make build-features          # -> data/gold/features/part.parquet (~196 columns)
 make build-labels            # -> data/gold/labels/part.parquet + dataset_versions/*.json
+make train                   # trains, tunes threshold, logs to MLflow, writes a model card
+make score-fleet             # batch-scores the current fleet -> data/audit/predictions/
 ```
 
 Each stage logs a structured `*_written` event with the row/column count
 and output path (`src/logging_config.py`) - use that to confirm each
-stage actually produced rows before moving to the next.
+stage actually produced rows before moving to the next. **This actually
+completes end-to-end**, including `make train`: `src/ingest/synthetic_stub.py`
+generates 6 healthy drives and 9 failing drives (real degrading
+reallocated/pending-sector trajectories, mirroring
+`tests/golden/generate_golden_dataset.py`) spanning
+`configs/model.yaml`'s default chronological split boundaries
+(`train_end`/`validation_end`/`test_end` = 2021/2022/2023-12-31), with
+failure dates spread across the whole window so every split has real
+positive and negative labels. Since the trajectories are noise-free by
+design, expect a suspiciously perfect AUPRC (~1.0) — that confirms the
+*pipeline plumbing* is correct, not that the model is any good; it isn't
+a substitute for validating against real data's actual noise and
+ambiguity.
 
-**`make train` is then expected to fail**, with a clear `ValueError`:
-`"No rows with an observed (non-censored) 14-day label..."`. The
-synthetic stub is intentionally trivial (10 days of history, zero
-failures - see `src/ingest/synthetic_stub.py`), so no row can ever reach
-14-day horizon observability. That failure *is* the meaningful check
-here: it confirms the pipeline refuses to silently train on data that
-cannot support a real label, rather than producing a garbage model (see
-§5's "Real data gap" note). Don't be alarmed by it.
+Two things this rewrite deliberately fixed, worth knowing about:
+- **`failure_date` derivation** (`src/preprocess/failure_events.py::
+  derive_failure_date`, wired into `pipelines/build_silver.py`): Backblaze
+  (and now the synthetic stub) reports failure as a per-day `0`/`1` flag,
+  but `src/labels/event_types.py::classify_event_types` and
+  `build_drive_metadata` need a single `failure_date` per drive. Nothing
+  converted one into the other before this - meaning a real Backblaze
+  failure would never have been classified as `CONFIRMED_FAILURE`, so
+  every label would have come out `0` even with a dataset full of real
+  failures. This was caught by actually running the pipeline end-to-end,
+  not by unit tests exercising each stage in isolation with hand-built
+  fixtures.
+- **`make score-fleet` needs `feature_maturity` joined in**
+  (`src/models/serving.py::join_feature_maturity`): it's a per-drive
+  classification that lives only in Silver's `drive_metadata` table, never
+  in the Gold features table `score_latest_drive_day` otherwise reads from
+  - also only caught by running the real pipeline, since the unit tests
+  for `src/models/serving.py` used a hand-built fixture that already had
+  the column.
 
-For a synthetic dataset with actual failure trajectories (useful for
-exercising labeling/imbalance logic by hand, e.g. in a notebook), see
+For a synthetic dataset with a different (larger, gold-feature-shaped)
+degrading trajectory for ad hoc notebook exploration, see
 `tests/golden/generate_golden_dataset.py` (100 healthy + 100 failing
-drives, 60 days each, real degrading SMART trajectories) - run
-`make test-golden` for the automated version of this check. Per §12,
-that test only validates the golden dataset's own shape; it does not run
-it through `src/features/*`/`src/labels/*`, so it isn't a substitute for
-the synthetic-stub walkthrough above if what you're validating is the
-gold-feature/label pipeline itself.
+drives, 60 days each) - `make test-golden` is the automated shape-only
+regression check on it (§12); it does not run through
+`src/features/*`/`src/labels/*`, so it isn't a substitute for the
+bronze-through-gold walkthrough above.
 
 Clean up between runs: `make clean-data` (removes everything under
 `data/bronze`, `data/silver`, `data/gold`, `data/audit/*/*`, preserving
-every `.gitkeep`; never touches `data/raw/` or `mlflow/`).
+every `.gitkeep`; never touches `data/raw/` or `mlflow/`). MLflow/agent
+runtime state lives under `mlflow/` and is gitignored - remove it by hand
+(`rm -rf mlflow/mlruns mlflow/*.db mlflow/mlartifacts`) if you want a
+fully clean slate between experiments.
 
 #### B. Real data (Backblaze, optionally SMART-Z)
 
