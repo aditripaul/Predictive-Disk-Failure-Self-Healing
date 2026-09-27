@@ -91,11 +91,12 @@ would fail with "ruff: command not found."
 | `make install` | `uv sync --extra dev` |
 | `make lint` | `ruff check .` + `mypy src data_contracts` |
 | `make format` | `ruff format .` then `ruff check --fix .` |
-| `make test` | Full pytest suite (unit + integration + chaos + golden + smoke) |
+| `make test` | Full pytest suite (unit + integration + chaos + golden + property + smoke) |
 | `make test-unit` | `tests/unit/` only |
 | `make test-integration` | `tests/integration/` only |
 | `make test-chaos` | `tests/chaos/` only |
 | `make test-golden` / `make data-check` | `tests/golden/` only (same thing, two names) |
+| `make test-property` | `tests/property/` only — Hypothesis property-based tests |
 | `make smoke` | `tests/smoke/` only — see §12 |
 | `make coverage` | Full suite under `pytest-cov`; writes `htmlcov/index.html` |
 | `make ci` | `lint` + `test` — exactly what CI runs |
@@ -764,13 +765,17 @@ tests/chaos/         full-stack scenarios (stale telemetry, correlated failure, 
                       human-review SLA timeout) + guardrail latency benchmark (<500ms budget)
 tests/golden/        synthetic 100-healthy/100-failing dataset; regenerate via
                       tests/golden/generate_golden_dataset.py if the schema changes
+tests/property/       Hypothesis property-based tests — invariants (hysteresis streaks,
+                      trust-score bounds, calibration bin accounting) checked against
+                      arbitrarily generated inputs, not just the hand-picked examples
+                      tests/unit/ covers
 tests/smoke/         boots the real default wiring (build_demo_dependencies) end-to-end and
                       walks every documented API endpoint once — "does the shipped system work at all"
 ```
 
 Run everything: `make test`. Run one layer: `make test-unit` /
 `make test-integration` / `make test-chaos` / `make test-golden` (alias:
-`make data-check`) / `make smoke`. `make ci` runs exactly what
+`make data-check`) / `make test-property` / `make smoke`. `make ci` runs exactly what
 `.github/workflows/ci.yml` runs (`lint` + `test`), so you can reproduce a CI
 failure locally before pushing. `make coverage` runs the full suite under
 `pytest-cov` and writes an HTML report to `htmlcov/` (open

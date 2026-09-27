@@ -1,5 +1,5 @@
-.PHONY: install lint format test test-unit test-integration test-chaos test-golden data-check \
-	smoke coverage ci clean clean-data \
+.PHONY: install lint format test test-unit test-integration test-chaos test-golden test-property \
+	data-check smoke coverage ci clean clean-data \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train \
 	agent-demo dashboard api final-report
 
@@ -36,6 +36,9 @@ test-chaos:
 
 test-golden:
 	uv run pytest tests/golden
+
+test-property:
+	uv run pytest tests/property
 
 data-check: test-golden
 
