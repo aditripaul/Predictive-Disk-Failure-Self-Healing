@@ -67,12 +67,15 @@ class GuardrailSettings:
     min_feature_confidence: float
     max_concurrent_drains: int
     max_actions_per_hour: int
+    operational_state_backend: str
+    redis_url: str
 
     @classmethod
     def load(cls) -> GuardrailSettings:
         raw = load_yaml("guardrails.yaml")
         rules_by_id = {r["id"]: r for r in raw["rules"]}
         agent = AgentSettings.load()
+        operational_state_cfg = raw.get("operational_state", {})
         return cls(
             # "migrate" is the lowest p_fail cutoff at which any destructive
             # tier (migrate/drain) can be proposed; PRED_THRESHOLD must not
@@ -84,4 +87,6 @@ class GuardrailSettings:
                 "max_concurrent_drains"
             ],
             max_actions_per_hour=rules_by_id["OPS_RATE_LIMIT"]["params"]["max_actions_per_hour"],
+            operational_state_backend=operational_state_cfg.get("backend", "in_memory"),
+            redis_url=operational_state_cfg.get("redis_url", "redis://localhost:6379/0"),
         )

@@ -2,6 +2,15 @@ version: 1
 
 conflict_resolution: "safety > operational > efficiency"
 
+# Operational-state backend for drain/rate-limit counters
+# (docs/design_goal.md section 14). Disabled by default: the in-memory
+# backend (src/guardrails/operational_state.py) is correct for a single
+# process; enable this for a multi-instance deployment where those
+# counters must be shared (src/guardrails/redis_operational_state.py).
+operational_state:
+  backend: in_memory  # in_memory | redis
+  redis_url: "redis://localhost:6379/0"
+
 rules:
   - id: PRED_THRESHOLD
     type: prediction

@@ -122,3 +122,79 @@ def test_adapter_raises_on_missing_required_keys():
         raise AssertionError("expected ValueError")
     except ValueError as exc:
         assert "missing required keys" in str(exc)
+
+
+def test_adapter_uses_redis_backend_when_configured(monkeypatch):
+    """When configs/guardrails.yaml's operational_state.backend is "redis",
+    build_guardrail_evaluator must construct a RedisOperationalState (not
+    the in-memory default) from the configured redis_url - this is the
+    wiring src/guardrails/redis_operational_state.py exists to be used by."""
+    import src.guardrails.adapter as adapter_module
+
+    constructed: dict[str, str] = {}
+
+    class _StubRedisOperationalState:
+        def __init__(self, redis_url: str) -> None:
+            constructed["redis_url"] = redis_url
+
+        def concurrent_drains(self) -> int:
+            return 0
+
+        def actions_in_last_hour(self, *, now=None) -> int:
+            return 0
+
+        def record_action(self, action_id, proposed_action, *, now=None) -> None:
+            pass
+
+    class _FakeSettings:
+        prediction_threshold = 0.8
+        min_feature_confidence = 0.5
+        max_concurrent_drains = 1
+        max_actions_per_hour = 5
+        operational_state_backend = "redis"
+        redis_url = "redis://example.internal:6379/0"
+
+    monkeypatch.setattr(adapter_module, "RedisOperationalState", _StubRedisOperationalState)
+    monkeypatch.setattr(adapter_module.GuardrailSettings, "load", lambda: _FakeSettings())
+
+    evaluate = build_guardrail_evaluator()
+    evaluate(
+        {
+            "action_id": "a1",
+            "drive_id": "D-1",
+            "proposed_action": ActionTier.CORDON.value,
+            "p_fail": 0.9,
+            "feature_confidence": 0.9,
+            "feature_maturity": FeatureMaturity.MATURE.value,
+            "stale_telemetry": False,
+        }
+    )
+    assert constructed["redis_url"] == "redis://example.internal:6379/0"
+
+
+def test_adapter_defaults_to_in_memory_backend_when_configured(monkeypatch):
+    import src.guardrails.adapter as adapter_module
+
+    class _FakeSettings:
+        prediction_threshold = 0.8
+        min_feature_confidence = 0.5
+        max_concurrent_drains = 1
+        max_actions_per_hour = 5
+        operational_state_backend = "in_memory"
+        redis_url = "redis://unused:6379/0"
+
+    monkeypatch.setattr(adapter_module.GuardrailSettings, "load", lambda: _FakeSettings())
+
+    evaluate = build_guardrail_evaluator()
+    result = evaluate(
+        {
+            "action_id": "a1",
+            "drive_id": "D-1",
+            "proposed_action": ActionTier.CORDON.value,
+            "p_fail": 0.9,
+            "feature_confidence": 0.9,
+            "feature_maturity": FeatureMaturity.MATURE.value,
+            "stale_telemetry": False,
+        }
+    )
+    assert result["passed"] is True

@@ -593,9 +593,17 @@ violation always blocks regardless of how many soft ones also fired).
 `src/guardrails/adapter.py` bridges this typed engine to the agent's
 dict-based `GuardrailEvaluator`/`PostActionGuardrailEvaluator` seams.
 `InMemoryOperationalState` (concurrent-drain count, rolling actions-per-hour)
-is the Phase 7 stand-in for the Redis-backed hot counters the design doc
-describes; the interface is small enough to swap for a real Redis client
-without touching `GuardrailEngine`.
+is correct for a single process; `src/guardrails/redis_operational_state.py::
+RedisOperationalState` implements the same interface (a `sadd`/`srem` set for
+active drains, a `zadd`/`zremrangebyscore`/`zcard` sorted set for the rolling
+hour of action timestamps) against a real Redis client (`redis` was
+previously a declared but entirely unused dependency), so the counters are
+genuinely shared across multiple API/agent process instances rather than
+resetting per process. `build_guardrail_evaluator` picks between them via
+`configs/guardrails.yaml`'s `operational_state.backend` (`in_memory` by
+default; `redis` reads `operational_state.redis_url`) unless a caller passes
+`operational_state=` explicitly, which always wins - `GuardrailEngine`
+itself never changes either way.
 
 **Defense in depth, on purpose**: a low-confidence or stale-telemetry
 destructive action is caught *twice* — once at the Plan/action-tier layer
@@ -866,12 +874,6 @@ Operational hardening still needed for production:
 - `InMemoryAuditStore` doesn't persist across an API restart (only the
   LangGraph checkpoint and action ledger do) — the entire audit trail an
   incident review would need is lost on restart.
-- `InMemoryOperationalState` (guardrail rate-limit/drain counters) is
-  per-process, not shared across multiple API instances — a real deployment
-  needs the Redis-backed version the design doc describes. Note: `redis` is
-  already a `pyproject.toml` dependency but is never imported anywhere in
-  `src/`/`pipelines/` — it's a declared-but-unused placeholder, not partial
-  wiring.
 - No containerization (no Dockerfile/compose), no `.env`/secrets-management
   pattern, no health-check endpoint (`GET /health`), no CORS/rate-limiting.
 - No coverage threshold is enforced anywhere (`pytest-cov` is installed but

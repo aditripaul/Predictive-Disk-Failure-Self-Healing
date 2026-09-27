@@ -12,6 +12,7 @@ from src.config import GuardrailSettings
 from src.guardrails.context import PostActionContext, RuleContext
 from src.guardrails.engine import GuardrailEngine
 from src.guardrails.operational_state import InMemoryOperationalState
+from src.guardrails.redis_operational_state import RedisOperationalState
 
 REQUIRED_PROPOSAL_KEYS = (
     "action_id",
@@ -27,7 +28,7 @@ REQUIRED_PROPOSAL_KEYS = (
 def build_guardrail_evaluator(
     *,
     engine: GuardrailEngine | None = None,
-    operational_state: InMemoryOperationalState | None = None,
+    operational_state: InMemoryOperationalState | RedisOperationalState | None = None,
     prediction_threshold: float | None = None,
     min_feature_confidence: float | None = None,
     max_concurrent_drains: int | None = None,
@@ -38,13 +39,18 @@ def build_guardrail_evaluator(
     lazily at call time so callers/tests can override individual values
     without needing the config files present."""
     engine = engine or GuardrailEngine()
-    operational_state = operational_state or InMemoryOperationalState()
     # A config-file read is cheap; always loading it (rather than only when
     # some argument is None) keeps the fallback resolution below simple and
     # fully type-safe, with no Optional narrowing across the closure below
     # (mypy cannot carry an `if x is None: x = ...` narrowing of an outer-
     # scope variable across a nested function boundary).
     defaults = GuardrailSettings.load()
+    if operational_state is not None:
+        resolved_operational_state = operational_state
+    elif defaults.operational_state_backend == "redis":
+        resolved_operational_state = RedisOperationalState(defaults.redis_url)
+    else:
+        resolved_operational_state = InMemoryOperationalState()
     resolved_prediction_threshold: float = (
         prediction_threshold if prediction_threshold is not None else defaults.prediction_threshold
     )
@@ -77,10 +83,10 @@ def build_guardrail_evaluator(
             stale_telemetry=proposal["stale_telemetry"],
             is_last_healthy_node_in_domain=proposal.get("is_last_healthy_node_in_domain", False),
             quorum_ok_after_action=proposal.get("quorum_ok_after_action", True),
-            concurrent_drains=operational_state.concurrent_drains(),
+            concurrent_drains=resolved_operational_state.concurrent_drains(),
             high_io_period=proposal.get("high_io_period", False),
             maintenance_window_active=proposal.get("maintenance_window_active", False),
-            actions_in_last_hour=operational_state.actions_in_last_hour(),
+            actions_in_last_hour=resolved_operational_state.actions_in_last_hour(),
             prediction_threshold=resolved_prediction_threshold,
             min_feature_confidence=resolved_min_feature_confidence,
             max_concurrent_drains=resolved_max_concurrent_drains,
@@ -89,7 +95,7 @@ def build_guardrail_evaluator(
 
         result = engine.evaluate(ctx)
         if result.passed:
-            operational_state.record_action(ctx.action_id, ctx.proposed_action)
+            resolved_operational_state.record_action(ctx.action_id, ctx.proposed_action)
 
         return _guardrail_result_to_dict(result)
 
