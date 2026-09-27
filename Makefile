@@ -1,7 +1,7 @@
 .PHONY: install lint format test test-unit test-integration test-chaos test-golden test-property \
 	data-check smoke coverage ci clean clean-data \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train \
-	build-sequences train-lstm \
+	build-sequences train-lstm score-fleet \
 	agent-demo dashboard api final-report
 
 # --- setup -----------------------------------------------------------------
@@ -96,6 +96,9 @@ build-sequences:
 
 train-lstm:
 	uv run python pipelines/train_lstm.py
+
+score-fleet:
+	uv run python pipelines/score_fleet.py
 
 final-report:
 	uv run python pipelines/generate_final_report.py

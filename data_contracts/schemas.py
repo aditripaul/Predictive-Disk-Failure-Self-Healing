@@ -198,6 +198,20 @@ class TrustScoreRecord(BaseModel):
 
 
 class DecisionAuditRecord(BaseModel):
+    """The full typed shape of one live-agent decision. Deliberately not
+    constructed anywhere in `src/agent/`/`src/api/`: it requires a nested
+    `PredictionOutput.feature_confidence: FeatureConfidence`, which in turn
+    requires `telemetry_coverage_30d`/`hours_since_last_telemetry`/
+    `attribute_coverage_factor` - fields the live MAPE-K loop's
+    intentionally lean `AgentState` (docs/design_goal.md section 5.6,
+    `src/agent/state.py`) never carries, by design, so LangGraph
+    checkpoints stay small. `InMemoryAuditStore` (`src/api/store.py`)
+    persists the equivalent information as a plain dict instead; this type
+    documents that dict's fully-specified shape as a schema reference, and
+    is genuinely used where the full gold-feature row (not a lean cycle
+    state) is available - see `src/models/serving.py`'s
+    `PredictionOutput`/`ActionProposal` batch-scoring path."""
+
     decision_id: str
     run_id: str
     timestamp: dt.datetime

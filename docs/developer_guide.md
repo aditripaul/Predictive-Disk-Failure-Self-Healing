@@ -106,6 +106,7 @@ would fail with "ruff: command not found."
 | `make build-silver` / `build-features` / `build-labels` | Silver/Gold pipeline stages (§5) |
 | `make train` | Trains the model, tunes threshold, computes SHAP importance (§5.1) |
 | `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (§5.7) — `train-lstm` requires `uv sync --extra torch` |
+| `make score-fleet` | Batch-scores the current fleet with the latest MLflow model; writes `data/audit/predictions/` (§5.8) |
 | `make final-report` | `pipelines/generate_final_report.py` — aggregates chaos/latency/model reports |
 | `make agent-demo` | One MAPE-K cycle against the hardcoded demo fleet (§6) |
 | `make dashboard` | Streamlit UI (§10) |
@@ -482,6 +483,47 @@ training pipeline:
   it cleanly rather than failing; it only actually runs once `torch` is
   installed. `tests/unit/test_sequences.py` has no such guard since
   `src/features/sequences.py` has no torch dependency.
+
+### 5.8 Batch fleet scoring — where `PredictionOutput`/`ActionProposal` are actually used
+
+`data_contracts.schemas.PredictionOutput`, `ActionProposal`, and
+`DecisionAuditRecord` were declared but never imported anywhere in real
+code. The reason isn't an oversight: `PredictionOutput.feature_confidence`
+is a full `FeatureConfidence` object requiring
+`telemetry_coverage_30d`/`hours_since_last_telemetry`/
+`attribute_coverage_factor`, and the live MAPE-K loop's `AgentState` is
+*deliberately* lean (§6.1, docs/design_goal.md section 5.6) - it never
+carries those fields, by design, so LangGraph checkpoints stay small.
+Forcing the live loop to populate these types would mean reversing that
+design decision.
+
+Instead, `src/models/serving.py` + `pipelines/score_fleet.py`
+(`make score-fleet`) is a genuinely new, standalone capability where the
+full contract applies for real: an offline batch report, independent of
+the live agent, that has the *entire* gold-feature row on hand (not a
+lean cycle state).
+
+- `score_latest_drive_day` takes each drive's most recent gold-feature
+  row (`_latest_row_per_drive` in the pipeline script) plus a trained
+  model, and returns one validated `PredictionOutput` per drive -
+  `FeatureConfidence` is built from real columns the gold-feature
+  pipeline already computes (`src/features/confidence.py`,
+  `src/preprocess/feature_maturity.py`), not fabricated data.
+- `propose_actions` runs the same `determine_action_tier` policy the live
+  agent uses over each `PredictionOutput`, producing an `ActionProposal`
+  (with a real rationale string and the full `PredictionOutput` embedded)
+  for anything above MONITOR.
+- `pipelines/score_fleet.py` loads the latest MLflow run for the
+  configured experiment (`mlflow.lightgbm.load_model`/
+  `mlflow.xgboost.load_model`, matching whichever flavor
+  `pipelines/train_model.py` logged), scores the current fleet, and
+  writes both lists to `data/audit/predictions/{date}.json`.
+- `DecisionAuditRecord` remains genuinely unused in the live loop - this
+  is the considered decision, not an unfixed gap. Its docstring in
+  `data_contracts/schemas.py` explains why and points to this section;
+  `InMemoryAuditStore` (`src/api/store.py`) persists the live loop's
+  equivalent information as a plain dict, and `DecisionAuditRecord`
+  documents that dict's fully-specified shape as a schema reference.
 
 ---
 
