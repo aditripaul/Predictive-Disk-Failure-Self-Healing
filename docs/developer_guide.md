@@ -287,6 +287,24 @@ used for production decisions - its only job is letting a training run
 confirm the primary model is actually beating a simple linear one,
 instead of assuming so.
 
+**Subsampled SMOTE comparison** (`src/models/smote.py`,
+docs/dataset_strategy.md section 15 Imbalance Mitigations #3: "SMOTE may
+be used, but only on training data and only if it improves AUPRC...
+apply SMOTE only to a stratified training sample; never apply SMOTE to
+validation or test data; compare against class weighting; prefer class
+weighting if SMOTE does not clearly improve validation performance").
+`imbalanced-learn` wasn't even a declared dependency before this.
+`apply_smote` stratified-subsamples the training partition (SMOTE's
+nearest-neighbor search is the expensive part at scale) and then
+oversamples the minority class to parity. Gated by
+`configs/model.yaml`'s `smote_comparison.enabled` (default `false`):
+when enabled, `pipelines/train_model.py` trains a **second, comparison-
+only** model on the SMOTE-resampled data (with class weighting turned
+off, since the data is already balanced) and reports both validation
+AUPRCs plus a `recommendation` field side by side - it never replaces the
+primary (class-weighted) model automatically, matching the docs' explicit
+default-to-class-weighting guidance.
+
 ### 5.1 Explainability (SHAP)
 
 `src/models/explainability.py` wraps `shap.TreeExplainer` (exact and fast

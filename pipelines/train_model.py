@@ -33,6 +33,7 @@ from src.models.features import assemble_training_frame, select_feature_columns
 from src.models.hyperparameter_tuning import tune_lightgbm_hyperparameters
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
 from src.models.model_card import build_model_card, render_model_card_markdown
+from src.models.smote import apply_smote
 from src.models.threshold import tune_threshold_for_precision
 from src.models.training import predict_proba_positive, train_lightgbm
 from src.models.xgboost_training import train_xgboost
@@ -177,6 +178,40 @@ def main() -> None:
             "baseline_test_auprc", results["logistic_regression_baseline"]["test_auprc"]
         )
 
+        # Subsampled SMOTE comparison (docs/dataset_strategy.md section 15
+        # Imbalance Mitigations #3) - a SECOND, comparison-only model, never
+        # used in place of the primary (class-weighted) one. SMOTE-resampled
+        # data is already balanced, so class weighting is turned off for
+        # this comparison fit to avoid double-compensating.
+        smote_cfg = model_config.get("smote_comparison", {})
+        if smote_cfg.get("enabled", False):
+            x_smote, y_smote = apply_smote(
+                x_train,
+                y_train,
+                subsample_fraction=smote_cfg.get("subsample_fraction", 1.0),
+                seed=smote_cfg.get("seed", 0),
+            )
+            smote_params = dict(model_params)
+            if model_type == "lightgbm":
+                smote_params["is_unbalance"] = False
+            smote_model = (
+                train_xgboost(x_smote, y_smote, params=smote_params)
+                if model_type == "xgboost"
+                else train_lightgbm(x_smote, y_smote, params=smote_params)
+            )
+            smote_val_auprc = compute_auprc(y_val, predict_proba_positive(smote_model, x_val))
+            class_weighting_val_auprc = results["validation_metrics"]["auprc"]
+            results["smote_comparison"] = {
+                "smote_validation_auprc": smote_val_auprc,
+                "class_weighting_validation_auprc": class_weighting_val_auprc,
+                "recommendation": (
+                    "smote" if smote_val_auprc > class_weighting_val_auprc else "class_weighting"
+                ),
+                "smote_resampled_row_count": len(y_smote),
+            }
+            mlflow.log_metric("smote_validation_auprc", smote_val_auprc)
+            logger.info("smote_comparison", **results["smote_comparison"])
+
         # Warning lead time (docs/dataset_strategy.md section 15): restrict
         # to drive-days belonging to drives with a genuine failure event
         # before asking "how early did the score cross threshold".
@@ -248,6 +283,7 @@ def main() -> None:
             train_row_count=x_train.shape[0],
             test_warning_lead_time=results["test_warning_lead_time"],
             logistic_regression_baseline=results["logistic_regression_baseline"],
+            smote_comparison=results.get("smote_comparison"),
         )
         model_cards_dir = Path(data_config["audit_dir"]) / "model_cards"
         model_cards_dir.mkdir(parents=True, exist_ok=True)

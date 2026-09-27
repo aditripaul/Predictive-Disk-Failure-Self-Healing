@@ -33,6 +33,7 @@ def build_model_card(
     train_row_count: int,
     test_warning_lead_time: dict[str, Any] | None = None,
     logistic_regression_baseline: dict[str, Any] | None = None,
+    smote_comparison: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "generated_at": dt.datetime.now(dt.UTC).isoformat(),
@@ -68,6 +69,7 @@ def build_model_card(
             "test_metrics": test_metrics,
             "test_warning_lead_time": test_warning_lead_time,
             "logistic_regression_baseline": logistic_regression_baseline,
+            "smote_comparison": smote_comparison,
         },
         "explainability": {
             "method": "shap.TreeExplainer",
@@ -119,6 +121,7 @@ def render_model_card_markdown(card: dict[str, Any]) -> str:
         f"- Test metrics: {evaluation['test_metrics']}",
         f"- Test warning lead time: {evaluation['test_warning_lead_time']}",
         f"- Logistic Regression sanity baseline: {evaluation['logistic_regression_baseline']}",
+        f"- SMOTE comparison: {evaluation['smote_comparison']}",
         "",
         "## Explainability",
         f"- Method: {card['explainability']['method']}",

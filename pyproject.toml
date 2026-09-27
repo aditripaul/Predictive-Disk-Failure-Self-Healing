@@ -16,6 +16,7 @@ dependencies = [
     "lightgbm>=4.5",
     "xgboost>=2.1",
     "scikit-learn>=1.5",
+    "imbalanced-learn>=0.12",
     "optuna>=4.0",
     "mlflow>=2.16",
     "langgraph>=0.2",

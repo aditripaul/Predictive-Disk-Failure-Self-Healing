@@ -67,6 +67,22 @@ def test_build_model_card_logistic_regression_baseline_defaults_to_none():
     assert card["evaluation"]["logistic_regression_baseline"] is None
 
 
+def test_build_model_card_includes_smote_comparison_when_provided():
+    card = _sample_card(
+        smote_comparison={
+            "smote_validation_auprc": 0.72,
+            "class_weighting_validation_auprc": 0.70,
+            "recommendation": "smote",
+        }
+    )
+    assert card["evaluation"]["smote_comparison"]["recommendation"] == "smote"
+
+
+def test_build_model_card_smote_comparison_defaults_to_none():
+    card = _sample_card()
+    assert card["evaluation"]["smote_comparison"] is None
+
+
 def test_render_model_card_markdown_contains_key_sections():
     card = _sample_card()
     markdown = render_model_card_markdown(card)

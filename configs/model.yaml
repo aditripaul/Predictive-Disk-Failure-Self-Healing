@@ -31,6 +31,17 @@ hyperparameter_search:
     learning_rate: [0.01, 0.2]
     n_estimators: [100, 800]
 
+# Subsampled SMOTE comparison (docs/dataset_strategy.md section 15
+# Imbalance Mitigations #3): trains a SECOND, comparison-only model on a
+# SMOTE-resampled training subsample and reports its validation AUPRC
+# alongside the primary (class-weighted) model's - it never replaces the
+# primary model. Disabled by default; per the docs, prefer class
+# weighting unless SMOTE clearly improves validation AUPRC.
+smote_comparison:
+  enabled: false
+  subsample_fraction: 1.0
+  seed: 0
+
 splits:
   strategy: chronological
   train_end: "2021-12-31"
