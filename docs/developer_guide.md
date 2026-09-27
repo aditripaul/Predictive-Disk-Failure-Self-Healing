@@ -272,6 +272,21 @@ logging, the model card) works with either model type; the Optuna search
 (§5.5) remains LightGBM-only and raises a clear error if enabled together
 with `model.type: xgboost`, rather than silently ignoring the setting.
 
+**Logistic Regression sanity baseline**
+(`src/models/logistic_regression_baseline.py`, docs/project_plan.md Phase
+6 Model Candidates: "Logistic Regression | Interpretable sanity
+baseline"): `pipelines/train_model.py` always trains this alongside the
+primary model (never config-gated - it's cheap and central to what a
+"sanity baseline" is for) and logs its validation/test AUPRC to MLflow
+and the model card. It standardizes features first via a
+`StandardScaler` (logistic regression is scale-sensitive, unlike the
+tree-based models, and the gold feature columns span very different raw
+ranges) and uses `class_weight="balanced"` for the same imbalance the
+tree models handle via `is_unbalance`/`scale_pos_weight`. It is never
+used for production decisions - its only job is letting a training run
+confirm the primary model is actually beating a simple linear one,
+instead of assuming so.
+
 ### 5.1 Explainability (SHAP)
 
 `src/models/explainability.py` wraps `shap.TreeExplainer` (exact and fast

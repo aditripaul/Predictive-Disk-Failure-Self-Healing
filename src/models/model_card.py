@@ -32,6 +32,7 @@ def build_model_card(
     shap_top_features: list[dict[str, Any]],
     train_row_count: int,
     test_warning_lead_time: dict[str, Any] | None = None,
+    logistic_regression_baseline: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "generated_at": dt.datetime.now(dt.UTC).isoformat(),
@@ -66,6 +67,7 @@ def build_model_card(
             "validation_metrics": validation_metrics,
             "test_metrics": test_metrics,
             "test_warning_lead_time": test_warning_lead_time,
+            "logistic_regression_baseline": logistic_regression_baseline,
         },
         "explainability": {
             "method": "shap.TreeExplainer",
@@ -116,6 +118,7 @@ def render_model_card_markdown(card: dict[str, Any]) -> str:
         f"- Validation metrics: {evaluation['validation_metrics']}",
         f"- Test metrics: {evaluation['test_metrics']}",
         f"- Test warning lead time: {evaluation['test_warning_lead_time']}",
+        f"- Logistic Regression sanity baseline: {evaluation['logistic_regression_baseline']}",
         "",
         "## Explainability",
         f"- Method: {card['explainability']['method']}",

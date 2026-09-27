@@ -19,7 +19,11 @@ import mlflow
 from src.labels.dataset_version import latest_dataset_version
 from src.labels.event_types import FAILURE_EVENT_TYPES
 from src.logging_config import configure_logging, get_logger
-from src.models.evaluation import compute_warning_lead_time_days, evaluate_at_threshold
+from src.models.evaluation import (
+    compute_auprc,
+    compute_warning_lead_time_days,
+    evaluate_at_threshold,
+)
 from src.models.explainability import (
     build_explainer,
     compute_shap_values,
@@ -27,6 +31,7 @@ from src.models.explainability import (
 )
 from src.models.features import assemble_training_frame, select_feature_columns
 from src.models.hyperparameter_tuning import tune_lightgbm_hyperparameters
+from src.models.logistic_regression_baseline import train_logistic_regression_baseline
 from src.models.model_card import build_model_card, render_model_card_markdown
 from src.models.threshold import tune_threshold_for_precision
 from src.models.training import predict_proba_positive, train_lightgbm
@@ -153,6 +158,25 @@ def main() -> None:
             y_test, test_scores, threshold_result["threshold"]
         )
 
+        # Logistic Regression sanity baseline (docs/project_plan.md Phase 6
+        # Model Candidates: "Interpretable sanity baseline") - confirms the
+        # primary model is actually adding value over a simple linear model,
+        # rather than assuming it. Never used for production decisions.
+        baseline_model = train_logistic_regression_baseline(x_train, y_train)
+        baseline_val_scores = predict_proba_positive(baseline_model, x_val)
+        baseline_test_scores = predict_proba_positive(baseline_model, x_test)
+        results["logistic_regression_baseline"] = {
+            "validation_auprc": compute_auprc(y_val, baseline_val_scores),
+            "test_auprc": compute_auprc(y_test, baseline_test_scores),
+        }
+        mlflow.log_metric(
+            "baseline_validation_auprc",
+            results["logistic_regression_baseline"]["validation_auprc"],
+        )
+        mlflow.log_metric(
+            "baseline_test_auprc", results["logistic_regression_baseline"]["test_auprc"]
+        )
+
         # Warning lead time (docs/dataset_strategy.md section 15): restrict
         # to drive-days belonging to drives with a genuine failure event
         # before asking "how early did the score cross threshold".
@@ -223,6 +247,7 @@ def main() -> None:
             shap_top_features=feature_importance[:20],
             train_row_count=x_train.shape[0],
             test_warning_lead_time=results["test_warning_lead_time"],
+            logistic_regression_baseline=results["logistic_regression_baseline"],
         )
         model_cards_dir = Path(data_config["audit_dir"]) / "model_cards"
         model_cards_dir.mkdir(parents=True, exist_ok=True)
@@ -239,6 +264,9 @@ def main() -> None:
         logger.info("threshold_tuned", **threshold_result)
         logger.info("validation_metrics", **results["validation_metrics"])
         logger.info("test_metrics", **results["test_metrics"])
+        logger.info(
+            "logistic_regression_baseline", **results["logistic_regression_baseline"]
+        )
         logger.info("test_warning_lead_time", **results["test_warning_lead_time"])
         logger.info("top_shap_features", features=feature_importance[:5])
         logger.info("evaluation_report_written", path=str(report_path))

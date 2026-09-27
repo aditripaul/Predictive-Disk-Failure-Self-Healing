@@ -55,6 +55,18 @@ def test_build_model_card_includes_warning_lead_time_when_provided():
     assert card["evaluation"]["test_warning_lead_time"]["mean_lead_time_days"] == 4.5
 
 
+def test_build_model_card_includes_logistic_regression_baseline_when_provided():
+    card = _sample_card(
+        logistic_regression_baseline={"validation_auprc": 0.3, "test_auprc": 0.28}
+    )
+    assert card["evaluation"]["logistic_regression_baseline"]["test_auprc"] == 0.28
+
+
+def test_build_model_card_logistic_regression_baseline_defaults_to_none():
+    card = _sample_card()
+    assert card["evaluation"]["logistic_regression_baseline"] is None
+
+
 def test_render_model_card_markdown_contains_key_sections():
     card = _sample_card()
     markdown = render_model_card_markdown(card)
