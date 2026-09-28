@@ -412,7 +412,7 @@ synthetic-data walkthrough (§14) — only real-data / production settings.
 |---|---|---|
 | `configs/data.yaml` | `download.backblaze.quarters` (or `start_quarter`/`end_quarter`) | Before `make download-backblaze` — empty by default, nothing downloads until you configure a time period |
 | `configs/data.yaml` | `download.smartz.url` | Before `make download-smartz` — SMART-Z has no public bulk-download API; request access first |
-| `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | Before `make train` against real data whose date range doesn't overlap 2021–2023 (the defaults) — an empty split raises a clear error naming which one |
+| `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | Before `make train` against real data whose date range doesn't overlap the defaults — an empty split raises a clear error naming which one. The synthetic stub (§14) derives its own date range from these same values, so it stays correct automatically if you change them |
 | `configs/model.yaml` | `model.type` (`lightgbm` \| `xgboost`) | Only if you want XGBoost instead of the LightGBM default |
 | `configs/model.yaml` | `mlflow.tracking_uri` / `experiment_name` | Only if you want runs logged somewhere other than the local `sqlite:///mlflow/mlflow.db` default |
 | `configs/model.yaml` | `hyperparameter_search.enabled` / `smote_comparison.enabled` | Optional — both default to `false` so `make train` stays fast and deterministic |
@@ -506,7 +506,7 @@ Full data pipeline, bronze through a real trained model — this genuinely
 completes end-to-end:
 
 ```bash
-make ingest-synthetic-stub   # 15 drives, 2021-01-01..2023-06-01 -> data/bronze/synthetic/
+make ingest-synthetic-stub   # 15 drives spanning configs/model.yaml's splits -> data/bronze/synthetic/
 make build-silver
 make build-features
 make build-labels
@@ -515,12 +515,14 @@ make score-fleet     # batch-scores the current fleet -> data/audit/predictions/
 make plots           # renders calibration/SHAP/imbalance plots -> data/audit/plots/
 ```
 
-The synthetic stub generates real degrading failure trajectories spread
-across the default chronological split boundaries, so every split has
-both real failures and healthy drives to learn from. Expect a
-suspiciously perfect AUPRC (~1.0) — the trajectories are noise-free by
-design, so this confirms the pipeline plumbing works, not that the model
-is good. Clean up with `make clean-data` between runs.
+The synthetic stub reads `configs/model.yaml`'s own `train_end`/
+`validation_end`/`test_end` and generates real degrading failure
+trajectories spread across all three, so every split has both real
+failures and healthy drives to learn from — this stays correct even if
+you change those dates. Expect a suspiciously perfect AUPRC (~1.0) — the
+trajectories are noise-free by design, so this confirms the pipeline
+plumbing works, not that the model is good. Clean up with `make
+clean-data` between runs.
 
 ### B. Real data (Backblaze, optionally SMART-Z)
 

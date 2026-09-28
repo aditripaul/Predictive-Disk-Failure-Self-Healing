@@ -303,7 +303,7 @@ system is runnable with zero setup. To run it against real Backblaze
 SMART-telemetry data instead, you'll need to set a few things in
 `configs/*.yaml` first — see `README.md`'s "Configure Before Running"
 table for the full list (which quarters to download, the chronological
-split boundaries if your data doesn't span 2021–2023, etc.):
+split boundaries if your data doesn't span the defaults, etc.):
 
 1. Tell it which quarter(s) of Backblaze data you want in
    `configs/data.yaml` (e.g. `download.backblaze.quarters: ["Q1_2025"]` —
@@ -315,14 +315,30 @@ split boundaries if your data doesn't span 2021–2023, etc.):
    make build-silver
    make build-features
    make build-labels
+   ```
+2. **Before running `make train`**, set `configs/model.yaml`'s
+   `splits.train_end`/`validation_end`/`test_end` to fall inside the date
+   range you actually ingested (check with `uv run python -c "import
+   polars as pl; df = pl.read_parquet('data/silver/canonical_telemetry/
+   part.parquet'); print(df['date'].min(), df['date'].max())"`), then
+   check `data/audit/data_quality_reports/label_imbalance_report.json`'s
+   `positive_count` for your primary horizon in every split — a `0` there
+   means that split has no real failures to learn from, and `make train`
+   will fail or behave oddly even though the date boundaries are
+   technically correct. If that happens, download more quarters
+   (`--start-quarter`/`--end-quarter`) rather than narrowing the splits
+   further; real failures are rare, so a short date range may simply not
+   contain any in one of the buckets.
+3. Once the imbalance report looks reasonable:
+   ```bash
    make train
    make score-fleet
    ```
-2. Each step prints where it wrote its output and a data-quality report.
+4. Each step prints where it wrote its output and a data-quality report.
    `make score-fleet` writes a fleet-wide risk report to
    `data/audit/predictions/` — it's a separate batch report, not something
    the dashboard/API reads automatically.
-3. A single quarter's archive is roughly 1-1.5GB compressed and several GB
+5. A single quarter's archive is roughly 1-1.5GB compressed and several GB
    once extracted, so check you have disk space free before starting.
 
 Without real data, every one of these steps — including `make train` and

@@ -90,10 +90,41 @@ def test_synthetic_stub_has_both_failing_and_healthy_drives():
     assert (failing["failures"] == 1).all()
 
 
-def test_synthetic_stub_spans_the_default_chronological_split_boundaries():
+def test_synthetic_stub_spans_the_configured_chronological_split_boundaries():
+    """Reads the same configs/model.yaml the stub itself reads, rather
+    than hardcoding a copy of the split dates here - this is exactly the
+    kind of test that would have caught the stub's date range silently
+    drifting out of sync with the split boundaries."""
+    from src.config import load_yaml
+
+    splits = load_yaml("model.yaml")["splits"]
+    train_end = dt.date.fromisoformat(splits["train_end"])
+    test_end = dt.date.fromisoformat(splits["test_end"])
+
     df = build_synthetic_stub()
-    assert df["date"].min() <= dt.date(2021, 6, 1)
-    assert df["date"].max() >= dt.date(2023, 1, 1)
+    assert df["date"].min() < train_end
+    assert df["date"].max() > test_end
+
+
+def test_synthetic_stub_failures_land_in_every_configured_split():
+    """A day-count-proportional spread of failure dates starves
+    validation/test of any failure when they're much shorter than train's
+    calendar span (exactly what happened once) - assert failures actually
+    land inside all three buckets, not just that the stub's overall date
+    range covers them."""
+    from src.config import load_yaml
+
+    splits = load_yaml("model.yaml")["splits"]
+    train_end = dt.date.fromisoformat(splits["train_end"])
+    validation_end = dt.date.fromisoformat(splits["validation_end"])
+    test_end = dt.date.fromisoformat(splits["test_end"])
+
+    df = build_synthetic_stub()
+    failure_dates = df.filter(pl.col("failure") == 1)["date"].to_list()
+
+    assert any(d <= train_end for d in failure_dates)
+    assert any(train_end < d <= validation_end for d in failure_dates)
+    assert any(validation_end < d <= test_end for d in failure_dates)
 
 
 def test_ingest_synthetic_stub_lands_bronze(tmp_path: Path):

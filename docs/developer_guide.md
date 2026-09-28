@@ -1019,7 +1019,7 @@ and checkpoint, by design — see `src/agent/demo.py`).
 **Full data pipeline, bronze through a real trained model:**
 
 ```bash
-make ingest-synthetic-stub   # 15 drives, 2021-01-01..2023-06-01 -> data/bronze/synthetic/
+make ingest-synthetic-stub   # 15 drives spanning configs/model.yaml's splits -> data/bronze/synthetic/
 make build-silver            # -> data/silver/{canonical_telemetry,drive_metadata}/
 make build-features          # -> data/gold/features/part.parquet (~196 columns)
 make build-labels            # -> data/gold/labels/part.parquet + dataset_versions/*.json
@@ -1034,15 +1034,22 @@ stage actually produced rows before moving to the next. **This actually
 completes end-to-end**, including `make train`: `src/ingest/synthetic_stub.py`
 generates 6 healthy drives and 9 failing drives (real degrading
 reallocated/pending-sector trajectories, mirroring
-`tests/golden/generate_golden_dataset.py`) spanning
-`configs/model.yaml`'s default chronological split boundaries
-(`train_end`/`validation_end`/`test_end` = 2021/2022/2023-12-31), with
-failure dates spread across the whole window so every split has real
-positive and negative labels. Since the trajectories are noise-free by
-design, expect a suspiciously perfect AUPRC (~1.0) — that confirms the
-*pipeline plumbing* is correct, not that the model is any good; it isn't
-a substitute for validating against real data's actual noise and
-ambiguity.
+`tests/golden/generate_golden_dataset.py`). It **reads
+`configs/model.yaml`'s `splits`/`primary_horizon_days` directly** (rather
+than hardcoding a second copy of those dates) to derive its own date
+range and to place failure dates so every split - `train`, `validation`,
+*and* `test` - ends up with both positive and negative labels:
+`_failure_dates_covering_every_split` allocates most failures across
+`train` (by far the largest bucket, since telemetry starts
+`LEAD_DAYS_BEFORE_TRAIN_END` = 400 days before `train_end`) and anchors
+(at least) one each at the very end of `validation` and `test`, since a
+day-count-proportional spread starves the smaller buckets of any failure
+at all - this is exactly what happened the first time `configs/model.yaml`'s
+defaults were changed without updating the stub to match, before this
+derivation existed. Since the trajectories are noise-free by design,
+expect a suspiciously perfect AUPRC (~1.0) — that confirms the *pipeline
+plumbing* is correct, not that the model is any good; it isn't a
+substitute for validating against real data's actual noise and ambiguity.
 
 Two things this rewrite deliberately fixed, worth knowing about:
 - **`failure_date` derivation** (`src/preprocess/failure_events.py::

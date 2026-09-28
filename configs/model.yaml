@@ -44,9 +44,9 @@ smote_comparison:
 
 splits:
   strategy: chronological
-  train_end: "2021-12-31"
-  validation_end: "2022-12-31"
-  test_end: "2023-12-31"
+  train_end: "2026-03-04"
+  validation_end: "2026-03-17"
+  test_end: "2026-03-31"
 
 mlflow:
   tracking_uri: sqlite:///mlflow/mlflow.db
