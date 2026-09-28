@@ -91,7 +91,7 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
                                             │
                                             │ telemetry / events
                                             ▼
-┌──────────────────────────────────────────────────────────────────────────────  ────┐
+┌────────────────────────────────────────────────────────────────────────────────────┐
 │                     LAYER 1 · SELF-HEALING AGENT                                   │
 │                     LangGraph MAPE-K Runtime                                       │
 │                                                                                    │
