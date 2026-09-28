@@ -83,34 +83,34 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
 
 ```text
                  ┌────────────────────────────────────────────────────┐
-                 │              SERVER FLEET / SIMULATOR               │
+                 │              SERVER FLEET / SIMULATOR              │
                  │                                                    │
-                 │  SMART telemetry · drive states · node states       │
-                 │  replication groups · action outcomes · I/O load    │
+                 │  SMART telemetry · drive states · node states      │
+                 │  replication groups · action outcomes · I/O load   │
                  └──────────────────────────┬─────────────────────────┘
                                             │
                                             │ telemetry / events
                                             ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                     LAYER 1 · SELF-HEALING AGENT                                 │
-│                     LangGraph MAPE-K Runtime                                     │
-│                                                                                  │
-│  ┌─────────┐   ┌─────────┐   ┌──────────────────┐   ┌───────────┐   ┌────────┐ │
+┌──────────────────────────────────────────────────────────────────────────────  ────┐
+│                     LAYER 1 · SELF-HEALING AGENT                                   │
+│                     LangGraph MAPE-K Runtime                                       │
+│                                                                                    │
+│  ┌─────────┐    ┌─────────┐    ┌──────────────────┐    ┌───────────┐    ┌────────┐ │
 │  │ MONITOR │──▶│ ANALYZE │──▶│ PLAN +           │──▶│ EXECUTE   │──▶│VALIDATE│ │
-│  │         │   │         │   │ GUARDRAIL ENGINE │   │           │   │        │ │
-│  │ ingest  │   │ predict │   │ action proposal  │   │ cordon /  │   │ verify │ │
-│  │ fleet   │   │ p_fail  │   │ threshold check  │   │ migrate / │   │ outcome│ │
-│  │ state   │   │ rank    │   │ hard/soft rules  │   │ drain     │   │        │ │
-│  └─────────┘   └─────────┘   └────────┬─────────┘   └───────────┘   └───┬────┘ │
-│                                       │                                  │      │
-│                                       │ blocked / uncertain              │      │
-│                                       ▼                                  │      │
-│                              ┌────────────────┐                          │      │
-│                              │ HUMAN REVIEW   │                          │      │
-│                              │ FastAPI queue  │                          │      │
-│                              └────────────────┘                          │      │
-│                                                                          │      │
-└──────────────────────────────────────────────────────────────────────────┼──────┘
+│  │         │    │         │    │ GUARDRAIL ENGINE │    │           │    │        │ │
+│  │ ingest  │    │ predict │    │ action proposal  │    │ cordon /  │    │ verify │ │
+│  │ fleet   │    │ p_fail  │    │ threshold check  │    │ migrate / │    │ outcome│ │
+│  │ state   │    │ rank    │    │ hard/soft rules  │    │ drain     │    │        │ │
+│  └─────────┘    └─────────┘    └──────┬───────────┘    └───────────┘    └┬───────┘ │
+│                                       │                                  │         │
+│                                       │ blocked / uncertain              │         │
+│                                       ▼                                  │         │
+│                              ┌────────────────┐                          │         │
+│                              │ HUMAN REVIEW   │                          │         │
+│                              │ FastAPI queue  │                          │         │
+│                              └────────────────┘                          │         │
+│                                                                          │         │
+└──────────────────────────────────────────────────────────────────────────┼─────────┘
                                                                            │
                                                                            │ decision +
                                                                            │ outcome record
@@ -131,9 +131,9 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
                          ┌──────────────────────────────┐
                          │   DASHBOARDS & AUDIT TRAIL   │
                          │                              │
-                         │ fleet health · trust trend    │
-                         │ approval queue · compliance   │
-                         │ decision replay · alerts      │
+                         │ fleet health · trust trend   │
+                         │ approval queue · compliance  │
+                         │ decision replay · alerts     │
                          └──────────────────────────────┘
 ```
 

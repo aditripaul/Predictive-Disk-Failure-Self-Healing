@@ -190,25 +190,25 @@ The system consists of a simulated fleet, the self-healing agent, the reliabilit
 
 ```text
                  ┌────────────────────────────────────────────────────┐
-                 │              SERVER FLEET / SIMULATOR               │
+                 │              SERVER FLEET / SIMULATOR              │
                  │                                                    │
-                 │  SMART telemetry · drive states · node states       │
-                 │  replication groups · action outcomes · I/O load    │
+                 │  SMART telemetry · drive states · node states      │
+                 │  replication groups · action outcomes · I/O load   │
                  └──────────────────────────┬─────────────────────────┘
                                             │
                                             │ telemetry / events
                                             ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                     LAYER 1 · SELF-HEALING AGENT                                 │
-│                     LangGraph MAPE-K Runtime                                     │
-│                                                                                  │
-│  ┌─────────┐   ┌─────────┐   ┌──────────────────┐   ┌───────────┐   ┌────────┐ │
-│  │ MONITOR │──▶│ ANALYZE │──▶│ PLAN +           │──▶│ EXECUTE   │──▶│VALIDATE│ │
-│  │         │   │         │   │ GUARDRAIL ENGINE │   │           │   │        │ │
-│  │ ingest  │   │ predict │   │ action proposal  │   │ cordon /  │   │ verify │ │
-│  │ fleet   │   │ p_fail  │   │ threshold check  │   │ migrate / │   │ outcome│ │
-│  │ state   │   │ rank    │   │ hard/soft rules  │   │ drain     │   │        │ │
-│  └─────────┘   └─────────┘   └────────┬─────────┘   └───────────┘   └───┬────┘ │
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                     LAYER 1 · SELF-HEALING AGENT                                │
+│                     LangGraph MAPE-K Runtime                                    │
+│                                                                                 │
+│  ┌─────────┐   ┌─────────┐   ┌──────────────────┐   ┌───────────┐   ┌───────┐   │
+│  │ MONITOR │─▶│ ANALYZE │─▶│ PLAN +           │─▶│ EXECUTE   │─▶│VALIDATE│  │
+│  │         │   │         │   │ GUARDRAIL ENGINE │   │           │   │        │  │
+│  │ ingest  │   │ predict │   │ action proposal  │   │ cordon /  │   │ verify │  │
+│  │ fleet   │   │ p_fail  │   │ threshold check  │   │ migrate / │   │ outcome│  │
+│  │ state   │   │ rank    │   │ hard/soft rules  │   │ drain     │   │        │  │
+│  └─────────┘   └─────────┘   └────────┬─────────┘   └───────────┘   └───┬────┘  │
 │                                       │                                  │      │
 │                                       │ blocked / uncertain              │      │
 │                                       ▼                                  │      │
@@ -238,9 +238,9 @@ The system consists of a simulated fleet, the self-healing agent, the reliabilit
                          ┌──────────────────────────────┐
                          │   DASHBOARDS & AUDIT TRAIL   │
                          │                              │
-                         │ fleet health · trust trend    │
-                         │ approval queue · compliance   │
-                         │ decision replay · alerts      │
+                         │ fleet health · trust trend   │
+                         │ approval queue · compliance  │
+                         │ decision replay · alerts     │
                          └──────────────────────────────┘
 ```
 
