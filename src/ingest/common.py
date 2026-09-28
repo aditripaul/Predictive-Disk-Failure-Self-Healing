@@ -48,7 +48,17 @@ def sink_partitioned_by_month(
     (Polars streaming sinks do not yet support Hive-style partitioned writes
     for lazy frames), but does so with `streaming=True` so it still spills to
     disk rather than materializing everything in RAM at once.
-    """
+
+    This is called once *per source file* (`pipelines/ingest_backblaze.py`/
+    `ingest_smartz.py` loop over one file per call), and a real Backblaze
+    quarterly archive ships one CSV per day - so a given month's partition
+    is written to by ~30 separate calls, one per day. If an existing
+    partition file already exists, its rows are read back and concatenated
+    with the new ones (deduplicated on every ingestion column except
+    `ingested_at`, so re-running ingestion on an already-ingested file is a
+    no-op rather than adding duplicates) - **not** overwritten, which
+    would otherwise silently discard every previously-ingested day in that
+    month but the last one written."""
     df = lf.with_columns(
         pl.col(date_column).dt.year().alias("_year"),
         pl.col(date_column).dt.month().alias("_month"),
@@ -60,6 +70,11 @@ def sink_partitioned_by_month(
         out_dir = bronze_root / f"year={year:04d}" / f"month={month:02d}"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / "part.parquet"
+        if out_path.exists():
+            existing = pl.read_parquet(out_path)
+            part = pl.concat([existing, part], how="diagonal_relaxed")
+            dedup_subset = [c for c in part.columns if c != "ingested_at"]
+            part = part.unique(subset=dedup_subset, keep="last")
         part.write_parquet(out_path, compression="zstd")
         written.append(out_path)
     return written
