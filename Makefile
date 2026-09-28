@@ -2,7 +2,7 @@
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train \
-	build-sequences train-lstm score-fleet \
+	build-sequences train-lstm score-fleet plots \
 	agent-demo dashboard api final-report
 
 # --- setup -----------------------------------------------------------------
@@ -114,6 +114,9 @@ train-lstm:
 
 score-fleet:
 	uv run python pipelines/score_fleet.py
+
+plots:
+	uv run python pipelines/generate_performance_plots.py
 
 final-report:
 	uv run python pipelines/generate_final_report.py

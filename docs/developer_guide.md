@@ -108,6 +108,7 @@ would fail with "ruff: command not found."
 | `make train` | Trains the model, tunes threshold, computes SHAP importance (§5.1) |
 | `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (§5.7) — `train-lstm` requires `uv sync --extra torch` |
 | `make score-fleet` | Batch-scores the current fleet with the latest MLflow model; writes `data/audit/predictions/` (§5.8) |
+| `make plots` | Renders performance-metric plots (calibration, SHAP, class imbalance, metric comparison) to `data/audit/plots/` (§5.9) |
 | `make final-report` | `pipelines/generate_final_report.py` — aggregates chaos/latency/model reports |
 | `make agent-demo` | One MAPE-K cycle against the hardcoded demo fleet (§6) |
 | `make dashboard` | Streamlit UI (§10) |
@@ -120,6 +121,13 @@ output, so it's separate and never invoked by anything else automatically.
 ---
 
 ## 4. The configuration system
+
+**Before your first real run**, see `README.md`'s "Configure Before
+Running" table for which `configs/*.yaml` settings need a real value
+(e.g. `download.backblaze.quarters`) versus which ones are safe defaults.
+Nothing needs to change to run `make smoke`/`make agent-demo`/the
+synthetic-data walkthrough (§12.1) — this section is about how config
+loading works in code, not what to set.
 
 `src/config.py` defines three dataclasses — `AgentSettings`,
 `GuardrailSettings`, `ModelSettings` — each with a `.load()` classmethod that
@@ -557,11 +565,13 @@ the live agent, that has the *entire* gold-feature row on hand (not a
 lean cycle state).
 
 - `score_latest_drive_day` takes each drive's most recent gold-feature
-  row (`_latest_row_per_drive` in the pipeline script) plus a trained
-  model, and returns one validated `PredictionOutput` per drive -
-  `FeatureConfidence` is built from real columns the gold-feature
-  pipeline already computes (`src/features/confidence.py`,
-  `src/preprocess/feature_maturity.py`), not fabricated data.
+  row (`latest_row_per_drive`, joined with `join_feature_maturity` since
+  `feature_maturity` lives only in Silver's `drive_metadata`, never the
+  Gold features table) plus a trained model, and returns one validated
+  `PredictionOutput` per drive - `FeatureConfidence` is built from real
+  columns the gold-feature pipeline already computes
+  (`src/features/confidence.py`, `src/preprocess/feature_maturity.py`),
+  not fabricated data.
 - `propose_actions` runs the same `determine_action_tier` policy the live
   agent uses over each `PredictionOutput`, producing an `ActionProposal`
   (with a real rationale string and the full `PredictionOutput` embedded)
@@ -577,6 +587,30 @@ lean cycle state).
   `InMemoryAuditStore` (`src/api/store.py`) persists the live loop's
   equivalent information as a plain dict, and `DecisionAuditRecord`
   documents that dict's fully-specified shape as a schema reference.
+
+### 5.9 Performance-metric plots
+
+`src/reporting/plots.py` (`make plots`, `pipelines/generate_performance_plots.py`):
+a pure visualization layer over the JSON reports `make train`/`make
+build-labels` already write — it computes nothing new, it just renders
+what's already in `data/audit/data_quality_reports/`. Uses matplotlib's
+headless `"Agg"` backend (set before `pyplot` is imported) since this
+always runs from a script, never an interactive session with a display.
+
+| Plot | Source report | Output |
+|---|---|---|
+| `plot_calibration_curve` | `model_evaluation_report.json`'s `validation_metrics`/`test_metrics.calibration` | `calibration_validation.png` / `calibration_test.png` — reliability diagram (mean predicted probability vs. observed fraction of positives per bin) |
+| `plot_metric_comparison` | same, `.auprc`/`.precision`/`.recall`/`.false_positive_rate`/`.false_negative_rate` | `metric_comparison.png` — validation vs. test bars |
+| `plot_precision_at_k` | same, `.precision_at_top_{K}pct` | `precision_at_k_test.png` |
+| `plot_shap_feature_importance` | `shap_feature_importance.json` | `shap_feature_importance.png` — top-20 global SHAP bar chart |
+| `plot_class_imbalance` | `label_imbalance_report.json`'s `class_distribution` | `class_imbalance.png` — failure rate per split, grouped by horizon |
+
+Each plot's data comes from a report `pipelines/generate_performance_plots.py`
+checks for individually; a missing report (e.g. `make plots` run before
+`make train`) logs a clear warning and skips just that plot rather than
+failing the whole run. Plots are written to `data/audit/plots/`
+(gitignored like the rest of `data/audit/*/*`) and are safe to regenerate
+at any time — nothing else reads them back.
 
 ---
 
@@ -991,6 +1025,7 @@ make build-features          # -> data/gold/features/part.parquet (~196 columns)
 make build-labels            # -> data/gold/labels/part.parquet + dataset_versions/*.json
 make train                   # trains, tunes threshold, logs to MLflow, writes a model card
 make score-fleet             # batch-scores the current fleet -> data/audit/predictions/
+make plots                   # renders calibration/SHAP/imbalance plots -> data/audit/plots/
 ```
 
 Each stage logs a structured `*_written` event with the row/column count
@@ -1065,6 +1100,7 @@ fully clean slate between experiments.
    make build-labels
    make train                # LightGBM/XGBoost, threshold tuning, SHAP, model card, MLflow run
    make score-fleet          # batch-scores the current fleet -> data/audit/predictions/{date}.json
+   make plots                # renders calibration/SHAP/imbalance plots -> data/audit/plots/
    ```
 
    Real Backblaze CSVs must carry `date`, `serial_number`, `model`,

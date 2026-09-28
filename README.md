@@ -400,6 +400,30 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+### Configure Before Running
+
+Everything the code reads lives in `configs/*.yaml` — there are no
+hardcoded fallbacks for the settings below, so review these before your
+first real run. Full reference: `docs/developer_guide.md` §4. Nothing
+here needs to change to run `make smoke`, `make agent-demo`, or the
+synthetic-data walkthrough (§14) — only real-data / production settings.
+
+| File | Setting | When you must set it |
+|---|---|---|
+| `configs/data.yaml` | `download.backblaze.quarters` (or `start_quarter`/`end_quarter`) | Before `make download-backblaze` — empty by default, nothing downloads until you configure a time period |
+| `configs/data.yaml` | `download.smartz.url` | Before `make download-smartz` — SMART-Z has no public bulk-download API; request access first |
+| `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | Before `make train` against real data whose date range doesn't overlap 2021–2023 (the defaults) — an empty split raises a clear error naming which one |
+| `configs/model.yaml` | `model.type` (`lightgbm` \| `xgboost`) | Only if you want XGBoost instead of the LightGBM default |
+| `configs/model.yaml` | `mlflow.tracking_uri` / `experiment_name` | Only if you want runs logged somewhere other than the local `sqlite:///mlflow/mlflow.db` default |
+| `configs/model.yaml` | `hyperparameter_search.enabled` / `smote_comparison.enabled` | Optional — both default to `false` so `make train` stays fast and deterministic |
+| `configs/agent.yaml` | `action_thresholds`, `human_review.*_sla_hours` | Only to change the default risk-tier cutoffs / SLA clock before a real deployment |
+| `configs/guardrails.yaml` | `operational_state.backend` (`in_memory` \| `redis`) + `redis_url` | Only for a multi-instance deployment where drain/rate-limit counters must be shared — a single process is correct with the `in_memory` default |
+| `configs/features.yaml` | `sequences.*` | Only if using the optional LSTM branch (`make build-sequences` / `train-lstm`) |
+
+Every `pipelines/*.py` script and CLI flag that reads one of these prints
+a clear, actionable error if something required is missing — none of
+them silently fall back to guessed values.
+
 ### Run Tests
 
 ```bash
@@ -441,6 +465,7 @@ The project uses a `Makefile` for reproducible pipeline execution.
 | `make train` | Train model, tune threshold, compute SHAP importance, log to MLflow |
 | `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (`train-lstm` needs `uv sync --extra torch`) |
 | `make score-fleet` | Batch-score the current fleet with the latest trained model |
+| `make plots` | Render performance-metric plots (calibration, SHAP, class imbalance) to `data/audit/plots/` |
 | `make final-report` | Aggregate chaos/latency/model reports into a final evaluation report |
 | `make agent-demo` | Run a minimal LangGraph agent demo |
 | `make dashboard` | Launch Streamlit dashboard |
@@ -487,6 +512,7 @@ make build-features
 make build-labels
 make train           # trains, tunes threshold, logs to MLflow, writes a model card
 make score-fleet     # batch-scores the current fleet -> data/audit/predictions/
+make plots           # renders calibration/SHAP/imbalance plots -> data/audit/plots/
 ```
 
 The synthetic stub generates real degrading failure trajectories spread
@@ -507,6 +533,7 @@ make build-features
 make build-labels
 make train          # trains, tunes threshold, logs to MLflow, writes a model card
 make score-fleet    # batch-scores the current fleet -> data/audit/predictions/
+make plots          # renders calibration/SHAP/imbalance plots -> data/audit/plots/
 ```
 
 **Disk space warning:** one Backblaze quarterly archive is ~1-1.5GB

@@ -300,7 +300,10 @@ always means no real drive-failure data has been loaded yet — see §9.
 
 The demo/dashboard defaults ship with a hardcoded two-drive scenario so the
 system is runnable with zero setup. To run it against real Backblaze
-SMART-telemetry data instead:
+SMART-telemetry data instead, you'll need to set a few things in
+`configs/*.yaml` first — see `README.md`'s "Configure Before Running"
+table for the full list (which quarters to download, the chronological
+split boundaries if your data doesn't span 2021–2023, etc.):
 
 1. Tell it which quarter(s) of Backblaze data you want in
    `configs/data.yaml` (e.g. `download.backblaze.quarters: ["Q1_2025"]` —
