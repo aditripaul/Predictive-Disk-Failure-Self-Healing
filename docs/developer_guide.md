@@ -630,18 +630,54 @@ simultaneously as it worked through Silver's normalize → derive → gap
 detection → melt steps. Real fleet data has enough distinct
 `(drive_id, date)` rows that holding two or three full copies of it in
 memory at once is what actually exhausted 32GB — the synthetic fixture
-(a handful of drives, ~1 year) never got big enough to expose it. The fix
-is in the code itself now, not a config flag: `build_silver` scans each
-Bronze file lazily (`pl.scan_parquet`) and only materializes once, via
-`.collect(engine="streaming")`, and each intermediate `DataFrame` is
-explicitly `del`eted as soon as the next step no longer needs it (see the
-`del wide` / `del drive_day` calls in `pipelines/build_silver.py`) instead
-of staying reachable until the function returns. There's a regression
-test for the accumulation behavior this fix depends on in
-`tests/unit/test_ingest_common.py`; there's no dedicated peak-memory test
-(polars/pytest don't make that cheap to assert), so if `build_silver` is
-touched again, re-check that no step re-introduces a second full-dataset
-copy that outlives its own step.
+(a handful of drives, ~1 year) never got big enough to expose it, and
+even the fixed-up eager version still didn't survive a real ~30M-row
+Backblaze export: a multi-column sort keyed partly on the string
+`drive_id` (row-encoding a string column for `arg_sort_multiple` is
+expensive) crashed first, and once that was fixed, just holding the
+fully-materialized `drive_day` table (or `canonical_long`, ~10x bigger
+after `melt_smart_attributes` unpivots to one row per
+drive-day-*attribute*) in memory at fleet scale crashed next regardless
+of how cheaply it was computed.
+
+The real fix ended up being structural, not just an eager-vs-lazy
+cleanup: `build_silver` now never materializes either `drive_day` or
+`canonical_long` as an in-memory `DataFrame` at all.
+- The scan → normalize → failure-date → telemetry-gap chain is built as
+  one `LazyFrame` and sunk straight to a temporary Parquet file via
+  `LazyFrame.sink_parquet`, which streams the computation *and* the
+  output in row-group-sized batches — unlike `.collect(engine="streaming")`,
+  which still has to land the whole result in memory as one `DataFrame`
+  once it's done, `sink_parquet` never does.
+- `build_drive_metadata` and `melt_smart_attributes` then each `scan_parquet`
+  that temporary file lazily rather than taking `drive_day` as an
+  in-memory argument — both now accept either a `DataFrame` or a
+  `LazyFrame` for exactly this reason. `melt_smart_attributes`'s ~10x
+  expansion is sunk straight to `canonical_telemetry/part.parquet` the
+  same way.
+- Only `drive_metadata` (one row per drive) is still ever a real
+  in-memory `DataFrame` — it's inherently tiny regardless of fleet size,
+  so there's nothing to gain by streaming it too.
+- Compute-side, `compute_telemetry_gaps` and `pivot_badness_wide`
+  (`src/features/pivot.py`, used by `make build-features`) both sort by
+  `date` alone now, not `[drive_id, date]` — a global sort by `date`
+  alone still guarantees every drive's own rows land in non-decreasing
+  date order (all `.over("drive_id")`/`.rolling(group_by="drive_id")`
+  window features need), without ever row-encoding the string `drive_id`
+  column into the sort key.
+
+Every one of these changes was checked for exact output equivalence
+before being kept: the new implementation's `canonical_telemetry` rows,
+`drive_metadata`, and quality-check results were diffed directly against
+the pre-restructure implementation on the synthetic fixture and found
+identical (`tests/unit/test_pipelines_build_silver.py`,
+`tests/unit/test_preprocess.py`'s lazy/eager quality-check test,
+`tests/unit/test_features.py`'s scrambled-input pivot test). There's a
+regression test for the Bronze-accumulation behavior the pipeline
+depends on in `tests/unit/test_ingest_common.py`; there's no dedicated
+peak-memory test (polars/pytest don't make that cheap to assert), so if
+`build_silver` is touched again, re-check that no step re-introduces a
+full materialization of `drive_day` or `canonical_long`.
 
 **The cap (`src/resource_limits.py`, new).** Fixing the one known bug
 doesn't rule out a different pipeline, a bigger fleet, or a future
@@ -653,7 +689,7 @@ down other processes. Configured by `configs/data.yaml`:
 
 ```yaml
 resource_limits:
-  max_memory_gb: 12   # null (or omit the whole block) disables the cap
+  max_memory_gb: 20   # null (or omit the whole block) disables the cap
 ```
 
 `apply_memory_limit_from_config()` reads this value and calls
