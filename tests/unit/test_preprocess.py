@@ -114,6 +114,27 @@ def test_melt_smart_attributes_harmonizes_mixed_backblaze_and_smartz_sources():
     assert by_drive["Z1"] == 99.0
 
 
+def test_melt_smart_attributes_with_a_single_source_present_still_harmonizes_correctly():
+    """Real Bronze data ingested so far is Backblaze-only, but every row
+    still carries a `source_dataset` column - this must take the same
+    code path as the harmonized-mapping case above, not silently fall
+    back to the no-source_column path (which would use the wrong map for
+    a non-Backblaze single source)."""
+    df = pl.DataFrame(
+        {
+            "drive_id": ["Z1", "Z2"],
+            "date": [dt.date(2024, 1, 1), dt.date(2024, 1, 1)],
+            "source_dataset": ["smartz", "smartz"],
+            "smart_5_normalized": [7, 99],
+        }
+    )
+    long_df = melt_smart_attributes(df)
+    assert set(long_df["smart_attribute_name"].unique()) == {"reallocated_sector_count"}
+    by_drive = {row["drive_id"]: row["smart_badness_value"] for row in long_df.to_dicts()}
+    assert by_drive["Z1"] == 7.0
+    assert by_drive["Z2"] == 99.0
+
+
 def test_melt_smart_attributes_skips_source_whose_template_columns_are_entirely_absent():
     df = pl.DataFrame(
         {

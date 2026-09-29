@@ -56,4 +56,4 @@ feature_maturity:
 # consume all available RAM and swap. Set to null (or omit) to disable.
 # POSIX only (no effect on Windows).
 resource_limits:
-  max_memory_gb: 12
+  max_memory_gb: 20

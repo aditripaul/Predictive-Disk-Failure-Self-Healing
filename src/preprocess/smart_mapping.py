@@ -86,8 +86,20 @@ def melt_smart_attributes(
     if source_column not in df.columns:
         return _melt_with_map(df, CANONICAL_ATTRIBUTE_NAMES)
 
+    source_values = df[source_column].unique().to_list()
+    if len(source_values) == 1:
+        # The common case (only one source has ever been onboarded into a
+        # given Bronze root so far): melt the frame directly rather than
+        # `df.filter(...)`-ing out a full redundant copy of it first, which
+        # would otherwise sit in memory alongside `df` itself right before
+        # the ~10x row expansion below.
+        attribute_map = build_canonical_attribute_map(source_values[0])
+        if not any(c in df.columns for c in attribute_map):
+            raise ValueError("No known SMART attribute columns found to melt for any source.")
+        return _melt_with_map(df, attribute_map)
+
     parts = []
-    for source_value in df[source_column].unique().to_list():
+    for source_value in source_values:
         attribute_map = build_canonical_attribute_map(source_value)
         subset = df.filter(pl.col(source_column) == source_value)
         if any(c in subset.columns for c in attribute_map):
