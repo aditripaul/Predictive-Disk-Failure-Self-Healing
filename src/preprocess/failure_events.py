@@ -13,15 +13,23 @@ that has genuine failures in it.
 
 from __future__ import annotations
 
+from typing import TypeVar
+
 import polars as pl
 
+FrameT = TypeVar("FrameT", pl.DataFrame, pl.LazyFrame)
 
-def derive_failure_date(df: pl.DataFrame, *, failure_column: str = "failure") -> pl.DataFrame:
+
+def derive_failure_date(df: FrameT, *, failure_column: str = "failure") -> FrameT:
     """Adds a `failure_date` column: the date `failure_column == 1` for a
     drive, broadcast to every row of that drive (null for drives that
     never failed). A no-op if `failure_column` isn't present (e.g. a
-    source that doesn't report a per-day failure flag)."""
-    if failure_column not in df.columns:
+    source that doesn't report a per-day failure flag). Accepts either a
+    `DataFrame` or a `LazyFrame` (the window expression below works
+    identically in both) so a caller can fold this into a larger lazy
+    pipeline instead of forcing an eager materialization here."""
+    columns = df.collect_schema().names() if isinstance(df, pl.LazyFrame) else df.columns
+    if failure_column not in columns:
         return df
 
     failure_date = (

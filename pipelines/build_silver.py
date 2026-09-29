@@ -40,20 +40,21 @@ def build_silver(bronze_root: Path, config: dict) -> tuple[pl.DataFrame, pl.Data
         raise FileNotFoundError(f"No Bronze Parquet files found under {bronze_root}")
     logger.info("build_silver_bronze_files_found", file_count=len(bronze_files))
 
-    # Scan (not read) every file so none of them is ever fully materialized
-    # on its own before the concat - `pl.read_parquet` per file would hold
-    # every file's full contents in memory simultaneously, on top of the
-    # concatenated result, roughly doubling peak RAM for no reason.
+    # Scan (not read) every file, and fold normalization + failure-date
+    # derivation into the SAME lazy plan as the concat, collecting once at
+    # the end - collecting the raw concat eagerly and then re-lazying it
+    # for a second, non-streaming collect() (the previous shape here) holds
+    # the pre- and post-normalization frames fully in memory at the same
+    # time, on top of not streaming the second pass at all. One streaming
+    # collect over the whole chain avoids that second full-size duplicate.
     t0 = time.perf_counter()
-    wide = pl.concat(
+    wide_lazy = pl.concat(
         [pl.scan_parquet(p) for p in bronze_files], how="diagonal_relaxed"
-    ).collect(engine="streaming")
-    _log_stage("bronze_scanned_and_concatenated", t0, row_count=wide.height)
-
-    t0 = time.perf_counter()
-    wide = normalize_identifiers(wide.lazy()).collect()
-    wide = derive_failure_date(wide)
-    _log_stage("identifiers_normalized", t0, row_count=wide.height)
+    )
+    wide_lazy = normalize_identifiers(wide_lazy)
+    wide_lazy = derive_failure_date(wide_lazy)
+    wide = wide_lazy.collect(engine="streaming")
+    _log_stage("bronze_scanned_normalized_and_concatenated", t0, row_count=wide.height)
 
     t0 = time.perf_counter()
     gap_cfg = config["telemetry_gap"]
