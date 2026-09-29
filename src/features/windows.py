@@ -9,9 +9,15 @@ rule 2 in docs/dataset_strategy.md section 17).
 
 from __future__ import annotations
 
+import time
+
 import polars as pl
 
+from src.logging_config import get_logger
+
 DEFAULT_WINDOWS_DAYS = (7, 14, 30)
+
+logger = get_logger(__name__)
 
 
 def add_rolling_aggregates(
@@ -21,8 +27,14 @@ def add_rolling_aggregates(
     windows_days: tuple[int, ...] = DEFAULT_WINDOWS_DAYS,
 ) -> pl.DataFrame:
     """Adds `{attr}_{window}d_{mean,median,min,max,std,range}` for every
-    attribute and window. `df` must be sorted by drive_id, date."""
+    attribute and window. `df` must be sorted by `date` (globally) so that
+    every drive's own rows are individually in non-decreasing date order -
+    `.rolling(group_by=...)` below only needs that, not a full
+    `[drive_id, date]` sort (verified: it tolerates groups appearing in
+    any relative order, as long as each group's own index-column values
+    are ascending)."""
     for window in windows_days:
+        t0 = time.perf_counter()
         agg_exprs = []
         for attr in attributes:
             period = f"{window}d"
@@ -45,5 +57,13 @@ def add_rolling_aggregates(
                 )
             )
         df = df.join(rolled, on=["drive_id", "date"], how="left")
+        del rolled
+        logger.info(
+            "add_rolling_aggregates_window_done",
+            window_days=window,
+            elapsed_seconds=round(time.perf_counter() - t0, 2),
+            row_count=df.height,
+            column_count=len(df.columns),
+        )
 
     return df
