@@ -17,7 +17,7 @@ DEFAULT_MIN_HISTORY_DAYS = 30
 
 
 def build_drive_metadata(
-    telemetry_df: pl.DataFrame,
+    telemetry_df: pl.DataFrame | pl.LazyFrame,
     *,
     min_history_days: int = DEFAULT_MIN_HISTORY_DAYS,
     as_of_date: dt.date | None = None,
@@ -25,8 +25,20 @@ def build_drive_metadata(
     """`telemetry_df` must be at the drive-day grain (already deduplicated
     across SMART attributes) and must carry `stale_telemetry_flag`,
     `failure_date`, `removal_date`, `model_family`, `capacity_gb`, and
-    `drive_type` columns where available."""
-    as_of = as_of_date or telemetry_df["date"].max()
+    `drive_type` columns where available.
+
+    Accepts either a `DataFrame` or a `LazyFrame` - the output here is
+    always tiny (one row per drive), so a caller with a much larger
+    fleet-scale `telemetry_df` (e.g. scanned lazily from an on-disk
+    Parquet file rather than held in memory - see
+    pipelines/build_silver.py) never needs to materialize it just to call
+    this."""
+    lf = telemetry_df.lazy() if isinstance(telemetry_df, pl.DataFrame) else telemetry_df
+    columns = lf.collect_schema().names()
+    if as_of_date is not None:
+        as_of = as_of_date
+    else:
+        as_of = lf.select(pl.col("date").max()).collect().item()
 
     agg_exprs = [
         pl.col("date").min().alias("first_seen_date"),
@@ -35,14 +47,15 @@ def build_drive_metadata(
         pl.col("model_family").first().alias("model_family"),
         pl.col("capacity_gb").first().alias("capacity_gb"),
     ]
-    if "failure_date" in telemetry_df.columns:
+    if "failure_date" in columns:
         agg_exprs.append(pl.col("failure_date").max().alias("failure_date"))
-    if "removal_date" in telemetry_df.columns:
+    if "removal_date" in columns:
         agg_exprs.append(pl.col("removal_date").max().alias("removal_date"))
-    if "stale_telemetry_flag" in telemetry_df.columns:
+    has_stale_flag = "stale_telemetry_flag" in columns
+    if has_stale_flag:
         agg_exprs.append(pl.col("stale_telemetry_flag").last().alias("_is_currently_stale"))
 
-    metadata = telemetry_df.group_by("drive_id").agg(agg_exprs)
+    metadata = lf.group_by("drive_id").agg(agg_exprs)
 
     metadata = metadata.with_columns(
         (pl.col("last_seen_date") - pl.col("first_seen_date"))
@@ -53,10 +66,7 @@ def build_drive_metadata(
     )
 
     is_decommissioned = pl.col("last_seen_date") < as_of
-    if "_is_currently_stale" in metadata.columns:
-        is_currently_stale = pl.col("_is_currently_stale")
-    else:
-        is_currently_stale = pl.lit(False)
+    is_currently_stale = pl.col("_is_currently_stale") if has_stale_flag else pl.lit(False)
     is_mature = pl.col("total_observed_days") >= min_history_days
 
     metadata = metadata.with_columns(
@@ -70,7 +80,7 @@ def build_drive_metadata(
         .alias("feature_maturity")
     )
 
-    if "_is_currently_stale" in metadata.columns:
+    if has_stale_flag:
         metadata = metadata.drop("_is_currently_stale")
 
-    return metadata
+    return metadata.collect()
