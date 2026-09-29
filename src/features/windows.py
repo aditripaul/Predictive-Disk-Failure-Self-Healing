@@ -33,6 +33,22 @@ def add_rolling_aggregates(
     `[drive_id, date]` sort (verified: it tolerates groups appearing in
     any relative order, as long as each group's own index-column values
     are ascending)."""
+    # Roll from a fixed, narrow base (just the id columns + the original
+    # attributes), and join each window's result onto that same narrow
+    # base too - never onto the wide `df` itself, and never onto a
+    # frame that grows across iterations. A join's cost scales with the
+    # width of both sides (verified: joining a 50-extra-column frame
+    # measurably costs ~2x a narrow one, at equal row count), so joining
+    # onto `df` inside this loop - as this used to do - made every
+    # subsequent window's join progressively more expensive as `df` grew
+    # by ~30 columns per window. Real data confirmed exactly this shape:
+    # the 7d window (df then only 22 columns) succeeded, but the 14d
+    # window (by then df had 52) crashed. Combining the (narrow) rolled
+    # frames with each other first, then joining the wide `df` on once
+    # at the very end, pays that wide-join cost only once instead of
+    # once per window.
+    base = df.select(["drive_id", "date", *attributes])
+    combined = base.select(["drive_id", "date"])
     for window in windows_days:
         t0 = time.perf_counter()
         agg_exprs = []
@@ -47,7 +63,7 @@ def add_rolling_aggregates(
                     pl.col(attr).std().fill_null(0.0).alias(f"{attr}_{window}d_std"),
                 ]
             )
-        rolled = df.rolling(index_column="date", period=period, group_by="drive_id").agg(
+        rolled = base.rolling(index_column="date", period=period, group_by="drive_id").agg(
             agg_exprs
         )
         for attr in attributes:
@@ -56,14 +72,14 @@ def add_rolling_aggregates(
                     f"{attr}_{window}d_range"
                 )
             )
-        df = df.join(rolled, on=["drive_id", "date"], how="left")
+        combined = combined.join(rolled, on=["drive_id", "date"], how="left")
         del rolled
         logger.info(
             "add_rolling_aggregates_window_done",
             window_days=window,
             elapsed_seconds=round(time.perf_counter() - t0, 2),
-            row_count=df.height,
-            column_count=len(df.columns),
+            row_count=combined.height,
+            column_count=len(combined.columns),
         )
 
-    return df
+    return df.join(combined, on=["drive_id", "date"], how="left")
