@@ -13,8 +13,8 @@ sources:
     # downloaded - null (the default) ingests everything raw_glob matches.
     # Useful for keeping a single build-silver run's data volume bounded,
     # e.g. while validating on a smaller slice before ingesting more.
-    start_date: null   # e.g. "2026-01-01"
-    end_date: null     # e.g. "2026-01-31"
+    start_date: "2026-01-01"
+    end_date: "2026-01-31"
   smartz:
     raw_glob: "data/raw/smartz/*.csv"
     bronze_path: "data/bronze/smartz"
