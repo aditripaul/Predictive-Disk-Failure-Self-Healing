@@ -84,7 +84,7 @@ download-smartz:
 # --- data pipeline -------------------------------------------------------------
 
 ingest-backblaze:
-	uv run python pipelines/ingest_backblaze.py
+	uv run python pipelines/ingest_backblaze.py $(ARGS)
 
 ingest-smartz:
 	uv run python pipelines/ingest_smartz.py

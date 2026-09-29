@@ -209,6 +209,28 @@ a clear, actionable `ValueError` otherwise instead of silently doing
 nothing - the same "no real code path defaults to anything you haven't
 configured" principle.
 
+`make ingest-backblaze` has an analogous, independent restriction:
+`sources.backblaze.start_date`/`end_date` (or `--start-date`/`--end-date`)
+limits which already-downloaded raw CSVs (named `YYYY-MM-DD.csv`) get
+ingested, without touching what's on disk in `data/raw/backblaze/`. This
+is separate from which quarters you've downloaded - useful for bounding
+how much data a single `make build-silver` run has to handle (e.g. while
+validating against a small slice before scaling up), or for re-ingesting
+just a subset after a schema change. Unset (the default) ingests every
+CSV `raw_glob` matches, same as before this option existed:
+
+```yaml
+# configs/data.yaml
+sources:
+  backblaze:
+    start_date: "2026-01-01"
+    end_date: "2026-01-31"
+```
+
+```bash
+make ingest-backblaze ARGS="--start-date 2026-01-01 --end-date 2026-01-31"
+```
+
 ```text
 make ingest-backblaze / ingest-smartz / ingest-synthetic-stub   → data/bronze/
 make build-silver                                               → data/silver/

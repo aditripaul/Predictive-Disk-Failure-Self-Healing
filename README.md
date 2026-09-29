@@ -412,6 +412,7 @@ synthetic-data walkthrough (§14) — only real-data / production settings.
 |---|---|---|
 | `configs/data.yaml` | `download.backblaze.quarters` (or `start_quarter`/`end_quarter`) | Before `make download-backblaze` — empty by default, nothing downloads until you configure a time period |
 | `configs/data.yaml` | `download.smartz.url` | Before `make download-smartz` — SMART-Z has no public bulk-download API; request access first |
+| `configs/data.yaml` | `sources.backblaze.start_date` / `end_date` | Optional — restricts which already-downloaded raw CSVs `make ingest-backblaze` processes (and therefore how much data `make build-silver` has to handle in one run), independent of which quarters you've downloaded. Unset (default) ingests everything downloaded |
 | `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | Before `make train` against real data whose date range doesn't overlap the defaults — an empty split raises a clear error naming which one. The synthetic stub (§14) derives its own date range from these same values, so it stays correct automatically if you change them |
 | `configs/model.yaml` | `model.type` (`lightgbm` \| `xgboost`) | Only if you want XGBoost instead of the LightGBM default |
 | `configs/model.yaml` | `mlflow.tracking_uri` / `experiment_name` | Only if you want runs logged somewhere other than the local `sqlite:///mlflow/mlflow.db` default |
