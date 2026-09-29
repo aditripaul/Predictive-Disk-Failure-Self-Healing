@@ -9,6 +9,7 @@ writes the Silver layer plus a quality report to data/audit/.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import polars as pl
@@ -28,21 +29,33 @@ CONFIG_PATH = Path("configs/data.yaml")
 logger = get_logger(__name__)
 
 
+def _log_stage(stage: str, started_at: float, **fields: object) -> None:
+    elapsed_seconds = round(time.perf_counter() - started_at, 2)
+    logger.info(f"build_silver_{stage}", elapsed_seconds=elapsed_seconds, **fields)
+
+
 def build_silver(bronze_root: Path, config: dict) -> tuple[pl.DataFrame, pl.DataFrame, list[dict]]:
     bronze_files = sorted(bronze_root.glob("**/*.parquet"))
     if not bronze_files:
         raise FileNotFoundError(f"No Bronze Parquet files found under {bronze_root}")
+    logger.info("build_silver_bronze_files_found", file_count=len(bronze_files))
 
     # Scan (not read) every file so none of them is ever fully materialized
     # on its own before the concat - `pl.read_parquet` per file would hold
     # every file's full contents in memory simultaneously, on top of the
     # concatenated result, roughly doubling peak RAM for no reason.
+    t0 = time.perf_counter()
     wide = pl.concat(
         [pl.scan_parquet(p) for p in bronze_files], how="diagonal_relaxed"
     ).collect(engine="streaming")
+    _log_stage("bronze_scanned_and_concatenated", t0, row_count=wide.height)
+
+    t0 = time.perf_counter()
     wide = normalize_identifiers(wide.lazy()).collect()
     wide = derive_failure_date(wide)
+    _log_stage("identifiers_normalized", t0, row_count=wide.height)
 
+    t0 = time.perf_counter()
     gap_cfg = config["telemetry_gap"]
     drive_day = compute_telemetry_gaps(
         wide,
@@ -50,21 +63,28 @@ def build_silver(bronze_root: Path, config: dict) -> tuple[pl.DataFrame, pl.Data
         stale_gap_days=gap_cfg["stale_gap_days"],
     )
     del wide  # superseded by drive_day; drop it before allocating anything else
+    _log_stage("telemetry_gaps_computed", t0, row_count=drive_day.height)
 
     # drive_metadata first: it's one row per drive, tiny next to
     # canonical_long (melt_smart_attributes unpivots to one row per
     # drive-day-*attribute*, ~10x drive_day's row count for the 10
     # priority SMART attributes) - freeing drive_day before that unpivot
     # keeps peak memory to roughly one big frame at a time, not three.
+    t0 = time.perf_counter()
     maturity_cfg = config["feature_maturity"]
     drive_metadata = build_drive_metadata(
         drive_day, min_history_days=maturity_cfg["min_history_days"]
     )
+    _log_stage("drive_metadata_built", t0, row_count=drive_metadata.height)
 
+    t0 = time.perf_counter()
     canonical_long = melt_smart_attributes(drive_day)
     del drive_day
+    _log_stage("smart_attributes_melted", t0, row_count=canonical_long.height)
 
+    t0 = time.perf_counter()
     quality_reports = run_all_checks(canonical_long)
+    _log_stage("quality_checks_run", t0, check_count=len(quality_reports))
 
     return canonical_long, drive_metadata, quality_reports
 

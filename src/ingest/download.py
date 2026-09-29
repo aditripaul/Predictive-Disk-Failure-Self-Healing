@@ -23,6 +23,7 @@ import zipfile
 from pathlib import Path
 
 import requests
+from tqdm import tqdm
 
 DEFAULT_BACKBLAZE_BASE_URL = "https://f001.backblazeb2.com/file/Backblaze-Hard-Drive-Data"
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024  # 1 MiB streamed chunks
@@ -76,17 +77,34 @@ def generate_quarter_range(start_quarter: str, end_quarter: str) -> list[str]:
     return quarters
 
 
-def download_file(url: str, dest_path: Path, *, chunk_size: int = DOWNLOAD_CHUNK_SIZE) -> Path:
+def download_file(
+    url: str, dest_path: Path, *, chunk_size: int = DOWNLOAD_CHUNK_SIZE, show_progress: bool = True
+) -> Path:
     """Streams `url` to `dest_path`, writing to a `.part` sibling first so a
-    failed/interrupted download never leaves a file that looks complete."""
+    failed/interrupted download never leaves a file that looks complete.
+    Shows a `tqdm` progress bar (bytes downloaded, speed, ETA) driven by the
+    response's `Content-Length` header when present, unless
+    `show_progress=False` (e.g. in tests)."""
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = dest_path.with_name(dest_path.name + ".part")
     with requests.get(url, stream=True, timeout=60) as response:
         response.raise_for_status()
-        with tmp_path.open("wb") as f:
+        total_bytes = int(response.headers.get("Content-Length", 0)) or None
+        with (
+            tmp_path.open("wb") as f,
+            tqdm(
+                total=total_bytes,
+                unit="B",
+                unit_scale=True,
+                unit_divisor=1024,
+                desc=dest_path.name,
+                disable=not show_progress,
+            ) as progress,
+        ):
             for chunk in response.iter_content(chunk_size=chunk_size):
                 if chunk:
                     f.write(chunk)
+                    progress.update(len(chunk))
     tmp_path.replace(dest_path)
     return dest_path
 

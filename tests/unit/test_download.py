@@ -23,6 +23,7 @@ def _fake_response(content: bytes) -> MagicMock:
     response = MagicMock()
     response.raise_for_status.return_value = None
     response.iter_content.return_value = [content]
+    response.headers = {"Content-Length": str(len(content))}
     response.__enter__.return_value = response
     response.__exit__.return_value = False
     return response

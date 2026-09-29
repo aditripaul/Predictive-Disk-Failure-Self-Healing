@@ -30,6 +30,7 @@ dependencies = [
     "requests>=2.34.2",
     "shap>=0.51.0",
     "matplotlib>=3.9",
+    "tqdm>=4.66",
 ]
 
 [project.optional-dependencies]
