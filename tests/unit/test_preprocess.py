@@ -84,6 +84,34 @@ def test_melt_smart_attributes_produces_long_canonical_rows():
     assert row_b_reallocated["smart_badness_value"][0] == 10.0
 
 
+def test_melt_smart_attributes_with_explicit_id_columns_drops_everything_else():
+    """pipelines/build_silver.py passes id_columns=["drive_id", "date"] to
+    avoid duplicating every other drive-day column (drive_model,
+    capacity_gb, telemetry-gap flags, ...) once per SMART attribute - a
+    real, avoidable ~10x memory/disk cost at fleet scale that a caller
+    needing those columns should instead join back afterward, at the
+    drive-day grain, from wherever they're actually persisted."""
+    df = pl.DataFrame(
+        {
+            "drive_id": ["A", "B"],
+            "date": [dt.date(2024, 1, 1), dt.date(2024, 1, 1)],
+            "drive_model": ["ST4000DM000", "ST4000DM000"],
+            "capacity_gb": [4000.0, 4000.0],
+            "smart_5_raw": [0, 10],
+            "smart_197_raw": [0, 3],
+        }
+    )
+    long_df = melt_smart_attributes(df, id_columns=["drive_id", "date"])
+    assert set(long_df.columns) == {
+        "drive_id",
+        "date",
+        "smart_attribute_name",
+        "smart_raw_value",
+        "smart_badness_value",
+    }
+    assert long_df.height == 4
+
+
 def test_build_canonical_attribute_map_differs_per_source():
     backblaze_map = build_canonical_attribute_map("backblaze")
     smartz_map = build_canonical_attribute_map("smartz")

@@ -55,6 +55,21 @@ SOURCE_COLUMN_TEMPLATES: dict[str, str] = {
 
 DEFAULT_SOURCE = "backblaze"
 
+#: Every bronze column name any source's template could produce for any
+#: standard attribute, regardless of which are actually onboarded/present
+#: in a given dataset - i.e. everything `melt_smart_attributes` ever
+#: consumes as a `bronze_column` to unpivot. Used by
+#: `src/features/pivot.py::pivot_badness_wide` to exclude these from its
+#: drive_day join-back, since they're superseded there by the harmonized
+#: `smart_badness_value` columns the pivot itself produces - joining them
+#: back in too would reintroduce raw, un-harmonized duplicates of data
+#: the melt already captured.
+ALL_BRONZE_SMART_COLUMNS: frozenset[str] = frozenset(
+    template.format(id=smart_id)
+    for template in SOURCE_COLUMN_TEMPLATES.values()
+    for smart_id in STANDARD_SMART_ID_TO_CANONICAL
+)
+
 # All attributes ingested so far are raw SMART counters where a higher raw
 # value always means worse health, so no inversion is needed. Attributes
 # using vendor-normalized scales (where lower can mean worse) should be added
@@ -78,7 +93,9 @@ def build_canonical_attribute_map(source_dataset: str) -> dict[str, str]:
 CANONICAL_ATTRIBUTE_NAMES: dict[str, str] = build_canonical_attribute_map(DEFAULT_SOURCE)
 
 
-def melt_smart_attributes(df: FrameT, *, source_column: str = "source_dataset") -> FrameT:
+def melt_smart_attributes(
+    df: FrameT, *, source_column: str = "source_dataset", id_columns: list[str] | None = None
+) -> FrameT:
     """Reshape wide Bronze rows (one column per SMART attribute) into long
     canonical rows: one row per (drive_id, date, smart_attribute_name).
 
@@ -90,15 +107,26 @@ def melt_smart_attributes(df: FrameT, *, source_column: str = "source_dataset") 
     canonical attribute. Callers without that column (e.g. a single-source
     frame in a test) fall back to the Backblaze mapping.
 
+    By default (`id_columns=None`), every non-SMART column is carried
+    through unchanged, alongside the new `smart_attribute_name`/
+    `smart_raw_value`/`smart_badness_value` ones - simple, but means every
+    one of those other columns gets duplicated once per attribute (~10x at
+    fleet scale), which is real, avoidable bloat for anything that doesn't
+    vary by attribute (drive_model, capacity_gb, telemetry-gap flags, ...).
+    Pass an explicit `id_columns` (e.g. `["drive_id", "date"]`) to keep
+    only those - see `pipelines/build_silver.py`, which does this and
+    persists the rest separately (as `data/silver/drive_day/`) for
+    `src/features/pivot.py::pivot_badness_wide` to join back afterward, at
+    the drive-day grain rather than the ~10x-larger melted grain.
+
     Accepts either a `DataFrame` or a `LazyFrame` (every operation below
-    works identically in both) so a caller can fold this ~10x row
-    expansion into a larger lazy pipeline it sinks straight to disk
+    works identically in both) so a caller can fold this row expansion
+    into a larger lazy pipeline it sinks straight to disk
     (`LazyFrame.sink_parquet`) instead of ever materializing the long-form
-    result in memory - the biggest single memory cost in the Silver build
-    at fleet scale."""
+    result in memory."""
     columns = _columns_of(df)
     if source_column not in columns:
-        return _melt_with_map(df, CANONICAL_ATTRIBUTE_NAMES)
+        return _melt_with_map(df, CANONICAL_ATTRIBUTE_NAMES, id_columns=id_columns)
 
     if isinstance(df, pl.LazyFrame):
         source_values = df.select(pl.col(source_column).unique()).collect()[source_column].to_list()
@@ -110,33 +138,37 @@ def melt_smart_attributes(df: FrameT, *, source_column: str = "source_dataset") 
         # given Bronze root so far): melt the frame directly rather than
         # `df.filter(...)`-ing out a full redundant copy of it first, which
         # would otherwise sit in memory alongside `df` itself right before
-        # the ~10x row expansion below.
+        # the row expansion below.
         attribute_map = build_canonical_attribute_map(source_values[0])
         if not any(c in columns for c in attribute_map):
             raise ValueError("No known SMART attribute columns found to melt for any source.")
-        return _melt_with_map(df, attribute_map)
+        return _melt_with_map(df, attribute_map, id_columns=id_columns)
 
     parts = []
     for source_value in source_values:
         attribute_map = build_canonical_attribute_map(source_value)
         subset = df.filter(pl.col(source_column) == source_value)
         if any(c in columns for c in attribute_map):
-            parts.append(_melt_with_map(subset, attribute_map))
+            parts.append(_melt_with_map(subset, attribute_map, id_columns=id_columns))
     if not parts:
         raise ValueError("No known SMART attribute columns found to melt for any source.")
     return pl.concat(parts, how="diagonal_relaxed")
 
 
-def _melt_with_map(df: FrameT, attribute_map: dict[str, str]) -> FrameT:
+def _melt_with_map(
+    df: FrameT, attribute_map: dict[str, str], *, id_columns: list[str] | None = None
+) -> FrameT:
     columns = _columns_of(df)
     bronze_columns = [c for c in attribute_map if c in columns]
     if not bronze_columns:
         raise ValueError("No known SMART attribute columns found to melt.")
 
-    id_columns = [c for c in columns if c not in bronze_columns]
+    resolved_id_columns = (
+        id_columns if id_columns is not None else [c for c in columns if c not in bronze_columns]
+    )
 
     long_df = df.unpivot(
-        index=id_columns,
+        index=resolved_id_columns,
         on=bronze_columns,
         variable_name="_bronze_column",
         value_name="smart_raw_value",

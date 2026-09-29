@@ -31,8 +31,10 @@ FEATURES_CONFIG_PATH = Path("configs/features.yaml")
 logger = get_logger(__name__)
 
 
-def build_gold_features(canonical_long: pl.DataFrame, features_config: dict) -> pl.DataFrame:
-    wide = pivot_badness_wide(canonical_long)
+def build_gold_features(
+    canonical_long: pl.DataFrame, features_config: dict, *, drive_day: pl.DataFrame | None = None
+) -> pl.DataFrame:
+    wide = pivot_badness_wide(canonical_long, drive_day=drive_day)
 
     available_attributes = [
         a for a in features_config["priority_smart_attributes"] if a in wide.columns
@@ -76,10 +78,14 @@ def main() -> None:
     canonical_path = silver_dir / "canonical_telemetry" / "part.parquet"
     if not canonical_path.exists():
         raise FileNotFoundError(f"{canonical_path} not found; run `make build-silver` first.")
+    drive_day_path = silver_dir / "drive_day" / "part.parquet"
+    if not drive_day_path.exists():
+        raise FileNotFoundError(f"{drive_day_path} not found; run `make build-silver` first.")
 
     canonical_long = pl.read_parquet(canonical_path)
+    drive_day = pl.read_parquet(drive_day_path)
     gold, attributes, windows_days, spike_thresholds = build_gold_features(
-        canonical_long, features_config
+        canonical_long, features_config, drive_day=drive_day
     )
 
     gold_dir = Path(data_config["gold_dir"]) / "features"

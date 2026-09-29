@@ -39,6 +39,66 @@ def test_pivot_badness_wide():
     assert wide["current_pending_sector_count"][0] == 2.0
 
 
+def test_pivot_badness_wide_joins_back_drive_day_metadata_when_given():
+    """pipelines/build_silver.py melts with id_columns=["drive_id", "date"]
+    only (src/preprocess/smart_mapping.py), so canonical_long no longer
+    carries drive_model/capacity_gb/etc - pivot_badness_wide must join
+    them back in from the separately-persisted drive_day table."""
+    long_df = pl.DataFrame(
+        {
+            "drive_id": ["A", "A"],
+            "date": [dt.date(2024, 1, 1), dt.date(2024, 1, 1)],
+            "smart_attribute_name": ["reallocated_sector_count", "current_pending_sector_count"],
+            "smart_raw_value": [1.0, 2.0],
+            "smart_badness_value": [1.0, 2.0],
+        }
+    )
+    drive_day = pl.DataFrame(
+        {
+            "drive_id": ["A"],
+            "date": [dt.date(2024, 1, 1)],
+            "drive_model": ["ST4000DM000"],
+            "capacity_gb": [4000.0],
+        }
+    )
+    wide = pivot_badness_wide(long_df, drive_day=drive_day)
+    assert wide.height == 1
+    assert wide["reallocated_sector_count"][0] == 1.0
+    assert wide["drive_model"][0] == "ST4000DM000"
+    assert wide["capacity_gb"][0] == 4000.0
+
+
+def test_pivot_badness_wide_excludes_raw_bronze_smart_columns_from_the_join_back():
+    """drive_day still carries the original raw smart_<id>_raw columns
+    (melt_smart_attributes never mutates the persisted file, only reads
+    from it), but those are superseded by the harmonized
+    smart_badness_value columns the pivot itself produces - joining them
+    back in too would silently reintroduce raw, un-harmonized duplicates
+    that were never part of canonical_long's schema before drive_day was
+    split out (a real regression caught by diffing this against the
+    pre-split implementation's output on the synthetic fixture)."""
+    long_df = pl.DataFrame(
+        {
+            "drive_id": ["A"],
+            "date": [dt.date(2024, 1, 1)],
+            "smart_attribute_name": ["reallocated_sector_count"],
+            "smart_raw_value": [1.0],
+            "smart_badness_value": [1.0],
+        }
+    )
+    drive_day = pl.DataFrame(
+        {
+            "drive_id": ["A"],
+            "date": [dt.date(2024, 1, 1)],
+            "smart_5_raw": [1.0],
+            "drive_model": ["ST4000DM000"],
+        }
+    )
+    wide = pivot_badness_wide(long_df, drive_day=drive_day)
+    assert "smart_5_raw" not in wide.columns
+    assert wide["drive_model"][0] == "ST4000DM000"
+
+
 def test_pivot_badness_wide_orders_each_drives_rows_by_date_even_when_input_is_scrambled():
     """The output is sorted by `date` alone, not `[drive_id, date]` (a
     multi-key sort keyed partly on the string drive_id is what crashed

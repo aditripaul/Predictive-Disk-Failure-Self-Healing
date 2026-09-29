@@ -664,42 +664,77 @@ of how cheaply it was computed.
 
 The real fix ended up being structural, not just an eager-vs-lazy
 cleanup: `build_silver` now never materializes either `drive_day` or
-`canonical_long` as an in-memory `DataFrame` at all.
+`canonical_long` as an in-memory `DataFrame` at all, AND `canonical_long`
+no longer carries every drive-day column through the melt.
 - The scan → normalize → failure-date → telemetry-gap chain is built as
-  one `LazyFrame` and sunk straight to a temporary Parquet file via
+  one `LazyFrame` and sunk straight to Parquet (`data/silver/drive_day/`,
+  now a real, persistent Silver output, not a temp file) via
   `LazyFrame.sink_parquet`, which streams the computation *and* the
   output in row-group-sized batches — unlike `.collect(engine="streaming")`,
   which still has to land the whole result in memory as one `DataFrame`
   once it's done, `sink_parquet` never does.
-- `build_drive_metadata` and `melt_smart_attributes` then each `scan_parquet`
-  that temporary file lazily rather than taking `drive_day` as an
-  in-memory argument — both now accept either a `DataFrame` or a
-  `LazyFrame` for exactly this reason. `melt_smart_attributes`'s ~10x
-  expansion is sunk straight to `canonical_telemetry/part.parquet` the
-  same way.
+- `build_drive_metadata` then `scan_parquet`s that file lazily rather
+  than taking `drive_day` as an in-memory argument (it now accepts either
+  a `DataFrame` or a `LazyFrame` for exactly this reason).
+- `melt_smart_attributes` is called with `id_columns=["drive_id", "date"]`
+  explicitly (its default, `id_columns=None`, still carries every
+  non-SMART column through, for callers that want that - e.g. tests).
+  Carrying all ~17 of `drive_day`'s other columns (drive_model,
+  capacity_gb, telemetry-gap flags, ...) through the melt would duplicate
+  every one of them once per SMART attribute for no reason, since none of
+  them vary by attribute - at fleet scale that's a genuinely large,
+  entirely avoidable cost on top of the row expansion itself. The melt's
+  output (just `drive_id`/`date`/the attribute columns) is sunk straight
+  to `canonical_telemetry/part.parquet`.
+- `src/features/pivot.py::pivot_badness_wide` (used by `make
+  build-features`) now takes an optional `drive_day` argument and
+  left-joins its other columns back in *after* pivoting - i.e. at the
+  drive-day grain again, not the ~10x-larger melted one, where the join
+  is cheap. It explicitly excludes the raw bronze `smart_<id>_raw`/
+  `_normalized` columns from that join (`ALL_BRONZE_SMART_COLUMNS` in
+  `src/preprocess/smart_mapping.py`) - `drive_day` still has them (the
+  melt only reads it, never mutates it), but they're superseded there by
+  the harmonized `smart_badness_value` columns the pivot itself already
+  produces; a first version of this join didn't exclude them and
+  silently reintroduced them into `gold`, caught only by diffing the
+  final feature table against the pre-split implementation's output.
+  `pipelines/build_gold_features.py` reads `drive_day/part.parquet`
+  alongside `canonical_telemetry/part.parquet` and passes it through.
 - Only `drive_metadata` (one row per drive) is still ever a real
   in-memory `DataFrame` — it's inherently tiny regardless of fleet size,
   so there's nothing to gain by streaming it too.
-- Compute-side, `compute_telemetry_gaps` and `pivot_badness_wide`
-  (`src/features/pivot.py`, used by `make build-features`) both sort by
-  `date` alone now, not `[drive_id, date]` — a global sort by `date`
-  alone still guarantees every drive's own rows land in non-decreasing
-  date order (all `.over("drive_id")`/`.rolling(group_by="drive_id")`
-  window features need), without ever row-encoding the string `drive_id`
-  column into the sort key.
+- Compute-side, `compute_telemetry_gaps` and `pivot_badness_wide` both
+  sort by `date` alone now, not `[drive_id, date]` — a global sort by
+  `date` alone still guarantees every drive's own rows land in
+  non-decreasing date order (all `.over("drive_id")`/
+  `.rolling(group_by="drive_id")` window features need), without ever
+  row-encoding the string `drive_id` column into the sort key.
+- Quality checks (`run_all_checks`) run against `drive_day`, not
+  `canonical_long`, since `capacity_gb`/`failure_date` only exist at the
+  drive-day grain now - checking `drive_day` for duplicate
+  `(drive_id, date)` rows is equivalent to (and cheaper than) checking
+  `canonical_long` for duplicate `(drive_id, date, smart_attribute_name)`
+  rows, since a duplicate drive-day row produces duplicates for every
+  melted attribute.
 
 Every one of these changes was checked for exact output equivalence
-before being kept: the new implementation's `canonical_telemetry` rows,
-`drive_metadata`, and quality-check results were diffed directly against
-the pre-restructure implementation on the synthetic fixture and found
-identical (`tests/unit/test_pipelines_build_silver.py`,
-`tests/unit/test_preprocess.py`'s lazy/eager quality-check test,
-`tests/unit/test_features.py`'s scrambled-input pivot test). There's a
+before being kept: the new implementation's `drive_day`,
+`canonical_telemetry`, `drive_metadata`, quality-check results, and
+finally the full `make build-features` output (`gold`) were diffed
+directly against the pre-restructure implementation on the synthetic
+fixture and found identical, aside from `ingested_at` (a real wall-clock
+ingestion timestamp, expected to differ between separate runs) -
+`tests/unit/test_pipelines_build_silver.py`,
+`tests/unit/test_preprocess.py`'s lazy/eager quality-check and
+narrowed-`id_columns` tests, `tests/unit/test_features.py`'s
+scrambled-input and drive_day-join-back pivot tests. There's a
 regression test for the Bronze-accumulation behavior the pipeline
 depends on in `tests/unit/test_ingest_common.py`; there's no dedicated
 peak-memory test (polars/pytest don't make that cheap to assert), so if
-`build_silver` is touched again, re-check that no step re-introduces a
-full materialization of `drive_day` or `canonical_long`.
+`build_silver` or `pivot_badness_wide` are touched again, re-check that
+no step re-introduces a full materialization of `drive_day` or
+`canonical_long`, or reintroduces a column into `gold` that wasn't there
+before.
 
 **The cap (`src/resource_limits.py`, new).** Fixing the one known bug
 doesn't rule out a different pipeline, a bigger fleet, or a future
@@ -1150,7 +1185,7 @@ and checkpoint, by design — see `src/agent/demo.py`).
 
 ```bash
 make ingest-synthetic-stub   # 15 drives spanning configs/model.yaml's splits -> data/bronze/synthetic/
-make build-silver            # -> data/silver/{canonical_telemetry,drive_metadata}/
+make build-silver            # -> data/silver/{drive_day,canonical_telemetry,drive_metadata}/
 make build-features          # -> data/gold/features/part.parquet (~196 columns)
 make build-labels            # -> data/gold/labels/part.parquet + dataset_versions/*.json
 make train                   # trains, tunes threshold, logs to MLflow, writes a model card

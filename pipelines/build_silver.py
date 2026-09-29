@@ -9,7 +9,6 @@ writes the Silver layer plus a quality report to data/audit/.
 from __future__ import annotations
 
 import json
-import tempfile
 import time
 from pathlib import Path
 
@@ -36,24 +35,32 @@ def _log_stage(stage: str, started_at: float, **fields: object) -> None:
 
 
 def build_silver(
-    bronze_root: Path, config: dict, *, canonical_path: Path
-) -> tuple[int, pl.DataFrame, list[dict]]:
-    """Builds the Silver layer and sinks the canonical long telemetry table
-    straight to `canonical_path` rather than returning it in memory.
+    bronze_root: Path, config: dict, *, drive_day_path: Path, canonical_path: Path
+) -> tuple[int, int, pl.DataFrame, list[dict]]:
+    """Builds the Silver layer and sinks both the per-drive-day table
+    (`drive_day_path`) and the canonical long telemetry table
+    (`canonical_path`) straight to Parquet rather than returning either in
+    memory.
 
-    Nothing in this function ever holds the full drive-day table (`drive_day`)
-    or the canonical long table (~10x `drive_day`'s row count - one row per
-    drive-day-*attribute* - after `melt_smart_attributes`) in memory as a
-    materialized `DataFrame`. Both are written straight to Parquet via
-    `LazyFrame.sink_parquet`, which streams the computation AND the output
-    in row-group-sized batches, so neither one's size is bounded by
-    available RAM - at real fleet scale, either one alone can be hundreds
-    of millions of rows. `drive_day` is sunk to a temporary file solely so
-    `build_drive_metadata` and `melt_smart_attributes` can each scan it
-    lazily afterward without recomputing the scan/normalize/gap-detection
-    chain twice; it's deleted once this function returns. Row counts and
-    quality checks likewise run as narrow lazy aggregate queries against
-    the Parquet files just written, never against an in-memory copy.
+    `melt_smart_attributes` is only ever given `id_columns=["drive_id",
+    "date"]` here - carrying every other drive-day column (drive_model,
+    capacity_gb, telemetry-gap flags, ...) through the melt as well would
+    duplicate each one once per SMART attribute (~10x at fleet scale) for
+    no reason, since none of them vary by attribute. Those columns are
+    instead persisted once, at their natural drive-day grain, in
+    `drive_day_path`; `src/features/pivot.py::pivot_badness_wide` joins
+    them back in later, after pivoting canonical_long back down to that
+    same grain, where the join is cheap.
+
+    Neither `drive_day` nor `canonical_long` is ever a materialized
+    `DataFrame` here - both are written via `LazyFrame.sink_parquet`,
+    which streams the computation AND the output in row-group-sized
+    batches, so neither one's size is bounded by available RAM. Row
+    counts and quality checks likewise run as narrow lazy aggregate
+    queries against the Parquet files just written, never against an
+    in-memory copy. Only `drive_metadata` (one row per drive) is ever a
+    real in-memory `DataFrame`, since it's inherently tiny regardless of
+    fleet size.
     """
     bronze_files = sorted(bronze_root.glob("**/*.parquet"))
     if not bronze_files:
@@ -79,38 +86,41 @@ def build_silver(
         stale_gap_days=gap_cfg["stale_gap_days"],
     )
 
+    drive_day_path.parent.mkdir(parents=True, exist_ok=True)
     canonical_path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="build_silver_drive_day_") as tmp_dir:
-        drive_day_path = Path(tmp_dir) / "drive_day.parquet"
-
-        t0 = time.perf_counter()
-        drive_day_lazy.sink_parquet(drive_day_path, compression="zstd")
-        drive_day_row_count = pl.scan_parquet(drive_day_path).select(pl.len()).collect().item()
-        _log_stage(
-            "bronze_scanned_normalized_and_gaps_computed", t0, row_count=drive_day_row_count
-        )
-
-        # drive_metadata first: it's one row per drive, tiny next to the
-        # canonical long table below.
-        t0 = time.perf_counter()
-        maturity_cfg = config["feature_maturity"]
-        drive_metadata = build_drive_metadata(
-            pl.scan_parquet(drive_day_path), min_history_days=maturity_cfg["min_history_days"]
-        )
-        _log_stage("drive_metadata_built", t0, row_count=drive_metadata.height)
-
-        t0 = time.perf_counter()
-        melt_smart_attributes(pl.scan_parquet(drive_day_path)).sink_parquet(
-            canonical_path, compression="zstd"
-        )
-        canonical_row_count = pl.scan_parquet(canonical_path).select(pl.len()).collect().item()
-        _log_stage("smart_attributes_melted_and_written", t0, row_count=canonical_row_count)
 
     t0 = time.perf_counter()
-    quality_reports = run_all_checks(pl.scan_parquet(canonical_path))
+    drive_day_lazy.sink_parquet(drive_day_path, compression="zstd")
+    drive_day_row_count = pl.scan_parquet(drive_day_path).select(pl.len()).collect().item()
+    _log_stage("bronze_scanned_normalized_and_gaps_computed", t0, row_count=drive_day_row_count)
+
+    # drive_metadata: it's one row per drive, tiny next to the canonical
+    # long table below.
+    t0 = time.perf_counter()
+    maturity_cfg = config["feature_maturity"]
+    drive_metadata = build_drive_metadata(
+        pl.scan_parquet(drive_day_path), min_history_days=maturity_cfg["min_history_days"]
+    )
+    _log_stage("drive_metadata_built", t0, row_count=drive_metadata.height)
+
+    t0 = time.perf_counter()
+    melt_smart_attributes(
+        pl.scan_parquet(drive_day_path), id_columns=["drive_id", "date"]
+    ).sink_parquet(canonical_path, compression="zstd")
+    canonical_row_count = pl.scan_parquet(canonical_path).select(pl.len()).collect().item()
+    _log_stage("smart_attributes_melted_and_written", t0, row_count=canonical_row_count)
+
+    # Quality checks run against drive_day, not canonical_long: capacity_gb
+    # and failure_date only exist at the drive-day grain now, and checking
+    # for duplicate (drive_id, date) rows there is equivalent to (and
+    # cheaper than) checking canonical_long for duplicate
+    # (drive_id, date, smart_attribute_name) rows, since a duplicate
+    # drive-day row would produce duplicates for every melted attribute.
+    t0 = time.perf_counter()
+    quality_reports = run_all_checks(pl.scan_parquet(drive_day_path))
     _log_stage("quality_checks_run", t0, check_count=len(quality_reports))
 
-    return canonical_row_count, drive_metadata, quality_reports
+    return drive_day_row_count, canonical_row_count, drive_metadata, quality_reports
 
 
 def main() -> None:
@@ -121,10 +131,12 @@ def main() -> None:
     audit_dir = Path(config["audit_dir"]) / "data_quality_reports"
 
     all_bronze_root = Path(config["bronze_dir"])
+    drive_day_dir = silver_dir / "drive_day"
+    drive_day_path = drive_day_dir / "part.parquet"
     canonical_dir = silver_dir / "canonical_telemetry"
     canonical_path = canonical_dir / "part.parquet"
-    canonical_row_count, drive_metadata, quality_reports = build_silver(
-        all_bronze_root, config, canonical_path=canonical_path
+    drive_day_row_count, canonical_row_count, drive_metadata, quality_reports = build_silver(
+        all_bronze_root, config, drive_day_path=drive_day_path, canonical_path=canonical_path
     )
 
     metadata_dir = silver_dir / "drive_metadata"
@@ -137,6 +149,9 @@ def main() -> None:
     )
 
     failed = [r for r in quality_reports if not r["passed"]]
+    logger.info(
+        "drive_day_written", row_count=drive_day_row_count, path=str(drive_day_dir)
+    )
     logger.info(
         "canonical_telemetry_written", row_count=canonical_row_count, path=str(canonical_dir)
     )
