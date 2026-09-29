@@ -614,6 +614,78 @@ at any time — nothing else reads them back.
 
 ---
 
+### 5.10 Memory: the `build_silver` peak-RAM bug, and the process-wide cap
+
+`make build-silver` crashed with an out-of-memory kill against real
+fleet-scale Backblaze data (32GB RAM), even though the same pipeline was
+fine against the synthetic fixtures. Two independent things were wrong,
+and both matter for anyone touching a pipeline that scans `data/bronze/`:
+
+**The bug (fixed in `build_silver()`, `pipelines/build_silver.py`).**
+The original implementation (a) read every Bronze Parquet file eagerly
+with `pl.read_parquet` and concatenated them into one in-memory
+`DataFrame` before doing anything else, and (b) kept every intermediate
+`DataFrame` (`wide`, `drive_day`, `canonical_long`, ...) alive
+simultaneously as it worked through Silver's normalize → derive → gap
+detection → melt steps. Real fleet data has enough distinct
+`(drive_id, date)` rows that holding two or three full copies of it in
+memory at once is what actually exhausted 32GB — the synthetic fixture
+(a handful of drives, ~1 year) never got big enough to expose it. The fix
+is in the code itself now, not a config flag: `build_silver` scans each
+Bronze file lazily (`pl.scan_parquet`) and only materializes once, via
+`.collect(engine="streaming")`, and each intermediate `DataFrame` is
+explicitly `del`eted as soon as the next step no longer needs it (see the
+`del wide` / `del drive_day` calls in `pipelines/build_silver.py`) instead
+of staying reachable until the function returns. There's a regression
+test for the accumulation behavior this fix depends on in
+`tests/unit/test_ingest_common.py`; there's no dedicated peak-memory test
+(polars/pytest don't make that cheap to assert), so if `build_silver` is
+touched again, re-check that no step re-introduces a second full-dataset
+copy that outlives its own step.
+
+**The cap (`src/resource_limits.py`, new).** Fixing the one known bug
+doesn't rule out a different pipeline, a bigger fleet, or a future
+regression doing the same thing — so every pipeline and service entry
+point now also applies a hard, configurable ceiling on its own process's
+memory at startup, as a last line of defense: a bug degrades into a clean
+process abort instead of silently swapping the host to a crawl or taking
+down other processes. Configured by `configs/data.yaml`:
+
+```yaml
+resource_limits:
+  max_memory_gb: 12   # null (or omit the whole block) disables the cap
+```
+
+`apply_memory_limit_from_config()` reads this value and calls
+`resource.setrlimit(resource.RLIMIT_AS, (soft, hard))` — the same
+mechanism as the shell's `ulimit -v`, capping the process's total virtual
+address space. It's called as the first thing in every pipeline's
+`main()` (right after `configure_logging()`), so the limit is in force
+before any data is loaded. Three things to know before relying on it:
+
+- **POSIX-only.** The `resource` module doesn't exist on Windows;
+  `apply_memory_limit_gb` detects this (`resource is None`) and logs a
+  warning instead of raising, so the pipeline still runs, just unlimited.
+- **It doesn't raise a catchable Python exception.** `RLIMIT_AS` caps
+  virtual address space at the OS level; Polars/PyArrow/numpy allocate in
+  native code, and blowing through the limit there typically aborts the
+  process outright (e.g. a killed process or a C-level abort) rather than
+  raising a Python `MemoryError` you could catch and handle gracefully.
+  Treat the cap as "fail loudly and stop," not "degrade gracefully."
+- **`src/api/main.py` deliberately does NOT call it.** FastAPI's
+  `TestClient` really executes the app's `lifespan` context manager (test
+  dependency overrides don't prevent that), so a call placed there would
+  apply a real memory cap to the pytest process running the test suite,
+  not to a real deployment. The API's entry point is
+  `pipelines/run_api.py` instead (now what `make api` runs) — it applies
+  the limit and then hands off to uvicorn, and it's never imported by
+  tests. `src/dashboards/app.py` applies the limit directly at module
+  level, since it's the opposite case: `tests/smoke/test_smoke.py` only
+  `ast.parse`s that file's source to check for syntax errors and never
+  imports/executes it, so a real side effect there is safe.
+
+---
+
 ## 6. The MAPE-K agent (`src/agent/`)
 
 ### 6.1 State (`state.py`)

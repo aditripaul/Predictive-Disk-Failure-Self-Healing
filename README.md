@@ -424,6 +424,14 @@ Every `pipelines/*.py` script and CLI flag that reads one of these prints
 a clear, actionable error if something required is missing — none of
 them silently fall back to guessed values.
 
+`configs/data.yaml`'s `resource_limits.max_memory_gb` (default `12`) is
+worth knowing about too, though it needs no action: every pipeline and
+service process applies it as a hard OS-level memory cap at startup
+(`docs/developer_guide.md` §5.10), so a run against a much larger fleet
+than 12GB of RAM can handle fails fast with an aborted process instead of
+swapping the host to a crawl. Raise it (or set it to `null` to disable)
+if your real dataset needs more headroom.
+
 ### Run Tests
 
 ```bash
