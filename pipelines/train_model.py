@@ -37,6 +37,7 @@ from src.models.smote import apply_smote
 from src.models.threshold import tune_threshold_for_precision
 from src.models.training import predict_proba_positive, train_lightgbm
 from src.models.xgboost_training import train_xgboost
+from src.resource_limits import apply_memory_limit_from_config
 
 SHAP_BACKGROUND_SAMPLE_SIZE = 100
 
@@ -49,6 +50,7 @@ logger = get_logger(__name__)
 
 def main() -> None:
     configure_logging()
+    apply_memory_limit_from_config()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
     features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())

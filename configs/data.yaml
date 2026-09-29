@@ -47,3 +47,13 @@ telemetry_gap:
 
 feature_maturity:
   min_history_days: 30
+
+# Process-wide memory cap (src/resource_limits.py): every pipeline/service
+# entry point applies this as a hard OS-level limit (RLIMIT_AS, like
+# `ulimit -v`) on its own process at startup. Hitting it usually aborts
+# that process outright (Polars/PyArrow allocate in native code, not
+# catchable Python memory errors) rather than letting a run silently
+# consume all available RAM and swap. Set to null (or omit) to disable.
+# POSIX only (no effect on Windows).
+resource_limits:
+  max_memory_gb: 12

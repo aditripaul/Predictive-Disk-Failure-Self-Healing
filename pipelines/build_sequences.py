@@ -22,6 +22,7 @@ from src.features.sequences import (
     write_sequence_tensors,
 )
 from src.logging_config import configure_logging, get_logger
+from src.resource_limits import apply_memory_limit_from_config
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 FEATURES_CONFIG_PATH = Path("configs/features.yaml")
@@ -31,6 +32,7 @@ logger = get_logger(__name__)
 
 def main() -> None:
     configure_logging()
+    apply_memory_limit_from_config()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())
     sequence_cfg = features_config.get("sequences", {})

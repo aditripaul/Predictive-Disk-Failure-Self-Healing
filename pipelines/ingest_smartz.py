@@ -13,6 +13,7 @@ import yaml
 from src.ingest.profiling import profile_bronze_dataset, write_profiling_report
 from src.ingest.smartz import ingest_smartz_file
 from src.logging_config import configure_logging, get_logger
+from src.resource_limits import apply_memory_limit_from_config
 
 CONFIG_PATH = Path("configs/data.yaml")
 
@@ -21,6 +22,7 @@ logger = get_logger(__name__)
 
 def main() -> None:
     configure_logging()
+    apply_memory_limit_from_config()
     config = yaml.safe_load(CONFIG_PATH.read_text())
     raw_glob = config["sources"]["smartz"]["raw_glob"]
     bronze_root = Path(config["sources"]["smartz"]["bronze_path"])

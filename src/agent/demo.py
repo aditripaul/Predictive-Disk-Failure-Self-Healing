@@ -14,6 +14,7 @@ from src.agent.graph import compiled_agent
 from src.config import AgentSettings
 from src.guardrails.adapter import build_guardrail_evaluator
 from src.logging_config import configure_logging, get_logger
+from src.resource_limits import apply_memory_limit_from_config
 
 logger = get_logger(__name__)
 
@@ -82,6 +83,7 @@ def build_demo_dependencies(*, action_ledger: ActionLedger | None = None) -> Age
 
 def main() -> None:
     configure_logging()
+    apply_memory_limit_from_config()
     deps = build_demo_dependencies()
     checkpoint_path = AgentSettings.load().checkpoint_path
 

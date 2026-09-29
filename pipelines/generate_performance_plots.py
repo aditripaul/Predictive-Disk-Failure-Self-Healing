@@ -24,6 +24,7 @@ from src.reporting.plots import (
     plot_shap_feature_importance,
     save_figure,
 )
+from src.resource_limits import apply_memory_limit_from_config
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 
@@ -32,6 +33,7 @@ logger = get_logger(__name__)
 
 def main() -> None:
     configure_logging()
+    apply_memory_limit_from_config()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     reports_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
     plots_dir = Path(data_config["audit_dir"]) / "plots"

@@ -33,6 +33,13 @@ from src.reliability.audit_export import export_decisions_to_csv, export_decisio
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Deliberately no apply_memory_limit_from_config() call here: this
+    # module (and its `app` object) is imported directly by the test
+    # suite via FastAPI's TestClient, which really executes this
+    # lifespan - applying a memory cap here would cap the *test runner's
+    # own process*, not a real deployment's. `make api` applies the limit
+    # in pipelines/run_api.py instead, which the test suite never imports.
+    #
     # A real (not :memory:) checkpoint path, so a paused (pending-review)
     # thread survives an API process restart, not just a fresh request.
     checkpoint_path = AgentSettings.load().checkpoint_path

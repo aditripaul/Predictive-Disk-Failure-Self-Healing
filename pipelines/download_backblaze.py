@@ -26,6 +26,7 @@ import yaml
 
 from src.ingest.download import DEFAULT_BACKBLAZE_BASE_URL, download_backblaze, resolve_quarters
 from src.logging_config import configure_logging, get_logger
+from src.resource_limits import apply_memory_limit_from_config
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 
@@ -64,6 +65,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> None:
     configure_logging()
+    apply_memory_limit_from_config()
     args = parse_args(argv)
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     download_cfg = data_config.get("download", {}).get("backblaze", {})

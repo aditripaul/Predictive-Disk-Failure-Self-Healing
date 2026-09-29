@@ -21,6 +21,7 @@ from src.preprocess.identifiers import normalize_identifiers
 from src.preprocess.quality_checks import run_all_checks
 from src.preprocess.smart_mapping import melt_smart_attributes
 from src.preprocess.telemetry_gaps import compute_telemetry_gaps
+from src.resource_limits import apply_memory_limit_from_config
 
 CONFIG_PATH = Path("configs/data.yaml")
 
@@ -70,6 +71,7 @@ def build_silver(bronze_root: Path, config: dict) -> tuple[pl.DataFrame, pl.Data
 
 def main() -> None:
     configure_logging()
+    apply_memory_limit_from_config()
     config = yaml.safe_load(CONFIG_PATH.read_text())
     silver_dir = Path(config["silver_dir"])
     audit_dir = Path(config["audit_dir"]) / "data_quality_reports"

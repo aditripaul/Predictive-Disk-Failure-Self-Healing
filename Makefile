@@ -130,4 +130,4 @@ dashboard:
 	uv run streamlit run src/dashboards/app.py
 
 api:
-	uv run uvicorn src.api.main:app --reload
+	uv run python pipelines/run_api.py

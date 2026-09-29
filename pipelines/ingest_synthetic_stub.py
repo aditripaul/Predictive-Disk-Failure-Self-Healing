@@ -13,6 +13,7 @@ import yaml
 
 from src.ingest.synthetic_stub import ingest_synthetic_stub
 from src.logging_config import configure_logging, get_logger
+from src.resource_limits import apply_memory_limit_from_config
 
 CONFIG_PATH = Path("configs/data.yaml")
 
@@ -21,6 +22,7 @@ logger = get_logger(__name__)
 
 def main() -> None:
     configure_logging()
+    apply_memory_limit_from_config()
     config = yaml.safe_load(CONFIG_PATH.read_text())
     bronze_root = Path(config["sources"]["synthetic"]["bronze_path"])
     written = ingest_synthetic_stub(bronze_root)

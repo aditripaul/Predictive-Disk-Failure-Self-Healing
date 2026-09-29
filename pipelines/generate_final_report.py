@@ -15,6 +15,7 @@ import subprocess
 from pathlib import Path
 
 from src.logging_config import configure_logging, get_logger
+from src.resource_limits import apply_memory_limit_from_config
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 
@@ -87,6 +88,7 @@ def build_report() -> dict:
 
 def main() -> None:
     configure_logging()
+    apply_memory_limit_from_config()
     report = build_report()
     out_dir = Path("data/audit/data_quality_reports")
     out_dir.mkdir(parents=True, exist_ok=True)

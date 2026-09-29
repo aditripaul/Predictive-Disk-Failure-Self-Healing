@@ -27,6 +27,7 @@ from src.logging_config import configure_logging, get_logger
 from src.models.evaluation import evaluate_at_threshold
 from src.models.lstm import predict_proba_positive_lstm, train_lstm
 from src.models.threshold import tune_threshold_for_precision
+from src.resource_limits import apply_memory_limit_from_config
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
@@ -37,6 +38,7 @@ logger = get_logger(__name__)
 
 def main() -> None:
     configure_logging()
+    apply_memory_limit_from_config()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
     features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())

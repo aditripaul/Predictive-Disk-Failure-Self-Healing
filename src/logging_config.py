@@ -9,7 +9,6 @@ be filtered, queried, or shipped to a log aggregator as structured events.
 from __future__ import annotations
 
 import logging
-import sys
 
 import structlog
 
@@ -32,7 +31,7 @@ def configure_logging(*, json_output: bool = False) -> None:
             renderer,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
-        logger_factory=structlog.PrintLoggerFactory(sys.stdout),
+        logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
     )
 

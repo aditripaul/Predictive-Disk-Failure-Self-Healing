@@ -27,6 +27,7 @@ from src.models.serving import (
     propose_actions,
     score_latest_drive_day,
 )
+from src.resource_limits import apply_memory_limit_from_config
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
@@ -37,6 +38,7 @@ logger = get_logger(__name__)
 
 def main() -> None:
     configure_logging()
+    apply_memory_limit_from_config()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
     agent_config = yaml.safe_load(AGENT_CONFIG_PATH.read_text())

@@ -23,6 +23,7 @@ from src.features.pivot import pivot_badness_wide
 from src.features.registry import build_registry
 from src.features.windows import add_rolling_aggregates
 from src.logging_config import configure_logging, get_logger
+from src.resource_limits import apply_memory_limit_from_config
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 FEATURES_CONFIG_PATH = Path("configs/features.yaml")
@@ -67,6 +68,7 @@ def build_gold_features(canonical_long: pl.DataFrame, features_config: dict) -> 
 
 def main() -> None:
     configure_logging()
+    apply_memory_limit_from_config()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())
 
