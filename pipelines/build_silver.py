@@ -34,43 +34,58 @@ def _log_stage(stage: str, started_at: float, **fields: object) -> None:
     logger.info(f"build_silver_{stage}", elapsed_seconds=elapsed_seconds, **fields)
 
 
-def build_silver(bronze_root: Path, config: dict) -> tuple[pl.DataFrame, pl.DataFrame, list[dict]]:
+def build_silver(
+    bronze_root: Path, config: dict, *, canonical_path: Path
+) -> tuple[int, pl.DataFrame, list[dict]]:
+    """Builds the Silver layer and sinks the canonical long telemetry table
+    straight to `canonical_path` rather than returning it in memory.
+
+    `melt_smart_attributes` unpivots to one row per drive-day-*attribute*
+    (~10x `drive_day`'s row count for the 10 priority SMART attributes) -
+    at fleet scale that's easily hundreds of millions of rows, more than
+    this function's own caller should ever need to hold in memory just to
+    write it back out unchanged. `LazyFrame.sink_parquet` streams that
+    entire melt + write in row-group-sized batches instead of collecting
+    it into one Python-visible DataFrame first, so this table's size is no
+    longer bounded by available RAM at all - only `drive_day` and
+    `drive_metadata` (both far smaller) still are. Returns the written row
+    count (read back cheaply from the Parquet file) in place of the table
+    itself; quality checks likewise run as narrow lazy aggregate queries
+    (`src/preprocess/quality_checks.py`) against the file just written,
+    never against an in-memory copy of it.
+    """
     bronze_files = sorted(bronze_root.glob("**/*.parquet"))
     if not bronze_files:
         raise FileNotFoundError(f"No Bronze Parquet files found under {bronze_root}")
     logger.info("build_silver_bronze_files_found", file_count=len(bronze_files))
 
-    # Scan (not read) every file, and fold normalization + failure-date
-    # derivation into the SAME lazy plan as the concat, collecting once at
-    # the end - collecting the raw concat eagerly and then re-lazying it
-    # for a second, non-streaming collect() (the previous shape here) holds
-    # the pre- and post-normalization frames fully in memory at the same
-    # time, on top of not streaming the second pass at all. One streaming
-    # collect over the whole chain avoids that second full-size duplicate.
+    # Scan (not read) every file, and fold normalization, failure-date
+    # derivation, and telemetry-gap computation into the SAME lazy plan as
+    # the concat, collecting once at the end. Collecting an intermediate
+    # "wide" frame eagerly and then feeding it into the next eager step
+    # would hold both the input and that step's output fully in memory at
+    # once, on top of not benefiting from the streaming engine for
+    # anything past the first collect; one streaming collect over the
+    # whole chain avoids ever materializing more than the final result.
     t0 = time.perf_counter()
-    wide_lazy = pl.concat(
+    drive_day_lazy = pl.concat(
         [pl.scan_parquet(p) for p in bronze_files], how="diagonal_relaxed"
     )
-    wide_lazy = normalize_identifiers(wide_lazy)
-    wide_lazy = derive_failure_date(wide_lazy)
-    wide = wide_lazy.collect(engine="streaming")
-    _log_stage("bronze_scanned_normalized_and_concatenated", t0, row_count=wide.height)
-
-    t0 = time.perf_counter()
+    drive_day_lazy = normalize_identifiers(drive_day_lazy)
+    drive_day_lazy = derive_failure_date(drive_day_lazy)
     gap_cfg = config["telemetry_gap"]
-    drive_day = compute_telemetry_gaps(
-        wide,
+    drive_day_lazy = compute_telemetry_gaps(
+        drive_day_lazy,
         short_gap_days=gap_cfg["short_gap_days"],
         stale_gap_days=gap_cfg["stale_gap_days"],
     )
-    del wide  # superseded by drive_day; drop it before allocating anything else
-    _log_stage("telemetry_gaps_computed", t0, row_count=drive_day.height)
+    drive_day = drive_day_lazy.collect(engine="streaming")
+    _log_stage("bronze_scanned_normalized_and_gaps_computed", t0, row_count=drive_day.height)
 
-    # drive_metadata first: it's one row per drive, tiny next to
-    # canonical_long (melt_smart_attributes unpivots to one row per
-    # drive-day-*attribute*, ~10x drive_day's row count for the 10
-    # priority SMART attributes) - freeing drive_day before that unpivot
-    # keeps peak memory to roughly one big frame at a time, not three.
+    # drive_metadata first: it's one row per drive, tiny next to the
+    # canonical long table below - computing it while drive_day is still
+    # the only large frame alive keeps peak memory to one big frame at a
+    # time, not two.
     t0 = time.perf_counter()
     maturity_cfg = config["feature_maturity"]
     drive_metadata = build_drive_metadata(
@@ -79,15 +94,17 @@ def build_silver(bronze_root: Path, config: dict) -> tuple[pl.DataFrame, pl.Data
     _log_stage("drive_metadata_built", t0, row_count=drive_metadata.height)
 
     t0 = time.perf_counter()
-    canonical_long = melt_smart_attributes(drive_day)
-    del drive_day
-    _log_stage("smart_attributes_melted", t0, row_count=canonical_long.height)
+    canonical_path.parent.mkdir(parents=True, exist_ok=True)
+    melt_smart_attributes(drive_day.lazy()).sink_parquet(canonical_path, compression="zstd")
+    del drive_day  # only safe to free now that the sink above has consumed it
+    canonical_row_count = pl.scan_parquet(canonical_path).select(pl.len()).collect().item()
+    _log_stage("smart_attributes_melted_and_written", t0, row_count=canonical_row_count)
 
     t0 = time.perf_counter()
-    quality_reports = run_all_checks(canonical_long)
+    quality_reports = run_all_checks(pl.scan_parquet(canonical_path))
     _log_stage("quality_checks_run", t0, check_count=len(quality_reports))
 
-    return canonical_long, drive_metadata, quality_reports
+    return canonical_row_count, drive_metadata, quality_reports
 
 
 def main() -> None:
@@ -98,11 +115,11 @@ def main() -> None:
     audit_dir = Path(config["audit_dir"]) / "data_quality_reports"
 
     all_bronze_root = Path(config["bronze_dir"])
-    canonical_long, drive_metadata, quality_reports = build_silver(all_bronze_root, config)
-
     canonical_dir = silver_dir / "canonical_telemetry"
-    canonical_dir.mkdir(parents=True, exist_ok=True)
-    canonical_long.write_parquet(canonical_dir / "part.parquet", compression="zstd")
+    canonical_path = canonical_dir / "part.parquet"
+    canonical_row_count, drive_metadata, quality_reports = build_silver(
+        all_bronze_root, config, canonical_path=canonical_path
+    )
 
     metadata_dir = silver_dir / "drive_metadata"
     metadata_dir.mkdir(parents=True, exist_ok=True)
@@ -115,7 +132,7 @@ def main() -> None:
 
     failed = [r for r in quality_reports if not r["passed"]]
     logger.info(
-        "canonical_telemetry_written", row_count=canonical_long.height, path=str(canonical_dir)
+        "canonical_telemetry_written", row_count=canonical_row_count, path=str(canonical_dir)
     )
     logger.info(
         "drive_metadata_written", row_count=drive_metadata.height, path=str(metadata_dir)

@@ -39,6 +39,33 @@ def test_pivot_badness_wide():
     assert wide["current_pending_sector_count"][0] == 2.0
 
 
+def test_pivot_badness_wide_orders_each_drives_rows_by_date_even_when_input_is_scrambled():
+    """The output is sorted by `date` alone, not `[drive_id, date]` (a
+    multi-key sort keyed partly on the string drive_id is what crashed
+    pipelines/build_silver.py's analogous sort against real fleet data) -
+    downstream `.over("drive_id")` window features only need each drive's
+    own subset of rows in non-decreasing date order, which a global
+    single-key date sort still guarantees regardless of input order."""
+    long_df = pl.DataFrame(
+        {
+            "drive_id": ["B", "A", "B", "A"],
+            "date": [
+                dt.date(2024, 1, 2),
+                dt.date(2024, 1, 1),
+                dt.date(2024, 1, 1),
+                dt.date(2024, 1, 2),
+            ],
+            "smart_attribute_name": ["reallocated_sector_count"] * 4,
+            "smart_raw_value": [1.0, 2.0, 3.0, 4.0],
+            "smart_badness_value": [1.0, 2.0, 3.0, 4.0],
+        }
+    )
+    wide = pivot_badness_wide(long_df)
+    for drive_id in ("A", "B"):
+        dates = wide.filter(pl.col("drive_id") == drive_id)["date"].to_list()
+        assert dates == sorted(dates)
+
+
 def test_add_rolling_aggregates():
     df = _wide_drive_frame()
     out = add_rolling_aggregates(df, ["reallocated_sector_count"], windows_days=(7,))

@@ -14,7 +14,15 @@ which is what actually makes cross-vendor generalization
 
 from __future__ import annotations
 
+from typing import TypeVar
+
 import polars as pl
+
+FrameT = TypeVar("FrameT", pl.DataFrame, pl.LazyFrame)
+
+
+def _columns_of(df: pl.DataFrame | pl.LazyFrame) -> list[str]:
+    return df.collect_schema().names() if isinstance(df, pl.LazyFrame) else df.columns
 
 #: Standard SMART attribute IDs -> canonical name (docs/dataset_strategy.md
 #: section 7.2's mapping table). These 10 are the priority attributes
@@ -70,9 +78,7 @@ def build_canonical_attribute_map(source_dataset: str) -> dict[str, str]:
 CANONICAL_ATTRIBUTE_NAMES: dict[str, str] = build_canonical_attribute_map(DEFAULT_SOURCE)
 
 
-def melt_smart_attributes(
-    df: pl.DataFrame, *, source_column: str = "source_dataset"
-) -> pl.DataFrame:
+def melt_smart_attributes(df: FrameT, *, source_column: str = "source_dataset") -> FrameT:
     """Reshape wide Bronze rows (one column per SMART attribute) into long
     canonical rows: one row per (drive_id, date, smart_attribute_name).
 
@@ -82,11 +88,23 @@ def melt_smart_attributes(
     concatenated, so a mixed Backblaze+SMART-Z frame harmonizes correctly
     even though the two use different bronze column names for the same
     canonical attribute. Callers without that column (e.g. a single-source
-    frame in a test) fall back to the Backblaze mapping."""
-    if source_column not in df.columns:
+    frame in a test) fall back to the Backblaze mapping.
+
+    Accepts either a `DataFrame` or a `LazyFrame` (every operation below
+    works identically in both) so a caller can fold this ~10x row
+    expansion into a larger lazy pipeline it sinks straight to disk
+    (`LazyFrame.sink_parquet`) instead of ever materializing the long-form
+    result in memory - the biggest single memory cost in the Silver build
+    at fleet scale."""
+    columns = _columns_of(df)
+    if source_column not in columns:
         return _melt_with_map(df, CANONICAL_ATTRIBUTE_NAMES)
 
-    source_values = df[source_column].unique().to_list()
+    if isinstance(df, pl.LazyFrame):
+        source_values = df.select(pl.col(source_column).unique()).collect()[source_column].to_list()
+    else:
+        source_values = df[source_column].unique().to_list()
+
     if len(source_values) == 1:
         # The common case (only one source has ever been onboarded into a
         # given Bronze root so far): melt the frame directly rather than
@@ -94,7 +112,7 @@ def melt_smart_attributes(
         # would otherwise sit in memory alongside `df` itself right before
         # the ~10x row expansion below.
         attribute_map = build_canonical_attribute_map(source_values[0])
-        if not any(c in df.columns for c in attribute_map):
+        if not any(c in columns for c in attribute_map):
             raise ValueError("No known SMART attribute columns found to melt for any source.")
         return _melt_with_map(df, attribute_map)
 
@@ -102,19 +120,20 @@ def melt_smart_attributes(
     for source_value in source_values:
         attribute_map = build_canonical_attribute_map(source_value)
         subset = df.filter(pl.col(source_column) == source_value)
-        if any(c in subset.columns for c in attribute_map):
+        if any(c in columns for c in attribute_map):
             parts.append(_melt_with_map(subset, attribute_map))
     if not parts:
         raise ValueError("No known SMART attribute columns found to melt for any source.")
     return pl.concat(parts, how="diagonal_relaxed")
 
 
-def _melt_with_map(df: pl.DataFrame, attribute_map: dict[str, str]) -> pl.DataFrame:
-    bronze_columns = [c for c in attribute_map if c in df.columns]
+def _melt_with_map(df: FrameT, attribute_map: dict[str, str]) -> FrameT:
+    columns = _columns_of(df)
+    bronze_columns = [c for c in attribute_map if c in columns]
     if not bronze_columns:
         raise ValueError("No known SMART attribute columns found to melt.")
 
-    id_columns = [c for c in df.columns if c not in bronze_columns]
+    id_columns = [c for c in columns if c not in bronze_columns]
 
     long_df = df.unpivot(
         index=id_columns,

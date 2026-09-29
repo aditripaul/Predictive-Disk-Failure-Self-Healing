@@ -29,4 +29,13 @@ def pivot_badness_wide(canonical_long: pl.DataFrame) -> pl.DataFrame:
         values="smart_badness_value",
         aggregate_function="first",
     )
-    return wide.sort(["drive_id", "date"])
+    # Sort by `date` alone, not `[drive_id, date]`: at fleet scale, a
+    # multi-column sort keyed partly on the string drive_id forces Polars
+    # to row-encode that string into the sort key, which is materially
+    # more expensive than a plain numeric/date comparison (this is what
+    # crashed pipelines/build_silver.py's analogous sort against real
+    # data - see src/preprocess/telemetry_gaps.py). A stable global sort
+    # by `date` alone still guarantees every drive's own rows land in
+    # non-decreasing date order, which is all downstream `.over("drive_id")`
+    # window features need.
+    return wide.sort("date")

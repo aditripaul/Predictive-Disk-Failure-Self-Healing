@@ -10,6 +10,7 @@ from src.preprocess.quality_checks import (
     check_failure_date_after_date,
     check_no_duplicate_drive_day_attribute,
     check_no_null_dates,
+    run_all_checks,
 )
 from src.preprocess.smart_mapping import build_canonical_attribute_map, melt_smart_attributes
 from src.preprocess.telemetry_gaps import compute_telemetry_gaps
@@ -202,3 +203,25 @@ def test_quality_checks_detect_violations():
     assert check_no_duplicate_drive_day_attribute(df)["violation_count"] == 1
     assert check_capacity_positive(df)["violation_count"] == 1
     assert check_failure_date_after_date(df)["violation_count"] == 1
+
+
+def test_quality_checks_accept_a_lazyframe_not_just_a_dataframe():
+    """build_silver sinks the canonical long table straight to disk and
+    re-scans it lazily to run these checks against fleet-scale data
+    without ever materializing it in memory - every check must therefore
+    work identically whether given a DataFrame or a LazyFrame."""
+    df = pl.DataFrame(
+        {
+            "drive_id": ["A", "A", "A"],
+            "date": [dt.date(2024, 1, 1), dt.date(2024, 1, 1), None],
+            "smart_attribute_name": ["x", "x", "x"],
+            "capacity_gb": [4000.0, -1.0, 4000.0],
+            "failure_date": [dt.date(2023, 12, 1), None, None],
+        }
+    )
+    lf = df.lazy()
+    assert check_no_null_dates(lf) == check_no_null_dates(df)
+    assert check_no_duplicate_drive_day_attribute(lf) == check_no_duplicate_drive_day_attribute(df)
+    assert check_capacity_positive(lf) == check_capacity_positive(df)
+    assert check_failure_date_after_date(lf) == check_failure_date_after_date(df)
+    assert run_all_checks(lf) == run_all_checks(df)
