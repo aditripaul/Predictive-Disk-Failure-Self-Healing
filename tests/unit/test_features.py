@@ -1,4 +1,5 @@
 import datetime as dt
+import random
 
 import polars as pl
 
@@ -37,6 +38,50 @@ def test_pivot_badness_wide():
     assert wide.height == 1
     assert wide["reallocated_sector_count"][0] == 1.0
     assert wide["current_pending_sector_count"][0] == 2.0
+
+
+def test_pivot_badness_wide_matches_polars_pivot_on_a_multi_drive_multi_attribute_frame():
+    """pivot_badness_wide uses an explicit group_by/agg instead of
+    `.pivot()` (at fleet scale, `.pivot()` sorts by the index columns
+    internally, hitting the same expensive string-key row-encoding cost
+    that crashed the analogous sort in telemetry_gaps.py) - this checks
+    that reshape is still exactly equivalent to `.pivot(...,
+    aggregate_function="first")` on a case big enough to exercise every
+    attribute/drive/date combination, not just a single row."""
+    rng = random.Random(11)
+    attrs = [
+        "reallocated_sector_count",
+        "current_pending_sector_count",
+        "offline_uncorrectable",
+    ]
+    drives = [f"DRV-{i:03d}" for i in range(20)]
+    dates = [dt.date(2024, 1, 1) + dt.timedelta(days=d) for d in range(5)]
+
+    rows = [
+        {
+            "drive_id": drive,
+            "date": date,
+            "smart_attribute_name": attr,
+            "smart_raw_value": rng.random() * 100,
+            "smart_badness_value": rng.random() * 100,
+        }
+        for drive in drives
+        for date in dates
+        for attr in attrs
+    ]
+    rng.shuffle(rows)
+    long_df = pl.DataFrame(rows)
+
+    expected = long_df.pivot(
+        on="smart_attribute_name",
+        index=["drive_id", "date"],
+        values="smart_badness_value",
+        aggregate_function="first",
+    ).sort(["drive_id", "date"])
+    actual = pivot_badness_wide(long_df).sort(["drive_id", "date"])
+
+    assert set(actual.columns) == set(expected.columns)
+    assert actual.select(sorted(expected.columns)).equals(expected.select(sorted(expected.columns)))
 
 
 def test_pivot_badness_wide_joins_back_drive_day_metadata_when_given():

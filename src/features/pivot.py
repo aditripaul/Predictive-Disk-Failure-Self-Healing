@@ -8,9 +8,19 @@ counts) are far more natural in this wide shape.
 
 from __future__ import annotations
 
+import time
+
 import polars as pl
 
+from src.logging_config import get_logger
 from src.preprocess.smart_mapping import ALL_BRONZE_SMART_COLUMNS
+
+logger = get_logger(__name__)
+
+
+def _log_stage(stage: str, started_at: float, **fields: object) -> None:
+    elapsed_seconds = round(time.perf_counter() - started_at, 2)
+    logger.info(f"pivot_badness_wide_{stage}", elapsed_seconds=elapsed_seconds, **fields)
 
 
 def pivot_badness_wide(
@@ -41,14 +51,35 @@ def pivot_badness_wide(
         }
     ]
 
-    wide = canonical_long.pivot(
-        on="smart_attribute_name",
-        index=id_columns,
-        values="smart_badness_value",
-        aggregate_function="first",
+    # Equivalent to `canonical_long.pivot(on="smart_attribute_name",
+    # index=id_columns, values="smart_badness_value",
+    # aggregate_function="first")`, but via an explicit hash-based
+    # group_by/agg rather than `.pivot()` - at fleet scale (millions of
+    # distinct (drive_id, date) groups), `.pivot()` internally sorts by
+    # the index columns, hitting the exact same expensive string-key
+    # row-encoding cost (`arg_sort_multiple` on the string `drive_id`)
+    # that crashed the analogous sort in
+    # src/preprocess/telemetry_gaps.py. `group_by` uses hash aggregation
+    # instead, never sorting by drive_id at all. Requires no duplicate
+    # (drive_id, date, smart_attribute_name) rows to be equivalent to
+    # `aggregate_function="first"` - guaranteed by
+    # `run_all_checks`/`check_no_duplicate_drive_day_attribute` in
+    # pipelines/build_silver.py.
+    t0 = time.perf_counter()
+    attribute_names = canonical_long["smart_attribute_name"].unique().to_list()
+    wide = canonical_long.group_by(id_columns).agg(
+        [
+            pl.col("smart_badness_value")
+            .filter(pl.col("smart_attribute_name") == attribute)
+            .first()
+            .alias(attribute)
+            for attribute in attribute_names
+        ]
     )
+    _log_stage("grouped", t0, row_count=wide.height, attribute_count=len(attribute_names))
 
     if drive_day is not None:
+        t0 = time.perf_counter()
         extra_columns = [
             c
             for c in drive_day.columns
@@ -59,6 +90,7 @@ def pivot_badness_wide(
             on=["drive_id", "date"],
             how="left",
         )
+        _log_stage("drive_day_joined", t0, row_count=wide.height)
 
     # Sort by `date` alone, not `[drive_id, date]`: at fleet scale, a
     # multi-column sort keyed partly on the string drive_id forces Polars
@@ -69,4 +101,7 @@ def pivot_badness_wide(
     # by `date` alone still guarantees every drive's own rows land in
     # non-decreasing date order, which is all downstream `.over("drive_id")`
     # window features need.
-    return wide.sort("date")
+    t0 = time.perf_counter()
+    wide = wide.sort("date")
+    _log_stage("sorted", t0, row_count=wide.height)
+    return wide
