@@ -32,7 +32,13 @@ def build_silver(bronze_root: Path, config: dict) -> tuple[pl.DataFrame, pl.Data
     if not bronze_files:
         raise FileNotFoundError(f"No Bronze Parquet files found under {bronze_root}")
 
-    wide = pl.concat([pl.read_parquet(p) for p in bronze_files], how="diagonal_relaxed")
+    # Scan (not read) every file so none of them is ever fully materialized
+    # on its own before the concat - `pl.read_parquet` per file would hold
+    # every file's full contents in memory simultaneously, on top of the
+    # concatenated result, roughly doubling peak RAM for no reason.
+    wide = pl.concat(
+        [pl.scan_parquet(p) for p in bronze_files], how="diagonal_relaxed"
+    ).collect(engine="streaming")
     wide = normalize_identifiers(wide.lazy()).collect()
     wide = derive_failure_date(wide)
 
@@ -42,15 +48,22 @@ def build_silver(bronze_root: Path, config: dict) -> tuple[pl.DataFrame, pl.Data
         short_gap_days=gap_cfg["short_gap_days"],
         stale_gap_days=gap_cfg["stale_gap_days"],
     )
+    del wide  # superseded by drive_day; drop it before allocating anything else
 
-    canonical_long = melt_smart_attributes(drive_day)
-
-    quality_reports = run_all_checks(canonical_long)
-
+    # drive_metadata first: it's one row per drive, tiny next to
+    # canonical_long (melt_smart_attributes unpivots to one row per
+    # drive-day-*attribute*, ~10x drive_day's row count for the 10
+    # priority SMART attributes) - freeing drive_day before that unpivot
+    # keeps peak memory to roughly one big frame at a time, not three.
     maturity_cfg = config["feature_maturity"]
     drive_metadata = build_drive_metadata(
         drive_day, min_history_days=maturity_cfg["min_history_days"]
     )
+
+    canonical_long = melt_smart_attributes(drive_day)
+    del drive_day
+
+    quality_reports = run_all_checks(canonical_long)
 
     return canonical_long, drive_metadata, quality_reports
 
