@@ -747,7 +747,61 @@ down other processes. Configured by `configs/data.yaml`:
 ```yaml
 resource_limits:
   max_memory_gb: 20   # null (or omit the whole block) disables the cap
+  feature_batch_target_rows: 2000000
 ```
+
+**Batched feature computation (`make build-features`).** The gold feature
+table is ~196 columns wide, which works out to ~950 bytes per row — about
+10GB for a single month of real Backblaze data (10.46M drive-days), before
+counting the intermediates each feature family allocates on top of it. No
+amount of join hygiene makes that fit under the cap, so
+`pipelines/build_gold_features.py` does not build it as one frame:
+
+1. `pivot_badness_wide` produces the wide (~22 column) frame as before.
+2. `_write_wide_batches` splits it into batches of whole drives — batch
+   membership is `hash(drive_id) % n_batches`, so every row of a given
+   drive lands in exactly one batch — and spills each batch to its own
+   temp Parquet file, then frees the pivoted frame.
+3. Each batch is read back and run through `build_gold_features`
+   independently, and its result is written to a temp Parquet file and
+   freed before the next batch starts.
+4. The output file is assembled with a `pyarrow.parquet.ParquetWriter`,
+   one batch per row group, so the finished table is never held in memory
+   — not even once, at the end.
+
+Batching on whole drives is what makes this invisible to the result:
+every feature family except one is computed strictly per drive
+(`.rolling(index_column="date", group_by="drive_id")` in
+`src/features/windows.py` and `src/features/events.py`,
+`.over("drive_id")` in `src/features/derivatives.py` and
+`src/features/lifecycle.py`, row-wise arithmetic in
+`src/features/confidence.py`), so a drive's features depend only on rows
+that are all present in its own batch.
+
+The exception is `add_model_family_zscores`, which compares a drive to
+every other drive of the same `model_family`. That one is split in two:
+`model_family_zscore_stats` aggregates the per-family mean/std off the
+batch files (one row per model family, so nothing needs materializing),
+and `add_model_family_zscores_from_stats` applies them per batch while
+the output file is being written. It joins with `nulls_equal=True`
+because `.over("model_family")` treats a null family as its own group
+rather than as unmatched — `test_model_family_zscores_from_global_stats_match_the_whole_fleet_computation`
+pins that equivalence, including a null family and a single-row family
+(whose std is null, not `0.0`).
+
+Verified against the pre-batching implementation on the synthetic
+fixture: all 181 non-z-score columns are bit-identical, and the output is
+byte-for-byte identical across different batch counts (7 batches vs 3 vs
+1), i.e. the batch size genuinely does not affect the result. The 15
+z-score columns differ by at most 1 ULP of float32 (~1.2e-7 relative),
+because a per-family `group_by` aggregate accumulates its sum in a
+different order than `.over("model_family")` does — the same 1-ULP
+difference appears with a single batch, so it comes from the aggregation
+form, not from batching.
+
+`feature_batch_target_rows` (default 2,000,000 — roughly 2GB of feature
+table per batch) is the knob: lower it if `make build-features` still
+hits the cap, raise it for fewer, larger batches.
 
 `apply_memory_limit_from_config()` reads this value and calls
 `resource.setrlimit(resource.RLIMIT_AS, (soft, hard))` — the same

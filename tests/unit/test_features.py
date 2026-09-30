@@ -4,7 +4,13 @@ import random
 import polars as pl
 
 from src.features.confidence import _recency_factor_scalar, add_feature_confidence
-from src.features.cross_vendor import add_attribute_ratios, add_model_family_zscores
+from src.features.cross_vendor import (
+    add_attribute_ratios,
+    add_model_family_zscores,
+    add_model_family_zscores_from_stats,
+    model_family_zscore_plan,
+    model_family_zscore_stats,
+)
 from src.features.derivatives import add_acceleration, add_deltas
 from src.features.events import add_positive_day_counts, add_spike_counts, add_zero_to_nonzero_flags
 from src.features.lifecycle import add_lifecycle_features
@@ -304,3 +310,64 @@ def test_add_model_family_zscores_is_a_noop_without_model_family_column():
     df = pl.DataFrame({"drive_id": ["A"], "reallocated_sector_count_7d_mean": [1.0]})
     out = add_model_family_zscores(df, ["reallocated_sector_count"], windows_days=(7,))
     assert out.columns == df.columns
+
+
+def test_model_family_zscores_from_global_stats_match_the_whole_fleet_computation():
+    """`pipelines/build_gold_features.py` computes features in per-drive
+    batches, so the model-family z-scores - the one feature that depends on
+    other drives - are applied from fleet-wide statistics instead of with
+    `.over("model_family")`. Applying them batch by batch must give exactly
+    what computing them over the whole fleet at once would have.
+
+    Covers a null `model_family` (which `.over` treats as its own group,
+    not as unmatched) and a single-row family (whose std is null, not 0).
+    """
+    families = ["Seagate HDD", "Western Digital HDD", None]
+    rows = 60
+    frame = pl.DataFrame(
+        {
+            "drive_id": [f"D{i % 12}" for i in range(rows)],
+            "model_family": [families[i % len(families)] for i in range(rows)],
+            "reallocated_sector_count_7d_mean": [float(i % 7) for i in range(rows)],
+            "reallocated_sector_count_30d_mean": [float(i % 5) for i in range(rows)],
+        }
+    )
+    # A family with exactly one row, so its std is null rather than 0.0.
+    frame = pl.concat(
+        [
+            frame,
+            pl.DataFrame(
+                {
+                    "drive_id": ["SOLO"],
+                    "model_family": ["Toshiba HDD"],
+                    "reallocated_sector_count_7d_mean": [4.0],
+                    "reallocated_sector_count_30d_mean": [2.0],
+                }
+            ),
+        ]
+    )
+
+    attributes = ["reallocated_sector_count"]
+    windows_days = (7, 30)
+    expected = add_model_family_zscores(frame, attributes, windows_days=windows_days)
+
+    plan = model_family_zscore_plan(frame.columns, attributes, windows_days=windows_days)
+    stats = model_family_zscore_stats(frame.lazy(), plan)
+    batches = [frame.filter(pl.col("drive_id").hash(seed=0) % 3 == i) for i in range(3)]
+    assert sum(b.height for b in batches) == frame.height
+    assert all(not b.is_empty() for b in batches)
+    actual = pl.concat([add_model_family_zscores_from_stats(b, stats, plan) for b in batches])
+
+    sort_key = ["drive_id", "model_family", "reallocated_sector_count_7d_mean"]
+    assert expected.sort(sort_key, nulls_last=True).equals(
+        actual.select(expected.columns).sort(sort_key, nulls_last=True)
+    )
+
+
+def test_model_family_zscore_plan_is_empty_without_a_model_family_column():
+    plan = model_family_zscore_plan(
+        ["drive_id", "reallocated_sector_count_7d_mean"],
+        ["reallocated_sector_count"],
+        windows_days=(7,),
+    )
+    assert plan == []

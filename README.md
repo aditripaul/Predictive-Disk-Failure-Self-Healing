@@ -434,6 +434,15 @@ instead of swapping the host to a crawl. Raise it (or set it to `null`
 to disable)
 if your real dataset needs more headroom.
 
+Alongside it, `resource_limits.feature_batch_target_rows` (default
+`2000000`) sets how many rows `make build-features` processes at a time.
+The gold feature table is ~196 columns (~10GB for one month of real
+Backblaze data), so it is built in batches of whole drives and written
+to Parquet one batch at a time — peak memory follows this batch size,
+not the size of your dataset. Batching is on whole drives and so does
+not change the resulting features; lower it if `build-features` still
+hits the memory cap.
+
 ### Run Tests
 
 ```bash

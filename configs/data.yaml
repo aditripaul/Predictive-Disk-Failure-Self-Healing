@@ -64,3 +64,10 @@ feature_maturity:
 # POSIX only (no effect on Windows).
 resource_limits:
   max_memory_gb: 20
+  # `make build-features` computes features in batches of whole drives and
+  # writes the output Parquet one batch at a time, so its peak memory is set
+  # by this batch size rather than by the size of the dataset. Lower it if
+  # you still hit the cap; raise it for fewer, larger batches. Batching is
+  # on whole drives, so it never changes the resulting features (see
+  # pipelines/build_gold_features.py::_write_wide_batches).
+  feature_batch_target_rows: 2000000
