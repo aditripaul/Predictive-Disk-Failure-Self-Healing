@@ -19,24 +19,30 @@ def add_positive_day_counts(
     """Adds `{attr}_{window}d_positive_count`: days in the window where the
     attribute's badness value was greater than zero.
 
-    Rolls from a narrow `base` and accumulates each window's result into
-    a narrow `combined` frame, joining the wide `df` in only once at the
-    end - an eager join's cost scales with the width of both sides
-    (confirmed empirically - see src/features/windows.py), so joining
-    onto `df` inside this loop would make each window's join more
-    expensive than the last as `df` grew."""
+    Rolls from a narrow `base`, collecting each window's result, then
+    combines them with a single horizontal concat (not a join) before
+    joining the wide `df` in only once at the end - see
+    src/features/windows.py for why neither `df` nor a `combined`
+    accumulator can be joined inside this loop without the same cost
+    reappearing one level down."""
     base = df.select(["drive_id", "date", *attributes])
-    combined = base.select(["drive_id", "date"])
+    rolled_frames = []
     for window in windows_days:
         period = f"{window}d"
         agg_exprs = [
             (pl.col(attr) > 0).sum().alias(f"{attr}_{window}d_positive_count")
             for attr in attributes
         ]
-        rolled = base.rolling(index_column="date", period=period, group_by="drive_id").agg(
-            agg_exprs
+        rolled_frames.append(
+            base.rolling(index_column="date", period=period, group_by="drive_id").agg(agg_exprs)
         )
-        combined = combined.join(rolled, on=["drive_id", "date"], how="left")
+    combined = pl.concat(
+        [
+            rolled_frames[0].select(["drive_id", "date"]),
+            *[r.drop(["drive_id", "date"]) for r in rolled_frames],
+        ],
+        how="horizontal_extend",
+    )
     return df.join(combined, on=["drive_id", "date"], how="left")
 
 
@@ -49,7 +55,7 @@ def add_spike_counts(
     """Adds `{attr}_{window}d_spike_count`: days in the window where the
     day-over-day increase exceeded the attribute's configured threshold.
 
-    Same narrow-base/narrow-accumulator shape as `add_positive_day_counts`
+    Same narrow-base/horizontal-concat shape as `add_positive_day_counts`
     (see there, and src/features/windows.py, for why)."""
     base = df.select(["drive_id", "date", *attribute_thresholds])
     daily_delta_exprs = [
@@ -58,7 +64,7 @@ def add_spike_counts(
     ]
     base = base.with_columns(daily_delta_exprs)
 
-    combined = base.select(["drive_id", "date"])
+    rolled_frames = []
     for window in windows_days:
         period = f"{window}d"
         agg_exprs = [
@@ -68,11 +74,17 @@ def add_spike_counts(
             .alias(f"{attr}_{window}d_spike_count")
             for attr, threshold in attribute_thresholds.items()
         ]
-        rolled = base.rolling(index_column="date", period=period, group_by="drive_id").agg(
-            agg_exprs
+        rolled_frames.append(
+            base.rolling(index_column="date", period=period, group_by="drive_id").agg(agg_exprs)
         )
-        combined = combined.join(rolled, on=["drive_id", "date"], how="left")
 
+    combined = pl.concat(
+        [
+            rolled_frames[0].select(["drive_id", "date"]),
+            *[r.drop(["drive_id", "date"]) for r in rolled_frames],
+        ],
+        how="horizontal_extend",
+    )
     return df.join(combined, on=["drive_id", "date"], how="left")
 
 
