@@ -54,10 +54,19 @@ REQUIRED_CONFIDENCE_COLUMNS = (
 
 def latest_row_per_drive(gold_features: pl.DataFrame) -> pl.DataFrame:
     """Each drive's most recent gold-feature row - the "current state of
-    the fleet" snapshot batch scoring operates on."""
-    return (
-        gold_features.sort(["drive_id", "date"]).group_by("drive_id", maintain_order=True).last()
-    )
+    the fleet" snapshot batch scoring operates on.
+
+    Sorts by `date` alone, not `[drive_id, date]`: at fleet scale, a
+    multi-column sort keyed partly on the string `drive_id` forces Polars
+    to row-encode that string into the sort key, which is materially more
+    expensive than a plain date comparison - this is the same
+    `arg_sort_multiple::<BinaryType>` cost that crashed the analogous sort
+    in src/preprocess/telemetry_gaps.py and src/features/pivot.py against
+    real data. A stable global sort by `date` alone still guarantees every
+    drive's own rows land in non-decreasing date order, so
+    `group_by(maintain_order=True).last()` still picks each drive's
+    latest row."""
+    return gold_features.sort("date").group_by("drive_id", maintain_order=True).last()
 
 
 def join_feature_maturity(

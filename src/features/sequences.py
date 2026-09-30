@@ -84,7 +84,16 @@ def build_sequence_tensors(
     as_of_dates: list[dt.date] = []
     samples: list[np.ndarray] = []
 
-    sorted_features = wide_features.sort(["drive_id", "date"])
+    # Sorts by `date` alone, not `[drive_id, date]`: at fleet scale, a
+    # multi-column sort keyed partly on the string `drive_id` forces Polars
+    # to row-encode that string into the sort key, which is materially
+    # more expensive than a plain date comparison - the same
+    # `arg_sort_multiple::<BinaryType>` cost that crashed the analogous
+    # sort in src/preprocess/telemetry_gaps.py and src/features/pivot.py
+    # against real data. A stable global sort by `date` alone still
+    # guarantees every drive's own rows land in non-decreasing date order,
+    # which is all the `group_by(maintain_order=True)` below needs.
+    sorted_features = wide_features.sort("date")
     for (drive_id,), group in sorted_features.group_by("drive_id", maintain_order=True):
         tail = group.tail(time_steps)
         values = tail.select(attributes_used).fill_null(0.0).to_numpy().astype(np.float64)

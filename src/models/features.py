@@ -22,17 +22,26 @@ NON_FEATURE_COLUMNS = {
 
 
 def assemble_training_frame(
-    gold_features: pl.DataFrame,
+    gold_features: pl.DataFrame | pl.LazyFrame,
     labels: pl.DataFrame,
     *,
     horizon_days: int,
 ) -> pl.DataFrame:
     """Joins gold features to the label table for one horizon, keeping only
-    rows with an observed (non-censored) label."""
+    rows with an observed (non-censored) label.
+
+    `gold_features` may be passed as a `pl.scan_parquet(...)` LazyFrame
+    (`pipelines/train_model.py` does this) - the gold feature table is
+    ~196 columns and ~10GB for one month of real data, but only one
+    horizon's observed-label rows ever survive this join, often a small
+    fraction of the full table. Reading it eagerly first (`pl.read_parquet`)
+    would materialize all ~10GB before the join ever gets to discard most
+    of it; scanning it lazily lets Polars push the join down instead."""
     horizon_labels = labels.filter(
         (pl.col("horizon_days") == horizon_days) & pl.col("label").is_not_null()
     )
-    return gold_features.join(horizon_labels, on=["drive_id", "date"], how="inner")
+    joined = gold_features.lazy().join(horizon_labels.lazy(), on=["drive_id", "date"], how="inner")
+    return joined.collect()
 
 
 def select_feature_columns(df: pl.DataFrame) -> list[str]:

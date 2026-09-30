@@ -64,7 +64,12 @@ def main() -> None:
             "`make build-labels` first."
         )
 
-    gold_features = pl.read_parquet(features_path)
+    # Scanned lazily, not pl.read_parquet'd: gold features is ~196 columns
+    # and ~10GB for one month of real data, but assemble_training_frame's
+    # join only keeps one horizon's observed-label rows - reading the whole
+    # table eagerly first would materialize all ~10GB before the join gets
+    # a chance to discard most of it (see src/models/features.py).
+    gold_features = pl.scan_parquet(features_path)
     labels = pl.read_parquet(labels_path)
 
     horizon_days = model_config["primary_horizon_days"]
