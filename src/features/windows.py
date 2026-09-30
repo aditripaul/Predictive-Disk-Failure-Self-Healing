@@ -9,7 +9,10 @@ rule 2 in docs/dataset_strategy.md section 17).
 
 from __future__ import annotations
 
+import gc
+import tempfile
 import time
+from pathlib import Path
 
 import polars as pl
 
@@ -43,52 +46,69 @@ def add_rolling_aggregates(
     # 14d succeeded (`combined` then 32/62 columns), but 30d crashed once
     # `combined` had grown to 62 columns going in.
     #
-    # Instead, every window's `rolled` result is rolled from the exact
-    # same `base`, so - verified empirically - each one comes back with
-    # the identical (drive_id, date) row order as every other one (even
-    # though that order need not match `base`'s own row order). That
-    # means they can be combined with a single O(1)-per-column horizontal
-    # concat instead of a join: no hashing, no repeated key-matching, and
-    # no cost that scales with how many columns have already accumulated.
+    # Every window's `rolled` result is rolled from the exact same `base`,
+    # so - verified empirically - each one comes back with the identical
+    # (drive_id, date) row order as every other one (even though that
+    # order need not match `base`'s own row order). That means they can
+    # be combined with a single horizontal concat instead of a join: no
+    # hashing, no repeated key-matching. But keeping every window's
+    # `rolled` frame alive in a Python list until that final concat
+    # reintroduced a different growing-memory problem - confirmed on real
+    # data: doing that made the crash happen *earlier* (during the 14d
+    # window itself) than the join-based version had (which crashed at
+    # 30d), because the old join-based loop freed each `rolled` as soon as
+    # it was absorbed into `combined`, while the list keeps ALL of them
+    # resident at once. So each window's `rolled` is written to its own
+    # temp Parquet file and freed immediately instead; the final combine
+    # reads them back lazily (still via one cheap horizontal concat, no
+    # joins) so at most one window's worth of rolled data is ever resident
+    # in RAM at a time, matching the join-based version's memory shape
+    # while keeping the join-based version's per-window cost problem gone.
     base = df.select(["drive_id", "date", *attributes])
-    rolled_frames = []
-    for window in windows_days:
-        t0 = time.perf_counter()
-        agg_exprs = []
-        for attr in attributes:
-            period = f"{window}d"
-            agg_exprs.extend(
-                [
-                    pl.col(attr).mean().alias(f"{attr}_{window}d_mean"),
-                    pl.col(attr).median().alias(f"{attr}_{window}d_median"),
-                    pl.col(attr).min().alias(f"{attr}_{window}d_min"),
-                    pl.col(attr).max().alias(f"{attr}_{window}d_max"),
-                    pl.col(attr).std().fill_null(0.0).alias(f"{attr}_{window}d_std"),
-                ]
-            )
-        rolled = base.rolling(index_column="date", period=period, group_by="drive_id").agg(
-            agg_exprs
-        )
-        for attr in attributes:
-            rolled = rolled.with_columns(
-                (pl.col(f"{attr}_{window}d_max") - pl.col(f"{attr}_{window}d_min")).alias(
-                    f"{attr}_{window}d_range"
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        window_paths = []
+        for window in windows_days:
+            t0 = time.perf_counter()
+            agg_exprs = []
+            for attr in attributes:
+                period = f"{window}d"
+                agg_exprs.extend(
+                    [
+                        pl.col(attr).mean().alias(f"{attr}_{window}d_mean"),
+                        pl.col(attr).median().alias(f"{attr}_{window}d_median"),
+                        pl.col(attr).min().alias(f"{attr}_{window}d_min"),
+                        pl.col(attr).max().alias(f"{attr}_{window}d_max"),
+                        pl.col(attr).std().fill_null(0.0).alias(f"{attr}_{window}d_std"),
+                    ]
                 )
+            rolled = base.rolling(index_column="date", period=period, group_by="drive_id").agg(
+                agg_exprs
             )
-        rolled_frames.append(rolled)
-        logger.info(
-            "add_rolling_aggregates_window_done",
-            window_days=window,
-            elapsed_seconds=round(time.perf_counter() - t0, 2),
-            row_count=rolled.height,
-            column_count=len(rolled.columns),
-        )
+            for attr in attributes:
+                rolled = rolled.with_columns(
+                    (pl.col(f"{attr}_{window}d_max") - pl.col(f"{attr}_{window}d_min")).alias(
+                        f"{attr}_{window}d_range"
+                    )
+                )
+            window_path = Path(tmp_dir) / f"window_{window}.parquet"
+            rolled.write_parquet(window_path, compression="zstd")
+            logger.info(
+                "add_rolling_aggregates_window_done",
+                window_days=window,
+                elapsed_seconds=round(time.perf_counter() - t0, 2),
+                row_count=rolled.height,
+                column_count=len(rolled.columns),
+            )
+            window_paths.append(window_path)
+            del rolled
+            gc.collect()
 
-    combined = pl.concat(
-        [
-            rolled_frames[0].select(["drive_id", "date"]),
-            *[r.drop(["drive_id", "date"]) for r in rolled_frames],
-        ],
-        how="horizontal_extend",
-    )
+        combined = pl.concat(
+            [
+                pl.scan_parquet(window_paths[0]).select(["drive_id", "date"]),
+                *[pl.scan_parquet(p).drop(["drive_id", "date"]) for p in window_paths],
+            ],
+            how="horizontal_extend",
+        ).collect()
+
     return df.join(combined, on=["drive_id", "date"], how="left")
