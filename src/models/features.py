@@ -41,7 +41,7 @@ def assemble_training_frame(
         (pl.col("horizon_days") == horizon_days) & pl.col("label").is_not_null()
     )
     joined = gold_features.lazy().join(horizon_labels.lazy(), on=["drive_id", "date"], how="inner")
-    return joined.collect()
+    return joined.collect(engine="streaming")
 
 
 def select_feature_columns(df: pl.DataFrame) -> list[str]:

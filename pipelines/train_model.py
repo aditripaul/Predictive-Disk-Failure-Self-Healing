@@ -8,7 +8,9 @@ plus the model to MLflow.
 
 from __future__ import annotations
 
+import gc
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -48,6 +50,11 @@ FEATURES_CONFIG_PATH = Path("configs/features.yaml")
 logger = get_logger(__name__)
 
 
+def _log_stage(stage: str, started_at: float, **fields: object) -> None:
+    elapsed_seconds = round(time.perf_counter() - started_at, 2)
+    logger.info(f"train_model_{stage}", elapsed_seconds=elapsed_seconds, **fields)
+
+
 def main() -> None:
     configure_logging()
     apply_memory_limit_from_config()
@@ -70,10 +77,18 @@ def main() -> None:
     # table eagerly first would materialize all ~10GB before the join gets
     # a chance to discard most of it (see src/models/features.py).
     gold_features = pl.scan_parquet(features_path)
+    t0 = time.perf_counter()
     labels = pl.read_parquet(labels_path)
+    _log_stage("labels_read", t0, row_count=labels.height)
 
     horizon_days = model_config["primary_horizon_days"]
+    t0 = time.perf_counter()
     frame = assemble_training_frame(gold_features, labels, horizon_days=horizon_days)
+    _log_stage(
+        "training_frame_assembled", t0, row_count=frame.height, column_count=len(frame.columns)
+    )
+    del labels
+    gc.collect()
     if frame.height == 0:
         raise ValueError(
             f"No rows with an observed (non-censored) {horizon_days}-day label. "
@@ -83,6 +98,7 @@ def main() -> None:
         )
     feature_columns = select_feature_columns(frame)
 
+    t0 = time.perf_counter()
     splits = {
         split_name: frame.filter(pl.col("split") == split_name)
         for split_name in ("train", "validation", "test")
@@ -94,15 +110,36 @@ def main() -> None:
             f"horizon={horizon_days}d. Ensure the chronological split boundaries "
             "in configs/model.yaml align with the ingested data's date range."
         )
+    _log_stage(
+        "splits_extracted", t0, **{name: split_df.height for name, split_df in splits.items()}
+    )
+    # `frame` is never used again past this point - only `splits[...]` is.
+    # Deleting it here (rather than leaving it referenced by this function's
+    # own locals for the rest of training/SHAP/model-card generation, which
+    # all still need to run) matters exactly as much as it did for
+    # canonical_long/drive_day in build_gold_features.py and gold_features
+    # in build_labels.py: it's ~196 columns wide, and a live local variable
+    # reference is enough to keep it resident regardless of whether
+    # anything downstream still reads it.
+    del frame
+    gc.collect()
 
     x_train = splits["train"].select(feature_columns).fill_null(0.0).to_numpy()
     y_train = splits["train"]["label"].to_numpy()
+    # Same reasoning as `frame` above: once copied into numpy arrays,
+    # `splits["train"]` (often the largest split, and still 196 columns
+    # wide) is dead weight for the rest of the run - model training, SHAP,
+    # and model-card generation never touch the Polars frame again.
+    del splits["train"]
+    gc.collect()
 
     mlflow.set_tracking_uri(model_config["mlflow"]["tracking_uri"])
     mlflow.set_experiment(model_config["mlflow"]["experiment_name"])
 
     x_val = splits["validation"].select(feature_columns).fill_null(0.0).to_numpy()
     y_val = splits["validation"]["label"].to_numpy()
+    del splits["validation"]
+    gc.collect()
 
     model_type = model_config["model"].get("type", "lightgbm")
 
@@ -143,12 +180,14 @@ def main() -> None:
 
         # Retrain on the FULL training partition with the (possibly tuned)
         # params - the search above only ever sees a subsample.
+        t0 = time.perf_counter()
         if model_type == "xgboost":
             model = train_xgboost(x_train, y_train, params=model_params)
         elif model_type == "lightgbm":
             model = train_lightgbm(x_train, y_train, params=model_params)
         else:
             raise ValueError(f"Unknown model.type: {model_type!r} (expected lightgbm or xgboost)")
+        _log_stage("model_trained", t0, model_type=model_type, train_row_count=x_train.shape[0])
 
         val_scores = predict_proba_positive(model, x_val)
         threshold_result = tune_threshold_for_precision(
@@ -231,6 +270,8 @@ def main() -> None:
             score_column="_p_fail_score",
             threshold=threshold_result["threshold"],
         )
+        del splits["test"], test_with_scores, failing_test_rows
+        gc.collect()
 
         mlflow.log_params({"horizon_days": horizon_days, **model_params})
         mlflow.log_metric("validation_auprc", results["validation_metrics"]["auprc"])
@@ -255,6 +296,7 @@ def main() -> None:
         # SHAP global feature importance (docs/design_goal.md "Explainability
         # by default"): background sample keeps TreeExplainer fast even on a
         # large training set.
+        t0 = time.perf_counter()
         rng = np.random.default_rng(0)
         background_size = min(SHAP_BACKGROUND_SAMPLE_SIZE, x_train.shape[0])
         background = x_train[rng.choice(x_train.shape[0], size=background_size, replace=False)]
@@ -262,6 +304,7 @@ def main() -> None:
         shap_values = compute_shap_values(explainer, x_val)
         feature_importance = global_feature_importance(shap_values, feature_columns)
         results["shap_global_feature_importance"] = feature_importance[:20]
+        _log_stage("shap_computed", t0, val_row_count=x_val.shape[0])
 
         audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
         audit_dir.mkdir(parents=True, exist_ok=True)
