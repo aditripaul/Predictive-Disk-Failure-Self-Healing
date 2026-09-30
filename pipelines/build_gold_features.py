@@ -8,18 +8,37 @@ table and a versioned feature registry.
 The feature table is far too wide to hold in memory at fleet scale (~950
 bytes per row across ~196 columns, so ~10GB for a single month of real
 Backblaze data, before counting the intermediates every step allocates on
-top). So the features are computed in batches of whole drives and the
-output Parquet file is written incrementally, one batch at a time - peak
-memory is set by the batch size, not by the size of the dataset. See
-`_write_wide_batches` for why batching this way changes nothing about the
-result.
+top). Splitting the work into per-drive batches (see `_write_wide_batches`)
+bounds how much *live* data any one step holds, but that alone isn't
+enough: Polars is built on jemalloc, which on 64-bit Linux defaults to
+`retain`-ing freed virtual memory for reuse instead of returning it to the
+OS (`madvise(MADV_DONTNEED)` drops the physical pages, but the address-space
+mapping itself stays reserved). `RLIMIT_AS` - the memory cap this pipeline
+runs under (src/resource_limits.py) - constrains mapped address space, not
+resident memory, so it tracks the *high-water mark of everything this
+process has ever allocated*, not what's currently live. `del` and
+`gc.collect()` free the data but never lower that high-water mark, which is
+why earlier rounds of narrowing joins and freeing intermediates each bought
+progress to the next pipeline stage without ever fixing the crash outright.
+
+The only thing that actually resets it is a process boundary: exiting a
+process unconditionally unmaps its entire address space, regardless of what
+the allocator inside it was retaining. So the batch loop below runs each
+batch (and the initial pivot+split) in its own subprocess - `main()` with
+`--stage ...` - orchestrated by a parent process that never itself touches
+a large Polars frame, so its own address space stays flat for the whole
+run.
 """
 
 from __future__ import annotations
 
+import argparse
 import gc
 import json
 import math
+import shutil
+import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -51,6 +70,13 @@ FEATURES_CONFIG_PATH = Path("configs/features.yaml")
 #: feature table per batch, which leaves plenty of room under a 20GB cap for
 #: the intermediates each feature family allocates while computing.
 DEFAULT_BATCH_TARGET_ROWS = 2_000_000
+
+#: Manifest/result filenames inside the run's temp directory - how the
+#: subprocess stages hand small pieces of information back to the
+#: orchestrator, since they can't return Python values across a process
+#: boundary.
+PREPARE_MANIFEST_NAME = "prepare_manifest.json"
+FINALIZE_RESULT_NAME = "finalize_result.json"
 
 logger = get_logger(__name__)
 
@@ -116,18 +142,9 @@ def _write_wide_batches(
 def build_gold_features(wide: pl.DataFrame, features_config: dict) -> pl.DataFrame:
     """Computes every feature family for one batch of whole drives.
 
-    Takes the already-pivoted wide frame (see `pivot_badness_wide`), not
-    `canonical_long` - pivoting happens in `main()` so that `canonical_long`
-    (and `drive_day`) can be dropped from memory there, before any of the
-    stages below run. If they were pivoted in here instead, `main()`'s own
-    `canonical_long`/`drive_day` local variables would keep those ~52M/~10M
-    row frames alive for this entire function's duration regardless of
-    whether anything after the pivot still uses them - a reference in any
-    live local variable is enough to keep an object un-freed in Python.
-
     Does *not* add the model-family z-scores: those are the one feature
     that depends on other drives, so they are applied once, globally, after
-    every batch has been computed (see `main`)."""
+    every batch has been computed (see `_stage_finalize`)."""
     available_attributes, windows_days, spike_thresholds = resolve_feature_plan(
         wide.columns, features_config
     )
@@ -183,11 +200,22 @@ def build_gold_features(wide: pl.DataFrame, features_config: dict) -> pl.DataFra
     return gold
 
 
-def main() -> None:
-    configure_logging()
-    apply_memory_limit_from_config()
+def _load_configs() -> tuple[dict, dict]:
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())
+    return data_config, features_config
+
+
+def _stage_prepare(tmp_dir: Path) -> None:
+    """Subprocess stage: reads Silver, pivots to wide, and splits into
+    per-drive batches. Runs in its own process so that once it exits, its
+    entire address space - including whatever jemalloc is still holding
+    onto from reading ~62M rows of canonical_long/drive_day and pivoting
+    them - is actually released back to the OS, not just logically freed
+    within a process that keeps running."""
+    configure_logging()
+    apply_memory_limit_from_config()
+    data_config, _ = _load_configs()
 
     silver_dir = Path(data_config["silver_dir"])
     canonical_path = silver_dir / "canonical_telemetry" / "part.parquet"
@@ -209,111 +237,200 @@ def main() -> None:
     wide = pivot_badness_wide(canonical_long, drive_day=drive_day)
     _log_stage("pivoted_to_wide", t0, row_count=wide.height, column_count=len(wide.columns))
 
-    # Drop these now, not after build_gold_features returns: canonical_long
-    # is 5x the row count of drive_day (one row per drive/day/attribute vs
-    # one per drive/day), and neither is needed again after the pivot above.
-    # Freeing them here - rather than leaving them referenced by this
-    # function's own locals for build_gold_features's entire duration -
-    # gives every join-heavy stage inside it its full RAM budget instead of
-    # sharing it with ~62M dead rows.
     del canonical_long, drive_day
     gc.collect()
 
-    attributes, windows_days, spike_thresholds = resolve_feature_plan(
-        wide.columns, features_config
-    )
     batch_target_rows = int(
         data_config.get("resource_limits", {}).get(
             "feature_batch_target_rows", DEFAULT_BATCH_TARGET_ROWS
         )
     )
+    t0 = time.perf_counter()
+    wide_batches = _write_wide_batches(wide, tmp_dir, target_rows=batch_target_rows)
+    _log_stage("wide_batched", t0, batch_count=len(wide_batches))
+    if not wide_batches:
+        raise ValueError("Pivoted feature frame is empty; nothing to build features from.")
+
+    (tmp_dir / PREPARE_MANIFEST_NAME).write_text(
+        json.dumps({"wide_batch_paths": [str(p) for p in wide_batches]})
+    )
+
+
+def _stage_batch(wide_batch_path: Path, gold_batch_path: Path) -> None:
+    """Subprocess stage: computes every feature family for one batch of
+    whole drives. Deliberately one process per batch, not one process for
+    the whole loop - see the module docstring for why reusing a single
+    process across batches would let jemalloc's retained memory pile up
+    across them exactly as it does within a single batch's joins."""
+    configure_logging()
+    apply_memory_limit_from_config()
+    _, features_config = _load_configs()
+
+    t0 = time.perf_counter()
+    batch = pl.read_parquet(wide_batch_path)
+    gold_batch = build_gold_features(batch, features_config)
+    gold_batch.write_parquet(gold_batch_path, compression="zstd")
+    _log_stage(
+        "gold_batch_built",
+        t0,
+        row_count=gold_batch.height,
+        column_count=len(gold_batch.columns),
+    )
+
+
+def _stage_finalize(tmp_dir: Path, gold_batch_paths: list[Path], out_path: Path) -> None:
+    """Subprocess stage: applies the model-family z-scores (the one feature
+    that needs the whole fleet) and writes the final output, one batch at a
+    time via a Parquet row-group writer rather than concatenating the
+    batches into a single DataFrame first - the full feature table is
+    ~10GB for one month of real data, and nothing in this pipeline ever
+    needs it all at once."""
+    configure_logging()
+    apply_memory_limit_from_config()
+    _, features_config = _load_configs()
+    attributes, windows_days, spike_thresholds = resolve_feature_plan(
+        pl.scan_parquet(gold_batch_paths[0]).collect_schema().names(), features_config
+    )
+
+    # The model-family z-scores are the only feature that depends on drives
+    # outside its own batch, so they are the only thing that needs a
+    # fleet-wide pass. The statistics themselves are tiny (one row per
+    # model family) and are aggregated straight off the batch files, so
+    # nothing has to be materialized to compute them.
+    t0 = time.perf_counter()
+    batch_columns = pl.scan_parquet(gold_batch_paths[0]).collect_schema().names()
+    zscore_plan = model_family_zscore_plan(batch_columns, attributes, windows_days=windows_days)
+    zscore_stats = (
+        model_family_zscore_stats(
+            pl.concat([pl.scan_parquet(p) for p in gold_batch_paths], how="vertical"),
+            zscore_plan,
+        )
+        if zscore_plan
+        else None
+    )
+    _log_stage(
+        "model_family_zscore_stats_computed",
+        t0,
+        zscore_count=len(zscore_plan),
+        family_count=0 if zscore_stats is None else zscore_stats.height,
+    )
+
+    t0 = time.perf_counter()
+    row_count = 0
+    column_count = 0
+    writer = None
+    try:
+        for path in gold_batch_paths:
+            batch = pl.read_parquet(path)
+            if zscore_plan and zscore_stats is not None:
+                batch = add_model_family_zscores_from_stats(batch, zscore_stats, zscore_plan)
+            row_count += batch.height
+            column_count = len(batch.columns)
+            table = batch.to_arrow()
+            if writer is None:
+                writer = pq.ParquetWriter(out_path, table.schema, compression="zstd")
+            writer.write_table(table)
+            del batch, table
+            gc.collect()
+    finally:
+        if writer is not None:
+            writer.close()
+    _log_stage("gold_batches_written", t0, row_count=row_count, column_count=column_count)
+
+    (tmp_dir / FINALIZE_RESULT_NAME).write_text(
+        json.dumps(
+            {
+                "row_count": row_count,
+                "column_count": column_count,
+                "attributes": attributes,
+                "windows_days": list(windows_days),
+                "spike_thresholds": spike_thresholds,
+            }
+        )
+    )
+
+
+def _run_stage(*args: str) -> None:
+    """Runs this same script as a fresh subprocess for one stage. Each
+    stage gets a brand-new process (and therefore a brand-new address
+    space) regardless of what the previous stage's allocator left mapped -
+    see the module docstring for why that's the actual fix, not just
+    another round of freeing things sooner within one long-lived process."""
+    subprocess.run([sys.executable, str(Path(__file__).resolve()), *args], check=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--stage", choices=["prepare", "batch", "finalize"])
+    parser.add_argument("--tmp-dir", type=Path)
+    parser.add_argument("--wide-batch-path", type=Path)
+    parser.add_argument("--gold-batch-path", type=Path)
+    parser.add_argument("--gold-batch-paths", type=Path, nargs="*")
+    parser.add_argument("--out-path", type=Path)
+    args = parser.parse_args()
+
+    if args.stage == "prepare":
+        _stage_prepare(args.tmp_dir)
+        return
+    if args.stage == "batch":
+        _stage_batch(args.wide_batch_path, args.gold_batch_path)
+        return
+    if args.stage == "finalize":
+        _stage_finalize(args.tmp_dir, args.gold_batch_paths, args.out_path)
+        return
+
+    # No --stage: this is the top-level orchestrator. It never touches a
+    # large Polars frame itself - only the subprocesses it spawns do - so
+    # its own address space stays flat for the whole run regardless of how
+    # many batches there are.
+    configure_logging()
+    data_config, features_config = _load_configs()
 
     gold_dir = Path(data_config["gold_dir"]) / "features"
     gold_dir.mkdir(parents=True, exist_ok=True)
     out_path = gold_dir / "part.parquet"
 
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_dir = Path(tmp)
+    tmp_dir = Path(tempfile.mkdtemp(prefix="build_gold_features_"))
+    try:
+        _run_stage("--stage", "prepare", "--tmp-dir", str(tmp_dir))
+        manifest = json.loads((tmp_dir / PREPARE_MANIFEST_NAME).read_text())
+        wide_batch_paths = [Path(p) for p in manifest["wide_batch_paths"]]
 
-        t0 = time.perf_counter()
-        wide_batches = _write_wide_batches(wide, tmp_dir, target_rows=batch_target_rows)
-        _log_stage("wide_batched", t0, batch_count=len(wide_batches))
-        if not wide_batches:
-            raise ValueError("Pivoted feature frame is empty; nothing to build features from.")
-        del wide
-        gc.collect()
-
-        gold_batches = []
-        for index, wide_batch_path in enumerate(wide_batches):
-            t0 = time.perf_counter()
-            batch = pl.read_parquet(wide_batch_path)
-            gold_batch = build_gold_features(batch, features_config)
-            path = tmp_dir / f"gold_batch_{index}.parquet"
-            gold_batch.write_parquet(path, compression="zstd")
-            _log_stage(
-                "gold_batch_built",
-                t0,
+        gold_batch_paths = []
+        for index, wide_batch_path in enumerate(wide_batch_paths):
+            gold_batch_path = tmp_dir / f"gold_batch_{index}.parquet"
+            _run_stage(
+                "--stage",
+                "batch",
+                "--wide-batch-path",
+                str(wide_batch_path),
+                "--gold-batch-path",
+                str(gold_batch_path),
+            )
+            gold_batch_paths.append(gold_batch_path)
+            logger.info(
+                "build_gold_features_batch_done",
                 batch_index=index,
-                batch_count=len(wide_batches),
-                row_count=gold_batch.height,
-                column_count=len(gold_batch.columns),
+                batch_count=len(wide_batch_paths),
             )
-            gold_batches.append(path)
-            del batch, gold_batch
-            gc.collect()
 
-        # The model-family z-scores are the only feature that depends on
-        # drives outside its own batch, so they are the only thing that
-        # needs a fleet-wide pass. The statistics themselves are tiny (one
-        # row per model family) and are aggregated straight off the batch
-        # files, so nothing has to be materialized to compute them.
-        t0 = time.perf_counter()
-        batch_columns = pl.scan_parquet(gold_batches[0]).collect_schema().names()
-        zscore_plan = model_family_zscore_plan(
-            batch_columns, attributes, windows_days=windows_days
+        _run_stage(
+            "--stage",
+            "finalize",
+            "--tmp-dir",
+            str(tmp_dir),
+            "--gold-batch-paths",
+            *[str(p) for p in gold_batch_paths],
+            "--out-path",
+            str(out_path),
         )
-        zscore_stats = (
-            model_family_zscore_stats(
-                pl.concat([pl.scan_parquet(p) for p in gold_batches], how="vertical"),
-                zscore_plan,
-            )
-            if zscore_plan
-            else None
-        )
-        _log_stage(
-            "model_family_zscore_stats_computed",
-            t0,
-            zscore_count=len(zscore_plan),
-            family_count=0 if zscore_stats is None else zscore_stats.height,
-        )
+        result = json.loads((tmp_dir / FINALIZE_RESULT_NAME).read_text())
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
-        # Write the output one batch at a time via a Parquet row-group
-        # writer rather than concatenating the batches into a single
-        # DataFrame first - the full feature table is ~10GB for one month of
-        # real data, and nothing in this pipeline ever needs it all at once.
-        t0 = time.perf_counter()
-        row_count = 0
-        column_count = 0
-        writer = None
-        try:
-            for path in gold_batches:
-                batch = pl.read_parquet(path)
-                if zscore_plan:
-                    batch = add_model_family_zscores_from_stats(
-                        batch, zscore_stats, zscore_plan
-                    )
-                row_count += batch.height
-                column_count = len(batch.columns)
-                table = batch.to_arrow()
-                if writer is None:
-                    writer = pq.ParquetWriter(out_path, table.schema, compression="zstd")
-                writer.write_table(table)
-                del batch, table
-                gc.collect()
-        finally:
-            if writer is not None:
-                writer.close()
-        _log_stage("gold_batches_written", t0, row_count=row_count, column_count=column_count)
+    attributes = result["attributes"]
+    windows_days = tuple(result["windows_days"])
+    spike_thresholds = result["spike_thresholds"]
 
     registry = build_registry(attributes, windows_days, spike_thresholds)
     registry_dir = Path(data_config["audit_dir"]) / "feature_registry"
@@ -325,8 +442,8 @@ def main() -> None:
 
     logger.info(
         "gold_features_written",
-        row_count=row_count,
-        column_count=column_count,
+        row_count=result["row_count"],
+        column_count=result["column_count"],
         path=str(out_path),
     )
     logger.info(

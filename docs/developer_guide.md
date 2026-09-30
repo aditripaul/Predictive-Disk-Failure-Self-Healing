@@ -769,6 +769,38 @@ amount of join hygiene makes that fit under the cap, so
    one batch per row group, so the finished table is never held in memory
    — not even once, at the end.
 
+**Why batching alone wasn't enough, and each batch is its own process.**
+Splitting into batches of whole drives bounds how much *live* data any one
+step holds — but on real data, even a single ~1.75M-row batch (1/6 of the
+fleet) started crashing partway through its own feature computation, well
+under what that data volume should need. The reason: Polars is built on
+jemalloc (confirmed via `strings` on the compiled extension —
+`_rjem_je_*` symbols, from the `tikv-jemallocator` crate), which on 64-bit
+Linux defaults to *retaining* freed virtual memory for reuse instead of
+returning it to the OS. `madvise(MADV_DONTNEED)` drops the physical pages
+(so RSS goes down), but the address-space mapping itself stays reserved.
+`RLIMIT_AS` — the cap this pipeline runs under (§ above) — constrains
+mapped address space, not resident memory, so within a single process it
+tracks the *high-water mark of everything that process has ever
+allocated*, not what's currently live. `del` and `gc.collect()` free the
+data but never lower that high-water mark. This is why every earlier
+round of narrowing joins and freeing intermediates bought progress to the
+next pipeline stage without ever eliminating the crash outright — the
+cap wasn't tracking the size of any one step, it was accumulating across
+the whole run.
+
+The only thing that actually resets it is a process boundary: exiting a
+process unconditionally unmaps its entire address space, regardless of
+what the allocator inside it was retaining. So `_stage_prepare` (the
+canonical_long/drive_day read + pivot + batch split) and `_stage_batch`
+(one call per batch) each run in their own subprocess, invoked via
+`_run_stage` — `main()` re-invokes this same script with `--stage ...`.
+The top-level orchestrator (`main()` with no `--stage`) never itself
+touches a large Polars frame, so its own address space stays flat
+regardless of how many batches there are, and each batch subprocess
+starts from a genuinely clean slate rather than inheriting whatever the
+previous batch's allocator was still holding onto.
+
 Batching on whole drives is what makes this invisible to the result:
 every feature family except one is computed strictly per drive
 (`.rolling(index_column="date", group_by="drive_id")` in
