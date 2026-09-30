@@ -24,10 +24,20 @@ import polars as pl
 DATASET_VERSIONS_SUBDIR = "dataset_versions"
 
 
-def _content_hash(path: Path) -> str | None:
+def _content_hash(path: Path, *, chunk_size: int = 8 * 1024 * 1024) -> str | None:
+    """Streams the file through the hash in fixed-size chunks rather than
+    `path.read_bytes()`-ing it whole - `gold_features`' `part.parquet` is
+    ~10GB for one month of real data, and this is called on it after the
+    label table (already several GB) is already resident, so loading the
+    entire feature file into one more Python `bytes` object here would add
+    another ~10GB on top for no reason other than computing a hash."""
     if not path.exists():
         return None
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()[:16]
 
 
 def build_dataset_version_record(

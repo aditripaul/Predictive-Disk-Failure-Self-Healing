@@ -8,7 +8,9 @@ label table, split assignment, and imbalance report.
 
 from __future__ import annotations
 
+import gc
 import json
+import time
 from pathlib import Path
 
 import polars as pl
@@ -34,6 +36,11 @@ FEATURES_CONFIG_PATH = Path("configs/features.yaml")
 logger = get_logger(__name__)
 
 
+def _log_stage(stage: str, started_at: float, **fields: object) -> None:
+    elapsed_seconds = round(time.perf_counter() - started_at, 2)
+    logger.info(f"build_labels_{stage}", elapsed_seconds=elapsed_seconds, **fields)
+
+
 def main() -> None:
     configure_logging()
     apply_memory_limit_from_config()
@@ -51,19 +58,33 @@ def main() -> None:
             "Missing gold features or drive metadata; run `make build-features` first."
         )
 
-    features = pl.read_parquet(features_path)
-    drive_day_columns = [c for c in ("drive_id", "date", "source_dataset") if c in features.columns]
-    drive_days = features.select(drive_day_columns)
+    # Only drive_id/date/source_dataset are ever needed from the gold
+    # features table here - never read it in full. It's ~196 columns and
+    # ~10GB for one month of real data; reading it whole just to select 3
+    # narrow columns out of it would (as with canonical_long/drive_day in
+    # build_gold_features.py) mean an unused ~10GB reference sitting alive
+    # in this function's own locals for the rest of the pipeline.
+    t0 = time.perf_counter()
+    features_columns = pl.scan_parquet(features_path).collect_schema().names()
+    drive_day_columns = [c for c in ("drive_id", "date", "source_dataset") if c in features_columns]
+    drive_days = pl.scan_parquet(features_path).select(drive_day_columns).collect()
+    _log_stage("drive_days_read", t0, row_count=drive_days.height)
+
+    t0 = time.perf_counter()
     drive_metadata = pl.read_parquet(metadata_path)
+    _log_stage("drive_metadata_read", t0, row_count=drive_metadata.height)
 
     as_of_date = drive_days["date"].max()
     drive_metadata = classify_event_types(drive_metadata, as_of_date=as_of_date)
 
+    t0 = time.perf_counter()
     labels = compute_labels(
         drive_days, drive_metadata, horizons_days=model_config["horizons_days"]
     )
+    _log_stage("labels_computed", t0, row_count=labels.height)
 
     splits_cfg = model_config["splits"]
+    t0 = time.perf_counter()
     labels = add_chronological_split(
         labels,
         train_end=splits_cfg["train_end"],
@@ -77,12 +98,20 @@ def main() -> None:
             how="left",
         )
     labels = apply_vendor_holdout(labels)
+    _log_stage("splits_applied", t0, row_count=labels.height)
+    del drive_days
+    gc.collect()
+
+    t0 = time.perf_counter()
     labels = validate_gold_labels(labels, horizons_days=model_config["horizons_days"])
+    _log_stage("labels_validated", t0)
 
     labels_dir = gold_dir / "labels"
     labels_dir.mkdir(parents=True, exist_ok=True)
     labels_path = labels_dir / "part.parquet"
+    t0 = time.perf_counter()
     labels.write_parquet(labels_path, compression="zstd")
+    _log_stage("labels_written", t0, row_count=labels.height)
 
     audit_root = Path(data_config["audit_dir"])
     dataset_version_record = build_dataset_version_record(
