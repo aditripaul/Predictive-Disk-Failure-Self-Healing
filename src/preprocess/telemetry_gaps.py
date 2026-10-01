@@ -59,8 +59,22 @@ def compute_telemetry_gaps(
         (pl.col("days_since_last_telemetry") > stale_gap_days).alias("stale_telemetry_flag"),
     )
 
+    # Rolled from a narrow (drive_id, date) base, not the full wide `df` -
+    # this aggregate only counts rows per window (`pl.len()`), so it
+    # doesn't reference any of `df`'s other columns (bronze SMART columns,
+    # normalized identifiers, failure_date, the gap flags above). Rolling
+    # over the wide frame anyway would carry all of that through the
+    # rolling engine's own per-window buffers for no reason; joining the
+    # (still narrow) result back onto the wide `df` once at the end is the
+    # only place its width actually matters. Same narrow-base shape as
+    # src/features/windows.py/events.py, whose analogous "roll on the wide
+    # frame" bug crashed against real data earlier this session - this one
+    # hadn't crashed yet only because January's data happened to fit under
+    # the cap anyway; it stopped fitting once ingest widened to a full
+    # quarter (~3x the row count).
     coverage = (
-        df.rolling(index_column="date", period="30d", group_by="drive_id")
+        df.select(["drive_id", "date"])
+        .rolling(index_column="date", period="30d", group_by="drive_id")
         .agg(pl.len().alias("_coverage_count_30d"))
         .with_columns((pl.col("_coverage_count_30d") / 30.0).clip(upper_bound=1.0).alias(
             "telemetry_coverage_30d"
