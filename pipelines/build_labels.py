@@ -5,47 +5,49 @@ types, computes leakage-free failure labels for every configured horizon,
 applies the chronological (+ optional drive-holdout) split, and writes the
 label table, split assignment, and imbalance report.
 
-Label computation and split assignment run in two separate subprocesses
-(`_stage_label`, `_stage_split`), for the same reason batches are isolated
-into their own subprocesses in pipelines/build_gold_features.py: Polars is
-built on jemalloc, which on 64-bit Linux defaults to retaining freed
-virtual memory for reuse rather than returning it to the OS, so RLIMIT_AS
-(this pipeline's memory cap) tracks a process's cumulative high-water
-mark, not what's currently live.
+Labels are computed and split in batches of whole drives, each in its own
+subprocess, matching pipelines/build_gold_features.py's architecture.
 
-These started as ONE subprocess (`_stage_compute`), covering both label
-computation and split assignment. Against real Q1 data that still
-crashed: `_stage_compute` logged `labels_computed` (91,792,452 rows)
-successfully, then failed inside the very next step - adding/replacing
-the `split`/`split_strategy` string columns across all 91.79M rows,
-three times over (chronological, drive-holdout, vendor-holdout) - on an
-allocation of ~1.4GB, comfortably small next to the 20GB cap in
-isolation, but not on top of whatever high-water mark computing labels
-(three joins + a concat producing that 91.79M-row table) had already
-left behind in the same process. Exactly the same lesson
-build_gold_features.py needed twice: one subprocess boundary was not
-fine-grained enough, and the fix is another boundary at the new failure
-point, not a different technique.
+This started as a single subprocess covering the whole pipeline, then two
+subprocesses (one for label computation, one for split application) once
+that single subprocess crashed against real Q1 data right after
+`labels_computed` (91,792,452 rows) - the theory being that whatever
+high-water mark computing those labels left behind (Polars is built on
+jemalloc, which on 64-bit Linux retains freed virtual memory for reuse
+rather than returning it to the OS, so RLIMIT_AS tracks a process's
+cumulative allocations, not what's currently live) was compounding with
+the next step's own needs.
 
-Unlike build_gold_features.py's pivot, this pipeline does NOT need
-drive-based batching on top of process isolation: every join here is
-keyed on drive_id alone against drive_metadata's one-row-per-drive table
-(so it can never fan out), and the label table never widens beyond ~11
-narrow columns - there is no wide/expanding transform for a batch
-boundary to bound, only a cumulative high-water mark for a process
-boundary to reset.
+That theory turned out to be wrong for this crash: a brand-new `_stage_split`
+subprocess, having done nothing but read the raw label file back, crashed
+on essentially the same transformation almost immediately - proving the
+split-application step itself, independent of any prior process history,
+needs more memory than fits at ~92M rows (one real quarter, 3 horizons).
+Process isolation cannot fix a real per-operation memory requirement -
+only bounding the amount of data any one call to that operation touches
+can, which is exactly what pipelines/build_gold_features.py's per-drive
+batching does for its pivot. So this pipeline now does the same: batch by
+`hash(drive_id)` (every join here - compute_labels, the drive-holdout/
+vendor-holdout assignment - is keyed on drive_id alone against a
+one-row-per-drive table, so it can never fan out and a drive's full
+history always lands in one batch), compute labels AND apply every split
+for one batch at a time, in its own subprocess, and combine the batch
+outputs at the end.
 
-Once `_stage_split` writes the final label table to disk and exits, the
-top-level orchestrator (`main()` with no `--stage`) computes the dataset
-version record and imbalance report from narrow (2-3 column) projections
-scanned back off that file - never re-reading the full label table into
-this process either.
+The one thing that must be computed once, globally, rather than per
+batch: which ~10% of drives are held out (`apply_drive_level_holdout`).
+Sampling independently per batch would give each batch its own random
+~10% rather than sharing one fleet-wide holdout set, so
+`_stage_prepare` samples it once (cheaply - from drive_metadata's small
+one-row-per-drive table, not the full label table) and every batch is
+given the same precomputed set.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -65,6 +67,7 @@ from src.labels.splits import (
     add_chronological_split,
     apply_drive_level_holdout,
     apply_vendor_holdout,
+    sample_holdout_drive_ids,
 )
 from src.logging_config import configure_logging, get_logger
 from src.resource_limits import apply_memory_limit_from_config
@@ -72,6 +75,12 @@ from src.resource_limits import apply_memory_limit_from_config
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
 FEATURES_CONFIG_PATH = Path("configs/features.yaml")
+
+#: Target drive-day rows per label batch. The label table itself is ~3x
+#: this per batch (one row per horizon), still comfortably bounded.
+DEFAULT_BATCH_TARGET_ROWS = 2_000_000
+
+PREPARE_MANIFEST_NAME = "prepare_manifest.json"
 
 logger = get_logger(__name__)
 
@@ -88,15 +97,24 @@ def _require_inputs(features_path: Path, metadata_path: Path) -> None:
         )
 
 
-def _stage_label(raw_labels_path: Path) -> None:
-    """Subprocess stage: computes leakage-free labels for every configured
-    horizon (no splits yet) and writes the raw result to
-    `raw_labels_path`. See the module docstring for why this is a separate
-    process from `_stage_split`, not just a separate step within one."""
-    configure_logging()
-    apply_memory_limit_from_config()
+def _load_configs() -> tuple[dict, dict]:
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
+    return data_config, model_config
+
+
+def _stage_prepare(tmp_dir: Path) -> None:
+    """Subprocess stage: determines batch count and samples the one
+    fleet-wide drive-holdout set every batch will share (see the module
+    docstring for why this must be global, not per batch).
+
+    Both are cheap: drive_metadata is one row per drive (351k for one
+    real quarter, trivial to hold and sample from directly), and the
+    batch count only needs gold features' row count, which resolves from
+    Parquet footer metadata without reading any column data."""
+    configure_logging()
+    apply_memory_limit_from_config()
+    data_config, _ = _load_configs()
 
     silver_dir = Path(data_config["silver_dir"])
     gold_dir = Path(data_config["gold_dir"])
@@ -104,88 +122,146 @@ def _stage_label(raw_labels_path: Path) -> None:
     metadata_path = silver_dir / "drive_metadata" / "part.parquet"
     _require_inputs(features_path, metadata_path)
 
+    t0 = time.perf_counter()
+    drive_day_row_count = pl.scan_parquet(features_path).select(pl.len()).collect().item()
+    _log_stage("drive_day_row_count_determined", t0, row_count=drive_day_row_count)
+
+    t0 = time.perf_counter()
+    drive_metadata = pl.read_parquet(metadata_path)
+    holdout_drive_ids = sample_holdout_drive_ids(drive_metadata["drive_id"])
+    _log_stage(
+        "holdout_drive_ids_sampled",
+        t0,
+        drive_count=drive_metadata.height,
+        holdout_count=len(holdout_drive_ids),
+    )
+
+    batch_target_rows = int(
+        data_config.get("resource_limits", {}).get(
+            "label_batch_target_rows", DEFAULT_BATCH_TARGET_ROWS
+        )
+    )
+    n_batches = max(1, math.ceil(drive_day_row_count / batch_target_rows))
+    (tmp_dir / PREPARE_MANIFEST_NAME).write_text(
+        json.dumps({"n_batches": n_batches, "holdout_drive_ids": holdout_drive_ids})
+    )
+
+
+def _stage_batch(tmp_dir: Path, batch_index: int, batch_out_path: Path) -> None:
+    """Subprocess stage: computes labels for every configured horizon and
+    applies every split, for one batch of whole drives - every gold
+    features/drive_metadata row whose drive_id hashes to `batch_index` -
+    and writes the result to `batch_out_path`."""
+    configure_logging()
+    apply_memory_limit_from_config()
+    data_config, model_config = _load_configs()
+
+    silver_dir = Path(data_config["silver_dir"])
+    gold_dir = Path(data_config["gold_dir"])
+    features_path = gold_dir / "features" / "part.parquet"
+    metadata_path = silver_dir / "drive_metadata" / "part.parquet"
+    _require_inputs(features_path, metadata_path)
+
+    manifest = json.loads((tmp_dir / PREPARE_MANIFEST_NAME).read_text())
+    n_batches = manifest["n_batches"]
+    holdout_drive_ids = manifest["holdout_drive_ids"]
+    batch_of_drive = pl.col("drive_id").hash(seed=0) % n_batches
+
     # Only drive_id/date/source_dataset are ever needed from the gold
-    # features table here - never read it in full. It's ~196 columns and
-    # ~10GB for one month of real data; reading it whole just to select 3
-    # narrow columns out of it would (as with canonical_long/drive_day in
-    # build_gold_features.py) mean an unused ~10GB reference sitting alive
-    # in this function's own locals for the rest of the pipeline.
+    # features table here - never read it in full, and only this batch's
+    # own slice at that. It's ~196 columns and ~10GB for one month of
+    # real data; a narrow, batch-filtered scan avoids ever materializing
+    # any of that.
     t0 = time.perf_counter()
     features_columns = pl.scan_parquet(features_path).collect_schema().names()
     drive_day_columns = [
         c for c in ("drive_id", "date", "source_dataset") if c in features_columns
     ]
-    drive_days = pl.scan_parquet(features_path).select(drive_day_columns).collect()
-    _log_stage("drive_days_read", t0, row_count=drive_days.height)
+    drive_days = (
+        pl.scan_parquet(features_path)
+        .select(drive_day_columns)
+        .filter(batch_of_drive == batch_index)
+        .collect()
+    )
+    _log_stage(
+        "drive_days_read", t0, batch_index=batch_index, batch_count=n_batches,
+        row_count=drive_days.height,
+    )
 
+    # drive_metadata is small enough (one row per drive) to read whole
+    # rather than filtering it to the batch too - classify_event_types'
+    # as_of_date needs the fleet-wide max date anyway (drive_days here is
+    # already just this batch, so its own max would be wrong if this
+    # batch happens not to include the fleet's most-recently-observed
+    # drive), and re-reading 351k small rows per batch is cheap regardless.
     t0 = time.perf_counter()
     drive_metadata = pl.read_parquet(metadata_path)
-    _log_stage("drive_metadata_read", t0, row_count=drive_metadata.height)
-
-    as_of_date = drive_days["date"].max()
+    as_of_date = pl.scan_parquet(features_path).select(pl.col("date").max()).collect().item()
     drive_metadata = classify_event_types(drive_metadata, as_of_date=as_of_date)
+    _log_stage(
+        "drive_metadata_read", t0, batch_index=batch_index, row_count=drive_metadata.height
+    )
 
+    # An empty batch (drive_days.is_empty()) is a normal, expected outcome
+    # of hashing rows into batches (see the analogous case in
+    # build_silver.py) - every step below is 0-row-safe (verified
+    # directly: compute_labels/the split functions/validate_gold_labels
+    # all produce a correctly-shaped, empty-but-valid result), so it
+    # needs no special case here.
     t0 = time.perf_counter()
     labels = compute_labels(
         drive_days, drive_metadata, horizons_days=model_config["horizons_days"]
     )
-    _log_stage("labels_computed", t0, row_count=labels.height)
-
-    raw_labels_path.parent.mkdir(parents=True, exist_ok=True)
-    t0 = time.perf_counter()
-    labels.write_parquet(raw_labels_path, compression="zstd")
-    _log_stage("raw_labels_written", t0, row_count=labels.height)
-
-
-def _stage_split(raw_labels_path: Path, labels_path: Path) -> None:
-    """Subprocess stage: reads the raw (pre-split) labels `_stage_label`
-    wrote, applies every split, validates the result, and writes it to
-    `labels_path`. A fresh process, unburdened by whatever high-water mark
-    computing those raw labels left behind - see the module docstring."""
-    configure_logging()
-    apply_memory_limit_from_config()
-    data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
-    model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
-
-    # source_dataset comes back from gold features, not the raw labels
-    # file - re-derived here rather than threaded through _stage_label's
-    # output, the same redundant-rescan trade already made elsewhere
-    # (e.g. build_gold_features.py's _write_wide_batches): it's a cheap,
-    # narrow read, far cheaper than widening the intermediate file.
-    gold_dir = Path(data_config["gold_dir"])
-    features_path = gold_dir / "features" / "part.parquet"
-    features_columns = pl.scan_parquet(features_path).collect_schema().names()
-
-    t0 = time.perf_counter()
-    labels = pl.read_parquet(raw_labels_path)
-    _log_stage("raw_labels_read", t0, row_count=labels.height)
+    _log_stage(
+        "labels_computed", t0, batch_index=batch_index, batch_count=n_batches,
+        row_count=labels.height,
+    )
 
     splits_cfg = model_config["splits"]
     t0 = time.perf_counter()
     labels = add_chronological_split(
-        labels,
-        train_end=splits_cfg["train_end"],
-        validation_end=splits_cfg["validation_end"],
+        labels, train_end=splits_cfg["train_end"], validation_end=splits_cfg["validation_end"]
     )
-    labels = apply_drive_level_holdout(labels)
-    if "source_dataset" in features_columns:
-        source_dataset = (
-            pl.scan_parquet(features_path)
-            .select(["drive_id", "date", "source_dataset"])
-            .collect()
+    labels = apply_drive_level_holdout(labels, holdout_drive_ids=holdout_drive_ids)
+    if "source_dataset" in drive_days.columns:
+        labels = labels.join(
+            drive_days.select(["drive_id", "date", "source_dataset"]),
+            on=["drive_id", "date"],
+            how="left",
         )
-        labels = labels.join(source_dataset, on=["drive_id", "date"], how="left")
     labels = apply_vendor_holdout(labels)
-    _log_stage("splits_applied", t0, row_count=labels.height)
+    _log_stage(
+        "splits_applied", t0, batch_index=batch_index, batch_count=n_batches,
+        row_count=labels.height,
+    )
 
     t0 = time.perf_counter()
     labels = validate_gold_labels(labels, horizons_days=model_config["horizons_days"])
-    _log_stage("labels_validated", t0)
+    _log_stage("labels_validated", t0, batch_index=batch_index, batch_count=n_batches)
 
+    batch_out_path.parent.mkdir(parents=True, exist_ok=True)
+    t0 = time.perf_counter()
+    labels.write_parquet(batch_out_path, compression="zstd")
+    _log_stage(
+        "batch_written", t0, batch_index=batch_index, batch_count=n_batches,
+        row_count=labels.height,
+    )
+
+
+def _stage_finalize(batch_paths: list[Path], labels_path: Path) -> None:
+    """Subprocess stage: concatenates the per-batch label outputs - all
+    sharing an identical schema by construction - into the final label
+    table, via a lazy scan+sink rather than an eager concat, so combining
+    them stays streaming."""
+    configure_logging()
+    apply_memory_limit_from_config()
     labels_path.parent.mkdir(parents=True, exist_ok=True)
     t0 = time.perf_counter()
-    labels.write_parquet(labels_path, compression="zstd")
-    _log_stage("labels_written", t0, row_count=labels.height)
+    pl.concat([pl.scan_parquet(p) for p in batch_paths], how="vertical").sink_parquet(
+        labels_path, compression="zstd"
+    )
+    row_count = pl.scan_parquet(labels_path).select(pl.len()).collect().item()
+    _log_stage("labels_combined", t0, row_count=row_count)
 
 
 def _run_stage(*args: str) -> None:
@@ -197,25 +273,30 @@ def _run_stage(*args: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--stage", choices=["label", "split"])
-    parser.add_argument("--raw-labels-path", type=Path)
+    parser.add_argument("--stage", choices=["prepare", "batch", "finalize"])
+    parser.add_argument("--tmp-dir", type=Path)
+    parser.add_argument("--batch-index", type=int)
+    parser.add_argument("--batch-out-path", type=Path)
+    parser.add_argument("--batch-paths", type=Path, nargs="*")
     parser.add_argument("--labels-path", type=Path)
     args = parser.parse_args()
 
-    if args.stage == "label":
-        _stage_label(args.raw_labels_path)
+    if args.stage == "prepare":
+        _stage_prepare(args.tmp_dir)
         return
-    if args.stage == "split":
-        _stage_split(args.raw_labels_path, args.labels_path)
+    if args.stage == "batch":
+        _stage_batch(args.tmp_dir, args.batch_index, args.batch_out_path)
+        return
+    if args.stage == "finalize":
+        _stage_finalize(args.batch_paths, args.labels_path)
         return
 
     # No --stage: the top-level orchestrator. It never itself reads gold
-    # features, drive_metadata, or the full label table - only the label/
-    # split subprocesses it spawns do - so its own address space stays
-    # flat regardless of fleet size.
+    # features, drive_metadata, or the full label table - only the
+    # subprocesses it spawns do - so its own address space stays flat
+    # regardless of fleet size or batch count.
     configure_logging()
-    data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
-    model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
+    data_config, model_config = _load_configs()
     features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())
 
     silver_dir = Path(data_config["silver_dir"])
@@ -230,13 +311,33 @@ def main() -> None:
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="build_labels_"))
     try:
-        raw_labels_path = tmp_dir / "raw_labels.parquet"
-        _run_stage("--stage", "label", "--raw-labels-path", str(raw_labels_path))
+        _run_stage("--stage", "prepare", "--tmp-dir", str(tmp_dir))
+        manifest = json.loads((tmp_dir / PREPARE_MANIFEST_NAME).read_text())
+        n_batches = manifest["n_batches"]
+
+        batch_paths = []
+        for batch_index in range(n_batches):
+            batch_out_path = tmp_dir / f"labels_batch_{batch_index}.parquet"
+            _run_stage(
+                "--stage",
+                "batch",
+                "--tmp-dir",
+                str(tmp_dir),
+                "--batch-index",
+                str(batch_index),
+                "--batch-out-path",
+                str(batch_out_path),
+            )
+            batch_paths.append(batch_out_path)
+            logger.info(
+                "build_labels_batch_done", batch_index=batch_index, batch_count=n_batches
+            )
+
         _run_stage(
             "--stage",
-            "split",
-            "--raw-labels-path",
-            str(raw_labels_path),
+            "finalize",
+            "--batch-paths",
+            *[str(p) for p in batch_paths],
             "--labels-path",
             str(labels_path),
         )

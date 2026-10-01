@@ -86,3 +86,12 @@ resource_limits:
   # Lower it if you still hit the cap; raise it for fewer, larger batches.
   # See pipelines/build_silver.py's module docstring.
   silver_batch_target_rows: 2000000
+  # `make build-labels` computes labels and applies splits in batches of
+  # whole drives (by hash of drive_id, using a fleet-wide precomputed
+  # drive-holdout set so every batch agrees on which drives are held out)
+  # and writes each batch's label output separately before combining
+  # them. Sized against drive-day row count, not the ~3x-larger (one row
+  # per horizon) label row count. Lower it if you still hit the cap;
+  # raise it for fewer, larger batches. See
+  # pipelines/build_labels.py's module docstring.
+  label_batch_target_rows: 2000000
