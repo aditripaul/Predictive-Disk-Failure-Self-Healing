@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import gc
 import json
+import shutil
+import tempfile
 import time
 from pathlib import Path
 
@@ -145,11 +147,27 @@ def main() -> None:
         )
     feature_columns = select_feature_columns(frame)
 
+    # Spilled to a temp Parquet file and freed, rather than filtered
+    # directly: each split below needs its own materialized copy, and with
+    # the current chronological split boundaries "train" is nearly all of
+    # `frame` (all-January data against a February train_end) - so
+    # filtering straight off the still-live `frame` would momentarily hold
+    # `frame` and a near-full-size `train` copy at once, close to 2x this
+    # step's real memory need. Scanning each split from disk instead means
+    # the three splits' combined size is bounded by `frame`'s own size,
+    # not by it plus whichever split happens to be largest.
+    frame_tmp_dir = Path(tempfile.mkdtemp(prefix="train_model_frame_"))
+    frame_path = frame_tmp_dir / "frame.parquet"
+    frame.write_parquet(frame_path, compression="zstd")
+    del frame
+    gc.collect()
+
     t0 = time.perf_counter()
     splits = {
-        split_name: frame.filter(pl.col("split") == split_name)
+        split_name: pl.scan_parquet(frame_path).filter(pl.col("split") == split_name).collect()
         for split_name in ("train", "validation", "test")
     }
+    shutil.rmtree(frame_tmp_dir, ignore_errors=True)
     empty_splits = [name for name, split_df in splits.items() if split_df.height == 0]
     if empty_splits:
         raise ValueError(
@@ -160,16 +178,6 @@ def main() -> None:
     _log_stage(
         "splits_extracted", t0, **{name: split_df.height for name, split_df in splits.items()}
     )
-    # `frame` is never used again past this point - only `splits[...]` is.
-    # Deleting it here (rather than leaving it referenced by this function's
-    # own locals for the rest of training/SHAP/model-card generation, which
-    # all still need to run) matters exactly as much as it did for
-    # canonical_long/drive_day in build_gold_features.py and gold_features
-    # in build_labels.py: it's ~196 columns wide, and a live local variable
-    # reference is enough to keep it resident regardless of whether
-    # anything downstream still reads it.
-    del frame
-    gc.collect()
 
     x_train = feature_matrix(splits["train"], feature_columns)
     y_train = splits["train"]["label"].to_numpy()
