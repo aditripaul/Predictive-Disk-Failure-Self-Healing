@@ -14,7 +14,7 @@ sources:
     # Useful for keeping a single build-silver run's data volume bounded,
     # e.g. while validating on a smaller slice before ingesting more.
     start_date: "2026-01-01"
-    end_date: "2026-01-31"
+    end_date: "2026-03-31"
   smartz:
     raw_glob: "data/raw/smartz/*.csv"
     bronze_path: "data/bronze/smartz"
