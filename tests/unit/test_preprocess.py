@@ -180,6 +180,48 @@ def test_melt_smart_attributes_skips_source_whose_template_columns_are_entirely_
     assert set(long_df["drive_id"].unique()) == {"A"}
 
 
+def test_melt_smart_attributes_handles_a_schema_valid_but_empty_frame():
+    """pipelines/build_silver.py batches Bronze rows by hash(drive_id), so
+    a batch can legitimately end up with zero rows while still carrying a
+    `source_dataset` column in its schema. Before this was handled, that
+    zero-row case fell through melt_smart_attributes' multi-source branch
+    (df[source_column].unique() is empty, so the `parts` accumulator loop
+    never runs) and raised, even though a correctly-shaped empty result -
+    not an error - is what a batching caller needs to concat with its
+    other, non-empty batches."""
+    df = pl.DataFrame(
+        {
+            "drive_id": [],
+            "date": [],
+            "source_dataset": [],
+            "smart_5_raw": [],
+        },
+        schema={
+            "drive_id": pl.Utf8,
+            "date": pl.Date,
+            "source_dataset": pl.Utf8,
+            "smart_5_raw": pl.Int64,
+        },
+    )
+    long_df = melt_smart_attributes(df, id_columns=["drive_id", "date"])
+    assert long_df.height == 0
+    assert set(long_df.columns) == {
+        "drive_id",
+        "date",
+        "smart_attribute_name",
+        "smart_raw_value",
+        "smart_badness_value",
+    }
+
+    # The actual code path build_silver.py exercises: a LazyFrame filtered
+    # down to zero rows, not an eagerly-empty DataFrame from the start.
+    lazy_long_df = melt_smart_attributes(
+        df.lazy().filter(pl.col("drive_id") == "nonexistent"), id_columns=["drive_id", "date"]
+    ).collect()
+    assert lazy_long_df.height == 0
+    assert set(lazy_long_df.columns) == set(long_df.columns)
+
+
 def test_compute_telemetry_gaps_flags_stale_and_short_gaps():
     df = pl.DataFrame(
         {

@@ -133,6 +133,16 @@ def melt_smart_attributes(
     else:
         source_values = df[source_column].unique().to_list()
 
+    if not source_values:
+        # A zero-row frame that still carries a source_column in its
+        # schema (e.g. one drive-batch of a batched pipeline that happened
+        # to get no rows - see pipelines/build_silver.py) has no actual
+        # source value to look up a mapping for, but still needs a
+        # correctly-shaped (if empty) result: which mapping is used can't
+        # matter, since there's no data for it to act on, only a schema
+        # for the caller's concat with other (non-empty) batches to match.
+        return _melt_with_map(df, CANONICAL_ATTRIBUTE_NAMES, id_columns=id_columns)
+
     if len(source_values) == 1:
         # The common case (only one source has ever been onboarded into a
         # given Bronze root so far): melt the frame directly rather than

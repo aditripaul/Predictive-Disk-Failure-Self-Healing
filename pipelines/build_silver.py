@@ -123,11 +123,31 @@ def _stage_prepare(bronze_root: Path, tmp_dir: Path) -> None:
     )
 
 
-def _stage_batch(bronze_root: Path, batch_index: int, n_batches: int, out_path: Path) -> None:
+def _stage_batch(
+    bronze_root: Path,
+    batch_index: int,
+    n_batches: int,
+    drive_day_out_path: Path,
+    canonical_out_path: Path,
+) -> None:
     """Subprocess stage: processes one drive batch - every Bronze row whose
     *normalized* drive_id hashes to `batch_index` - through normalization,
-    failure-date derivation, and telemetry-gap computation, and sinks the
-    result to `out_path`.
+    failure-date derivation, and telemetry-gap computation, sinking the
+    result to `drive_day_out_path`; then melts that batch's own drive_day
+    into canonical (long) form and sinks that to `canonical_out_path`.
+
+    The melt happens here, per batch, rather than once in `_stage_finalize`
+    against the full recombined drive_day table - which is what this
+    function used to do, and which crashed against real Q1-scale data even
+    though building the combined drive_day table itself, and the
+    (row-count-*shrinking*) drive_metadata aggregate over it, both
+    succeeded. The melt is the one step here that *expands* row count
+    (~5x, one row per SMART attribute per drive-day) rather than shrinking
+    or preserving it, and that expansion is what broke streaming once
+    Bronze grew to multiple files/3x the row count - so it gets the same
+    per-batch treatment as everything else that touched the full dataset
+    and didn't scale. `_stage_finalize` now only ever concatenates already-
+    melted, identically-shaped batch outputs, never re-melts anything.
 
     Normalizing before hashing matters for correctness, not just style: the
     same physical drive can appear with inconsistent casing/whitespace
@@ -157,19 +177,33 @@ def _stage_batch(bronze_root: Path, batch_index: int, n_batches: int, out_path: 
     )
 
     t0 = time.perf_counter()
-    lf.sink_parquet(out_path, compression="zstd")
-    row_count = pl.scan_parquet(out_path).select(pl.len()).collect().item()
+    lf.sink_parquet(drive_day_out_path, compression="zstd")
+    drive_day_row_count = pl.scan_parquet(drive_day_out_path).select(pl.len()).collect().item()
     _log_stage(
         "drive_day_batch_written",
         t0,
         batch_index=batch_index,
         batch_count=n_batches,
-        row_count=row_count,
+        row_count=drive_day_row_count,
+    )
+
+    t0 = time.perf_counter()
+    melt_smart_attributes(
+        pl.scan_parquet(drive_day_out_path), id_columns=["drive_id", "date"]
+    ).sink_parquet(canonical_out_path, compression="zstd")
+    canonical_row_count = pl.scan_parquet(canonical_out_path).select(pl.len()).collect().item()
+    _log_stage(
+        "canonical_batch_written",
+        t0,
+        batch_index=batch_index,
+        batch_count=n_batches,
+        row_count=canonical_row_count,
     )
 
 
 def _stage_finalize(
-    batch_paths: list[Path],
+    drive_day_batch_paths: list[Path],
+    canonical_batch_paths: list[Path],
     drive_day_path: Path,
     canonical_path: Path,
     metadata_path: Path,
@@ -177,17 +211,18 @@ def _stage_finalize(
     result_path: Path,
 ) -> None:
     """Subprocess stage: combines the per-batch drive_day outputs into the
-    final drive_day table, then builds drive_metadata, melts
-    canonical_telemetry, and runs quality checks against it - exactly what
-    `build_silver` used to do inline, just against already-batch-processed
-    input rather than a single multi-file concat straight from Bronze.
+    final drive_day table and the per-batch canonical (already-melted)
+    outputs into the final canonical_telemetry table, then builds
+    drive_metadata and runs quality checks against the combined drive_day.
 
-    The combining concat is a `vertical` (not `diagonal_relaxed`) concat of
-    files that all share the identical schema by construction (every batch
-    ran through the same pipeline), and every downstream step here reads
-    back via `pl.scan_parquet`/sinks rather than holding an eager
-    DataFrame, so this stays streaming end to end just like the rest of
-    the pipeline."""
+    Both combining concats are `vertical` (not `diagonal_relaxed`) concats
+    of files that all share an identical schema by construction (every
+    batch ran through the same pipeline), and every step here reads back
+    via `pl.scan_parquet`/sinks rather than holding an eager DataFrame.
+    Unlike an earlier version of this function, canonical_telemetry is
+    never built by melting the combined drive_day here - see
+    `_stage_batch`'s docstring for why that row-expanding operation has to
+    happen per batch instead."""
     configure_logging()
     apply_memory_limit_from_config()
     config = _load_configs()
@@ -198,11 +233,18 @@ def _stage_finalize(
     quality_report_path.parent.mkdir(parents=True, exist_ok=True)
 
     t0 = time.perf_counter()
-    pl.concat([pl.scan_parquet(p) for p in batch_paths], how="vertical").sink_parquet(
+    pl.concat([pl.scan_parquet(p) for p in drive_day_batch_paths], how="vertical").sink_parquet(
         drive_day_path, compression="zstd"
     )
     drive_day_row_count = pl.scan_parquet(drive_day_path).select(pl.len()).collect().item()
     _log_stage("drive_day_combined", t0, row_count=drive_day_row_count)
+
+    t0 = time.perf_counter()
+    pl.concat([pl.scan_parquet(p) for p in canonical_batch_paths], how="vertical").sink_parquet(
+        canonical_path, compression="zstd"
+    )
+    canonical_row_count = pl.scan_parquet(canonical_path).select(pl.len()).collect().item()
+    _log_stage("canonical_telemetry_combined", t0, row_count=canonical_row_count)
 
     t0 = time.perf_counter()
     maturity_cfg = config["feature_maturity"]
@@ -211,13 +253,6 @@ def _stage_finalize(
     )
     drive_metadata.write_parquet(metadata_path, compression="zstd")
     _log_stage("drive_metadata_built", t0, row_count=drive_metadata.height)
-
-    t0 = time.perf_counter()
-    melt_smart_attributes(
-        pl.scan_parquet(drive_day_path), id_columns=["drive_id", "date"]
-    ).sink_parquet(canonical_path, compression="zstd")
-    canonical_row_count = pl.scan_parquet(canonical_path).select(pl.len()).collect().item()
-    _log_stage("smart_attributes_melted_and_written", t0, row_count=canonical_row_count)
 
     t0 = time.perf_counter()
     quality_reports = run_all_checks(pl.scan_parquet(drive_day_path))
@@ -249,8 +284,10 @@ def main() -> None:
     parser.add_argument("--tmp-dir", type=Path)
     parser.add_argument("--batch-index", type=int)
     parser.add_argument("--n-batches", type=int)
-    parser.add_argument("--out-path", type=Path)
-    parser.add_argument("--batch-paths", type=Path, nargs="*")
+    parser.add_argument("--drive-day-out-path", type=Path)
+    parser.add_argument("--canonical-out-path", type=Path)
+    parser.add_argument("--drive-day-batch-paths", type=Path, nargs="*")
+    parser.add_argument("--canonical-batch-paths", type=Path, nargs="*")
     parser.add_argument("--drive-day-path", type=Path)
     parser.add_argument("--canonical-path", type=Path)
     parser.add_argument("--metadata-path", type=Path)
@@ -262,11 +299,18 @@ def main() -> None:
         _stage_prepare(args.bronze_root, args.tmp_dir)
         return
     if args.stage == "batch":
-        _stage_batch(args.bronze_root, args.batch_index, args.n_batches, args.out_path)
+        _stage_batch(
+            args.bronze_root,
+            args.batch_index,
+            args.n_batches,
+            args.drive_day_out_path,
+            args.canonical_out_path,
+        )
         return
     if args.stage == "finalize":
         _stage_finalize(
-            args.batch_paths,
+            args.drive_day_batch_paths,
+            args.canonical_batch_paths,
             args.drive_day_path,
             args.canonical_path,
             args.metadata_path,
@@ -298,9 +342,11 @@ def main() -> None:
         manifest = json.loads((tmp_dir / PREPARE_MANIFEST_NAME).read_text())
         n_batches = manifest["n_batches"]
 
-        batch_paths = []
+        drive_day_batch_paths = []
+        canonical_batch_paths = []
         for batch_index in range(n_batches):
-            batch_path = tmp_dir / f"drive_day_batch_{batch_index}.parquet"
+            drive_day_batch_path = tmp_dir / f"drive_day_batch_{batch_index}.parquet"
+            canonical_batch_path = tmp_dir / f"canonical_batch_{batch_index}.parquet"
             _run_stage(
                 "--stage",
                 "batch",
@@ -310,10 +356,13 @@ def main() -> None:
                 str(batch_index),
                 "--n-batches",
                 str(n_batches),
-                "--out-path",
-                str(batch_path),
+                "--drive-day-out-path",
+                str(drive_day_batch_path),
+                "--canonical-out-path",
+                str(canonical_batch_path),
             )
-            batch_paths.append(batch_path)
+            drive_day_batch_paths.append(drive_day_batch_path)
+            canonical_batch_paths.append(canonical_batch_path)
             logger.info(
                 "build_silver_batch_done", batch_index=batch_index, batch_count=n_batches
             )
@@ -322,8 +371,10 @@ def main() -> None:
         _run_stage(
             "--stage",
             "finalize",
-            "--batch-paths",
-            *[str(p) for p in batch_paths],
+            "--drive-day-batch-paths",
+            *[str(p) for p in drive_day_batch_paths],
+            "--canonical-batch-paths",
+            *[str(p) for p in canonical_batch_paths],
             "--drive-day-path",
             str(drive_day_path),
             "--canonical-path",

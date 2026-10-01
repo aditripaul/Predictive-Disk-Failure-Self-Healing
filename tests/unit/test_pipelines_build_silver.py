@@ -26,17 +26,23 @@ def _run_build_silver(
     manifest = json.loads((tmp_dir / "prepare_manifest.json").read_text())
     n_batches = manifest["n_batches"]
 
-    batch_paths = []
+    drive_day_batch_paths = []
+    canonical_batch_paths = []
     for batch_index in range(n_batches):
-        batch_path = tmp_dir / f"drive_day_batch_{batch_index}.parquet"
-        _stage_batch(bronze_root, batch_index, n_batches, batch_path)
-        batch_paths.append(batch_path)
+        drive_day_batch_path = tmp_dir / f"drive_day_batch_{batch_index}.parquet"
+        canonical_batch_path = tmp_dir / f"canonical_batch_{batch_index}.parquet"
+        _stage_batch(
+            bronze_root, batch_index, n_batches, drive_day_batch_path, canonical_batch_path
+        )
+        drive_day_batch_paths.append(drive_day_batch_path)
+        canonical_batch_paths.append(canonical_batch_path)
 
     metadata_path = tmp_path / "silver" / "drive_metadata" / "part.parquet"
     quality_report_path = tmp_path / "audit" / "silver_quality_report.json"
     result_path = tmp_dir / "finalize_result.json"
     _stage_finalize(
-        batch_paths,
+        drive_day_batch_paths,
+        canonical_batch_paths,
         drive_day_path,
         canonical_path,
         metadata_path,
@@ -101,9 +107,12 @@ def test_build_silver_batching_does_not_split_a_drive_across_batches(tmp_path: P
 
     batches = []
     for batch_index in range(n_batches):
-        batch_path = tmp_dir / f"drive_day_batch_{batch_index}.parquet"
-        _stage_batch(bronze_root, batch_index, n_batches, batch_path)
-        batches.append(pl.read_parquet(batch_path))
+        drive_day_batch_path = tmp_dir / f"drive_day_batch_{batch_index}.parquet"
+        canonical_batch_path = tmp_dir / f"canonical_batch_{batch_index}.parquet"
+        _stage_batch(
+            bronze_root, batch_index, n_batches, drive_day_batch_path, canonical_batch_path
+        )
+        batches.append(pl.read_parquet(drive_day_batch_path))
 
     drive_ids_per_batch = [set(b["drive_id"].unique().to_list()) for b in batches]
     for i in range(len(drive_ids_per_batch)):
