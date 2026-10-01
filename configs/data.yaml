@@ -79,3 +79,10 @@ resource_limits:
   # because the join is row-wise - see
   # src/models/features.py::assemble_training_frame.
   training_join_chunk_rows: 2000000
+  # `make build-silver` processes Bronze in batches of whole drives (by
+  # hash of the normalized drive_id, so a drive's full history - possibly
+  # spanning several Bronze files/months - always stays in one batch) and
+  # writes each batch's drive_day output separately before combining them.
+  # Lower it if you still hit the cap; raise it for fewer, larger batches.
+  # See pipelines/build_silver.py's module docstring.
+  silver_batch_target_rows: 2000000
