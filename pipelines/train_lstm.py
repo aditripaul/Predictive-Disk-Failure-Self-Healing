@@ -54,8 +54,16 @@ def main() -> None:
 
     tensor, metadata, attributes_used = load_sequence_tensors(sequences_dir)
     horizon_days = model_config["primary_horizon_days"]
-    labels = pl.read_parquet(labels_path).filter(
-        (pl.col("horizon_days") == horizon_days) & pl.col("label").is_not_null()
+    # Scanned and projected, not read whole: the label table is one row per
+    # drive-day per horizon (31.4M rows, ~5.6GB for one month of real
+    # data), and only one horizon and the four columns joined/used below
+    # are needed. Unlike the join in src/models/features.py, both the
+    # filter and the projection push into the scan here.
+    labels = (
+        pl.scan_parquet(labels_path)
+        .filter((pl.col("horizon_days") == horizon_days) & pl.col("label").is_not_null())
+        .select(["drive_id", "date", "label", "split"])
+        .collect()
     )
 
     # Each tensor row is one drive's sequence "as of" its last observed
