@@ -71,13 +71,17 @@ resource_limits:
   # on whole drives, so it never changes the resulting features (see
   # pipelines/build_gold_features.py::_write_wide_batches).
   feature_batch_target_rows: 2000000
-  # `make train` joins the gold feature table to the label table in row
-  # slices of this size rather than all at once. Every one of the ~196
-  # feature columns is needed and there is no predicate to push into the
-  # scan, so an unsliced join has to materialize the whole ~10GB table
-  # (one month of real data) alongside its own output. Slicing is safe
-  # because the join is row-wise - see
-  # src/models/features.py::assemble_training_frame.
+  # `make train` joins the gold feature table to the label table in
+  # batches of whole drives (both sides filtered to the same
+  # hash(drive_id) bucket) rather than all at once - target rows per
+  # batch, sized against gold features' own row count. Every one of the
+  # ~196 feature columns is needed and there is no predicate to push into
+  # the scan, so an unbatched join has to materialize the whole ~10GB
+  # table (one month of real data); bounding only one side of the join
+  # (an earlier version of this sliced gold features by row offset
+  # alone) isn't enough either once the label table's own "one horizon,
+  # observed only" subset stops being small at fleet scale - see
+  # src/models/features.py::drive_batched_inner_join.
   training_join_chunk_rows: 2000000
   # `make build-silver` processes Bronze in batches of whole drives (by
   # hash of the normalized drive_id, so a drive's full history - possibly

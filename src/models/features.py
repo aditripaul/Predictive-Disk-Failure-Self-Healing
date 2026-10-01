@@ -5,6 +5,7 @@ labels for a single horizon, per docs/dataset_strategy.md section 16.
 from __future__ import annotations
 
 import gc
+import math
 import tempfile
 from pathlib import Path
 
@@ -118,6 +119,84 @@ def chunked_inner_join(
         return pl.concat([pl.scan_parquet(p) for p in chunk_paths], how="vertical").collect()
 
 
+def drive_batched_inner_join(
+    left: pl.DataFrame | pl.LazyFrame,
+    right: pl.DataFrame | pl.LazyFrame,
+    *,
+    on: list[str],
+    n_batches: int,
+) -> pl.DataFrame:
+    """Inner-joins `left` to `right` in batches of whole drives - both
+    sides filtered to the SAME `hash(drive_id) % n_batches` bucket before
+    joining, rather than slicing only `left` by row offset (see
+    `chunked_inner_join`, and why it's the wrong tool when `right` isn't
+    small).
+
+    Row-offset slicing only bounds one side of the join. For every slice
+    of `left`, the query engine still has to execute `right`'s ENTIRE
+    plan to build the join's hash table - any drive's matching row could
+    be anywhere in `right`, so nothing about a left row-offset lets it
+    prune `right` at all. That's fine when `right` is genuinely small
+    (build once, probe cheaply many times), but is no better than an
+    unsliced join when `right` is comparably large: real Q1 data hit
+    this directly in pipelines/train_model.py's training-frame join,
+    where the label table's "one horizon, observed only" subset -
+    assumed small when this was built against January-only data, where
+    most rows were too close to the end of ingest to be observable -
+    turned out to be ~26M rows, close to the ~30.6M-row gold features
+    table, once a full quarter's observability made most rows keepable.
+
+    Filtering BOTH sides to the same drive-hash bucket bounds both sides
+    at once: batch `i`'s join is between two genuinely small slices
+    (~1/n_batches of each table), not one small slice against a
+    still-full-size complement. This is the same batch-by-drive shape
+    already proven in pipelines/build_gold_features.py, build_silver.py,
+    and build_labels.py, applied here to a join between two large tables
+    instead of a single-table transform.
+
+    Only valid when `on` includes "drive_id" (so hashing it is a
+    meaningful partition key for both sides) and the join is row-wise -
+    each left row matches at most one right row, so a drive's rows can
+    be judged independently of every other drive's, exactly as required
+    by every other batch-by-drive transform in this codebase.
+
+    Row order is grouped by batch (all of batch 0's matched rows, then
+    batch 1's, ...), not global - unlike `chunked_inner_join`, which
+    preserves `left`'s row order because it only reindexes `left`. This
+    does not affect correctness for callers here: nothing downstream of
+    this join depends on row position for anything except reproducible
+    random sampling (SHAP background, diagnostic row caps), and those
+    stay reproducible - same code, same fixed seeds, same resulting
+    sample - just not IDENTICAL to a row-offset-chunked join's sample,
+    since the physical row order genuinely changed. The set and content
+    of joined rows is unaffected either way."""
+    left_lazy = left.lazy()
+    right_lazy = right.lazy()
+    batch_of_drive = pl.col("drive_id").hash(seed=0) % n_batches
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        batch_paths = []
+        for batch_index in range(n_batches):
+            part = (
+                left_lazy.filter(batch_of_drive == batch_index)
+                .join(right_lazy.filter(batch_of_drive == batch_index), on=on, how="inner")
+                .collect()
+            )
+            if part.height:
+                path = Path(tmp_dir) / f"batch_{batch_index}.parquet"
+                part.write_parquet(path, compression="zstd")
+                batch_paths.append(path)
+            del part
+            gc.collect()
+
+        if not batch_paths:
+            # Preserve the joined schema rather than returning something a
+            # caller's `.height == 0`/column check can't introspect.
+            empty = left_lazy.filter(pl.lit(False))
+            return empty.join(right_lazy.filter(pl.lit(False)), on=on, how="inner").collect()
+        return pl.concat([pl.scan_parquet(p) for p in batch_paths], how="vertical").collect()
+
+
 def assemble_training_frame(
     gold_features: pl.DataFrame | pl.LazyFrame,
     labels: pl.DataFrame | pl.LazyFrame,
@@ -131,22 +210,17 @@ def assemble_training_frame(
 
     `gold_features` may be passed as a `pl.scan_parquet(...)` LazyFrame
     (`pipelines/train_model.py` does this), and `chunk_rows` then joins it
-    in row-slices of that size instead of all at once.
-
-    Scanning lazily is not by itself enough to keep the gold feature table
-    out of memory: every one of its ~196 columns is needed as a model
-    feature and there is no predicate to push into the scan, so the
-    default engine has nothing to prune and materializes the whole ~10GB
-    table (one month of real data) to join it - confirmed against real
-    data, where this join hit the memory cap with the full table plus the
-    join output plus the join's hash table all resident.
-
-    Slicing by row offset is safe here because nothing in this step is
-    per-drive: the join matches each gold row to at most one label row on
-    (drive_id, date), and the split assignment comes from the label table
-    rather than from any computation over a drive's history. So a row
-    slice can be joined independently and the results concatenated, and
-    each slice's share of the gold table is freed before the next is read.
+    in batches of whole drives - `hash(drive_id) % n_batches`, where
+    `n_batches` is derived from `chunk_rows` and gold features' own row
+    count - instead of all at once. See `drive_batched_inner_join` for why
+    both sides of this specific join need to be batched together, not
+    just `gold_features`: every one of gold features' ~196 columns is
+    needed as a model feature (no predicate to push into that scan), and
+    the label table's "one horizon, observed only" subset is NOT small
+    either at real fleet scale (confirmed against real Q1 data - see
+    `drive_batched_inner_join`'s docstring), so an unbatched join, or a
+    join that only bounds one side, both hit the memory cap with far too
+    much resident at once.
 
     Deliberately plain `.collect()`, not `.collect(engine="streaming")`:
     against real data, the streaming engine turned this exact join (a
@@ -181,8 +255,10 @@ def assemble_training_frame(
             horizon_labels, on=["drive_id", "date"], how="inner"
         ).collect()
 
-    return chunked_inner_join(
-        gold_features, horizon_labels, on=["drive_id", "date"], chunk_rows=chunk_rows
+    total_rows = gold_features.lazy().select(pl.len()).collect().item()
+    n_batches = max(1, math.ceil(total_rows / chunk_rows))
+    return drive_batched_inner_join(
+        gold_features, horizon_labels, on=["drive_id", "date"], n_batches=n_batches
     )
 
 
