@@ -5,28 +5,37 @@ types, computes leakage-free failure labels for every configured horizon,
 applies the chronological (+ optional drive-holdout) split, and writes the
 label table, split assignment, and imbalance report.
 
-The label-computation step (`_stage_compute`) runs in its own subprocess,
-for the same reason batches are isolated into their own subprocesses in
-pipelines/build_gold_features.py: Polars is built on jemalloc, which on
-64-bit Linux defaults to retaining freed virtual memory for reuse rather
-than returning it to the OS, so RLIMIT_AS (this pipeline's memory cap)
-tracks a process's cumulative high-water mark, not what's currently live.
-`_stage_compute` runs several sequential operations one after another
-(label computation across every configured horizon, three split passes,
-Pandera validation) against a label table that is ~3x the drive-day count
-(one row per horizon) - for one real quarter, ~92M rows. Doing all of that
-in one un-isolated process risks the same "each step's high-water mark
-stacks on the last" failure already seen in build_gold_features.py and
-train_model.py.
+Label computation and split assignment run in two separate subprocesses
+(`_stage_label`, `_stage_split`), for the same reason batches are isolated
+into their own subprocesses in pipelines/build_gold_features.py: Polars is
+built on jemalloc, which on 64-bit Linux defaults to retaining freed
+virtual memory for reuse rather than returning it to the OS, so RLIMIT_AS
+(this pipeline's memory cap) tracks a process's cumulative high-water
+mark, not what's currently live.
 
-Unlike build_gold_features.py's pivot, this does NOT need drive-based
-batching on top of that: every join here is keyed on drive_id alone
-against drive_metadata's one-row-per-drive table (so it can never fan
-out), and the label table never widens beyond ~11 narrow columns - there
-is no wide/expanding transform for a batch boundary to bound. A single
-subprocess boundary around the whole compute step is enough.
+These started as ONE subprocess (`_stage_compute`), covering both label
+computation and split assignment. Against real Q1 data that still
+crashed: `_stage_compute` logged `labels_computed` (91,792,452 rows)
+successfully, then failed inside the very next step - adding/replacing
+the `split`/`split_strategy` string columns across all 91.79M rows,
+three times over (chronological, drive-holdout, vendor-holdout) - on an
+allocation of ~1.4GB, comfortably small next to the 20GB cap in
+isolation, but not on top of whatever high-water mark computing labels
+(three joins + a concat producing that 91.79M-row table) had already
+left behind in the same process. Exactly the same lesson
+build_gold_features.py needed twice: one subprocess boundary was not
+fine-grained enough, and the fix is another boundary at the new failure
+point, not a different technique.
 
-Once `_stage_compute` writes the label table to disk and exits, the
+Unlike build_gold_features.py's pivot, this pipeline does NOT need
+drive-based batching on top of process isolation: every join here is
+keyed on drive_id alone against drive_metadata's one-row-per-drive table
+(so it can never fan out), and the label table never widens beyond ~11
+narrow columns - there is no wide/expanding transform for a batch
+boundary to bound, only a cumulative high-water mark for a process
+boundary to reset.
+
+Once `_stage_split` writes the final label table to disk and exits, the
 top-level orchestrator (`main()` with no `--stage`) computes the dataset
 version record and imbalance report from narrow (2-3 column) projections
 scanned back off that file - never re-reading the full label table into
@@ -37,8 +46,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -77,11 +88,11 @@ def _require_inputs(features_path: Path, metadata_path: Path) -> None:
         )
 
 
-def _stage_compute(labels_path: Path) -> None:
+def _stage_label(raw_labels_path: Path) -> None:
     """Subprocess stage: computes leakage-free labels for every configured
-    horizon, applies every split, validates the result, and writes it
-    directly to `labels_path`. See the module docstring for why this runs
-    in its own process."""
+    horizon (no splits yet) and writes the raw result to
+    `raw_labels_path`. See the module docstring for why this is a separate
+    process from `_stage_split`, not just a separate step within one."""
     configure_logging()
     apply_memory_limit_from_config()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
@@ -120,6 +131,35 @@ def _stage_compute(labels_path: Path) -> None:
     )
     _log_stage("labels_computed", t0, row_count=labels.height)
 
+    raw_labels_path.parent.mkdir(parents=True, exist_ok=True)
+    t0 = time.perf_counter()
+    labels.write_parquet(raw_labels_path, compression="zstd")
+    _log_stage("raw_labels_written", t0, row_count=labels.height)
+
+
+def _stage_split(raw_labels_path: Path, labels_path: Path) -> None:
+    """Subprocess stage: reads the raw (pre-split) labels `_stage_label`
+    wrote, applies every split, validates the result, and writes it to
+    `labels_path`. A fresh process, unburdened by whatever high-water mark
+    computing those raw labels left behind - see the module docstring."""
+    configure_logging()
+    apply_memory_limit_from_config()
+    data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
+    model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
+
+    # source_dataset comes back from gold features, not the raw labels
+    # file - re-derived here rather than threaded through _stage_label's
+    # output, the same redundant-rescan trade already made elsewhere
+    # (e.g. build_gold_features.py's _write_wide_batches): it's a cheap,
+    # narrow read, far cheaper than widening the intermediate file.
+    gold_dir = Path(data_config["gold_dir"])
+    features_path = gold_dir / "features" / "part.parquet"
+    features_columns = pl.scan_parquet(features_path).collect_schema().names()
+
+    t0 = time.perf_counter()
+    labels = pl.read_parquet(raw_labels_path)
+    _log_stage("raw_labels_read", t0, row_count=labels.height)
+
     splits_cfg = model_config["splits"]
     t0 = time.perf_counter()
     labels = add_chronological_split(
@@ -128,12 +168,13 @@ def _stage_compute(labels_path: Path) -> None:
         validation_end=splits_cfg["validation_end"],
     )
     labels = apply_drive_level_holdout(labels)
-    if "source_dataset" in drive_days.columns:
-        labels = labels.join(
-            drive_days.select(["drive_id", "date", "source_dataset"]),
-            on=["drive_id", "date"],
-            how="left",
+    if "source_dataset" in features_columns:
+        source_dataset = (
+            pl.scan_parquet(features_path)
+            .select(["drive_id", "date", "source_dataset"])
+            .collect()
         )
+        labels = labels.join(source_dataset, on=["drive_id", "date"], how="left")
     labels = apply_vendor_holdout(labels)
     _log_stage("splits_applied", t0, row_count=labels.height)
 
@@ -156,18 +197,22 @@ def _run_stage(*args: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--stage", choices=["compute"])
+    parser.add_argument("--stage", choices=["label", "split"])
+    parser.add_argument("--raw-labels-path", type=Path)
     parser.add_argument("--labels-path", type=Path)
     args = parser.parse_args()
 
-    if args.stage == "compute":
-        _stage_compute(args.labels_path)
+    if args.stage == "label":
+        _stage_label(args.raw_labels_path)
+        return
+    if args.stage == "split":
+        _stage_split(args.raw_labels_path, args.labels_path)
         return
 
     # No --stage: the top-level orchestrator. It never itself reads gold
-    # features, drive_metadata, or the full label table - only the compute
-    # subprocess it spawns does - so its own address space stays flat
-    # regardless of fleet size.
+    # features, drive_metadata, or the full label table - only the label/
+    # split subprocesses it spawns do - so its own address space stays
+    # flat regardless of fleet size.
     configure_logging()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
     model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
@@ -183,7 +228,20 @@ def main() -> None:
     labels_dir.mkdir(parents=True, exist_ok=True)
     labels_path = labels_dir / "part.parquet"
 
-    _run_stage("--stage", "compute", "--labels-path", str(labels_path))
+    tmp_dir = Path(tempfile.mkdtemp(prefix="build_labels_"))
+    try:
+        raw_labels_path = tmp_dir / "raw_labels.parquet"
+        _run_stage("--stage", "label", "--raw-labels-path", str(raw_labels_path))
+        _run_stage(
+            "--stage",
+            "split",
+            "--raw-labels-path",
+            str(raw_labels_path),
+            "--labels-path",
+            str(labels_path),
+        )
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     audit_root = Path(data_config["audit_dir"])
     t0 = time.perf_counter()
