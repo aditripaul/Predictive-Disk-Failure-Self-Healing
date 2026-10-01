@@ -71,3 +71,11 @@ resource_limits:
   # on whole drives, so it never changes the resulting features (see
   # pipelines/build_gold_features.py::_write_wide_batches).
   feature_batch_target_rows: 2000000
+  # `make train` joins the gold feature table to the label table in row
+  # slices of this size rather than all at once. Every one of the ~196
+  # feature columns is needed and there is no predicate to push into the
+  # scan, so an unsliced join has to materialize the whole ~10GB table
+  # (one month of real data) alongside its own output. Slicing is safe
+  # because the join is row-wise - see
+  # src/models/features.py::assemble_training_frame.
+  training_join_chunk_rows: 2000000

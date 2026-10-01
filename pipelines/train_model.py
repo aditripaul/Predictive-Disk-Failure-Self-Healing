@@ -43,6 +43,10 @@ from src.resource_limits import apply_memory_limit_from_config
 
 SHAP_BACKGROUND_SAMPLE_SIZE = 100
 
+#: Fallback when `resource_limits.training_join_chunk_rows` is absent from
+#: configs/data.yaml.
+DEFAULT_TRAINING_JOIN_CHUNK_ROWS = 2_000_000
+
 #: Label-table columns the training pipeline actually uses: the target
 #: (`label`), the split assignment, and `event_type`/`days_to_event` for
 #: the warning-lead-time metric - plus the join keys. The label table has
@@ -119,7 +123,13 @@ def main() -> None:
     horizon_days = model_config["primary_horizon_days"]
     t0 = time.perf_counter()
     frame = assemble_training_frame(
-        gold_features, labels, horizon_days=horizon_days, label_columns=LABEL_COLUMNS_USED
+        gold_features,
+        labels,
+        horizon_days=horizon_days,
+        label_columns=LABEL_COLUMNS_USED,
+        chunk_rows=data_config.get("resource_limits", {}).get(
+            "training_join_chunk_rows", DEFAULT_TRAINING_JOIN_CHUNK_ROWS
+        ),
     )
     _log_stage(
         "training_frame_assembled", t0, row_count=frame.height, column_count=len(frame.columns)

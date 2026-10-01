@@ -4,6 +4,8 @@ labels for a single horizon, per docs/dataset_strategy.md section 16.
 
 from __future__ import annotations
 
+import gc
+
 import numpy as np
 import polars as pl
 
@@ -43,17 +45,29 @@ def assemble_training_frame(
     *,
     horizon_days: int,
     label_columns: list[str] | None = None,
+    chunk_rows: int | None = None,
 ) -> pl.DataFrame:
     """Joins gold features to the label table for one horizon, keeping only
     rows with an observed (non-censored) label.
 
     `gold_features` may be passed as a `pl.scan_parquet(...)` LazyFrame
-    (`pipelines/train_model.py` does this) - the gold feature table is
-    ~196 columns and ~10GB for one month of real data, but only one
-    horizon's observed-label rows ever survive this join, often a small
-    fraction of the full table. Reading it eagerly first (`pl.read_parquet`)
-    would materialize all ~10GB before the join ever gets to discard most
-    of it; scanning it lazily lets Polars push the join down instead.
+    (`pipelines/train_model.py` does this), and `chunk_rows` then joins it
+    in row-slices of that size instead of all at once.
+
+    Scanning lazily is not by itself enough to keep the gold feature table
+    out of memory: every one of its ~196 columns is needed as a model
+    feature and there is no predicate to push into the scan, so the
+    default engine has nothing to prune and materializes the whole ~10GB
+    table (one month of real data) to join it - confirmed against real
+    data, where this join hit the memory cap with the full table plus the
+    join output plus the join's hash table all resident.
+
+    Slicing by row offset is safe here because nothing in this step is
+    per-drive: the join matches each gold row to at most one label row on
+    (drive_id, date), and the split assignment comes from the label table
+    rather than from any computation over a drive's history. So a row
+    slice can be joined independently and the results concatenated, and
+    each slice's share of the gold table is freed before the next is read.
 
     Deliberately plain `.collect()`, not `.collect(engine="streaming")`:
     against real data, the streaming engine turned this exact join (a
@@ -82,8 +96,41 @@ def assemble_training_frame(
     )
     if label_columns is not None:
         horizon_labels = horizon_labels.select(label_columns)
-    joined = gold_features.lazy().join(horizon_labels, on=["drive_id", "date"], how="inner")
-    return joined.collect()
+
+    if chunk_rows is None:
+        return gold_features.lazy().join(
+            horizon_labels, on=["drive_id", "date"], how="inner"
+        ).collect()
+
+    # Collected once and reused across slices: re-running the label scan
+    # and filter for every slice would re-read the whole label table per
+    # chunk. Narrowed by `label_columns`, this is small.
+    horizon_labels_eager = horizon_labels.collect().lazy()
+
+    total_rows = gold_features.lazy().select(pl.len()).collect().item()
+    parts = []
+    for offset in range(0, total_rows, chunk_rows):
+        part = (
+            gold_features.lazy()
+            .slice(offset, chunk_rows)
+            .join(horizon_labels_eager, on=["drive_id", "date"], how="inner")
+            .collect()
+        )
+        if part.height:
+            parts.append(part)
+        del part
+        gc.collect()
+
+    if not parts:
+        # Preserve the joined schema rather than returning something the
+        # caller's `.height == 0` check can't introspect.
+        return (
+            gold_features.lazy()
+            .slice(0, 0)
+            .join(horizon_labels_eager, on=["drive_id", "date"], how="inner")
+            .collect()
+        )
+    return pl.concat(parts, how="vertical")
 
 
 def select_feature_columns(df: pl.DataFrame) -> list[str]:
