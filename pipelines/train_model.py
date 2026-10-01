@@ -4,13 +4,37 @@ Assembles the training frame for the primary horizon, trains a LightGBM
 model with class-imbalance weighting, tunes a precision-first threshold on
 the validation split, evaluates on validation and test, and logs metrics
 plus the model to MLflow.
+
+Assembling the training frame (joining the ~196-column, ~10GB-for-one-
+month gold feature table to the label table) runs in its own subprocess
+(`--stage assemble`), for the same reason batches are isolated into their
+own subprocesses in pipelines/build_gold_features.py: Polars is built on
+jemalloc, which on 64-bit Linux defaults to retaining freed virtual memory
+for reuse rather than returning it to the OS. RLIMIT_AS (this pipeline's
+memory cap, src/resource_limits.py) constrains mapped address space, not
+resident memory, so within one process it tracks the high-water mark of
+everything that process has EVER allocated, not what's currently live.
+Chunking the join (src/models/features.py::assemble_training_frame) keeps
+that join itself under the cap, but every subsequent step in the same
+process - splits, model training, SHAP - would otherwise inherit the
+join's high-water mark on top of its own needs, and on real data that was
+enough to fail on allocations of a few hundred KB right after the join
+finished successfully. Exiting a process unconditionally unmaps its
+entire address space regardless of what the allocator was retaining, so
+the assemble subprocess writes the joined frame to a temp Parquet file
+and exits; the top-level orchestrator (this function with no `--stage`)
+never touches gold_features or the label table itself, so its own address
+space stays clean for everything that runs after.
 """
 
 from __future__ import annotations
 
+import argparse
 import gc
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -92,13 +116,7 @@ def _subsample_rows(
     return x[selected], y[selected]
 
 
-def main() -> None:
-    configure_logging()
-    apply_memory_limit_from_config()
-    data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
-    model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
-    features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())
-
+def _require_gold_inputs(data_config: dict) -> tuple[Path, Path]:
     gold_dir = Path(data_config["gold_dir"])
     features_path = gold_dir / "features" / "part.parquet"
     labels_path = gold_dir / "labels" / "part.parquet"
@@ -107,6 +125,19 @@ def main() -> None:
             "Missing gold features or labels; run `make build-features` and "
             "`make build-labels` first."
         )
+    return features_path, labels_path
+
+
+def _stage_assemble(frame_path: Path) -> None:
+    """Subprocess stage: joins gold features to the label table for the
+    primary horizon and writes the result to `frame_path`. See the module
+    docstring for why this runs in its own process rather than as the
+    first step of `main()`."""
+    configure_logging()
+    apply_memory_limit_from_config()
+    data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
+    model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
+    features_path, labels_path = _require_gold_inputs(data_config)
 
     # Scanned lazily, not pl.read_parquet'd: gold features is ~196 columns
     # and ~10GB for one month of real data, but assemble_training_frame's
@@ -136,38 +167,74 @@ def main() -> None:
     _log_stage(
         "training_frame_assembled", t0, row_count=frame.height, column_count=len(frame.columns)
     )
-    del labels
-    gc.collect()
-    if frame.height == 0:
-        raise ValueError(
-            f"No rows with an observed (non-censored) {horizon_days}-day label. "
-            "This is expected against the synthetic stub dataset, which has too "
-            "short a history for any row to reach horizon observability - it will "
-            "resolve once real Backblaze data (Phase 1) is ingested."
-        )
-    feature_columns = select_feature_columns(frame)
+    frame_path.parent.mkdir(parents=True, exist_ok=True)
+    frame.write_parquet(frame_path, compression="zstd")
 
-    # Spilled to a temp Parquet file and freed, rather than filtered
-    # directly: each split below needs its own materialized copy, and with
-    # the current chronological split boundaries "train" is nearly all of
-    # `frame` (all-January data against a February train_end) - so
-    # filtering straight off the still-live `frame` would momentarily hold
-    # `frame` and a near-full-size `train` copy at once, close to 2x this
-    # step's real memory need. Scanning each split from disk instead means
-    # the three splits' combined size is bounded by `frame`'s own size,
-    # not by it plus whichever split happens to be largest.
+
+def _run_stage(*args: str) -> None:
+    """Runs this same script as a fresh subprocess for one stage - a new
+    process, and therefore a new address space, regardless of what the
+    calling process's allocator has retained. See the module docstring."""
+    subprocess.run([sys.executable, str(Path(__file__).resolve()), *args], check=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--stage", choices=["assemble"])
+    parser.add_argument("--frame-path", type=Path)
+    args = parser.parse_args()
+
+    if args.stage == "assemble":
+        _stage_assemble(args.frame_path)
+        return
+
+    # No --stage: the top-level orchestrator. It never itself scans
+    # gold_features or the label table - only the assemble subprocess it
+    # spawns does - so its own address space stays clean for splits, model
+    # training, and SHAP, no matter how large the join was.
+    configure_logging()
+    apply_memory_limit_from_config()
+    data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
+    model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
+    features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())
+    _require_gold_inputs(data_config)
+
+    horizon_days = model_config["primary_horizon_days"]
     frame_tmp_dir = Path(tempfile.mkdtemp(prefix="train_model_frame_"))
     frame_path = frame_tmp_dir / "frame.parquet"
-    frame.write_parquet(frame_path, compression="zstd")
-    del frame
-    gc.collect()
+    try:
+        _run_stage("--stage", "assemble", "--frame-path", str(frame_path))
 
-    t0 = time.perf_counter()
-    splits = {
-        split_name: pl.scan_parquet(frame_path).filter(pl.col("split") == split_name).collect()
-        for split_name in ("train", "validation", "test")
-    }
-    shutil.rmtree(frame_tmp_dir, ignore_errors=True)
+        row_count = pl.scan_parquet(frame_path).select(pl.len()).collect().item()
+        if row_count == 0:
+            raise ValueError(
+                f"No rows with an observed (non-censored) {horizon_days}-day label. "
+                "This is expected against the synthetic stub dataset, which has too "
+                "short a history for any row to reach horizon observability - it will "
+                "resolve once real Backblaze data (Phase 1) is ingested."
+            )
+        # A schema-only read (no rows) is enough for select_feature_columns,
+        # which only inspects `.columns`/`.dtypes` - the assembled frame
+        # itself is never read into this process as one eager object.
+        feature_columns = select_feature_columns(pl.scan_parquet(frame_path).limit(0).collect())
+
+        # Each split below needs its own materialized copy, and with the
+        # current chronological split boundaries "train" is nearly all of
+        # the assembled frame (all-January data against a February
+        # train_end) - so the three splits' combined size is bounded by
+        # the frame's own size, not by the frame plus whichever split
+        # happens to be largest, because the frame itself is never
+        # brought into this process as a single eager DataFrame.
+        t0 = time.perf_counter()
+        splits = {
+            split_name: pl.scan_parquet(frame_path)
+            .filter(pl.col("split") == split_name)
+            .collect()
+            for split_name in ("train", "validation", "test")
+        }
+    finally:
+        shutil.rmtree(frame_tmp_dir, ignore_errors=True)
+
     empty_splits = [name for name, split_df in splits.items() if split_df.height == 0]
     if empty_splits:
         raise ValueError(
