@@ -5,6 +5,8 @@ labels for a single horizon, per docs/dataset_strategy.md section 16.
 from __future__ import annotations
 
 import gc
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import polars as pl
@@ -61,26 +63,44 @@ def chunked_inner_join(
 
     Row order matches the unsliced join - slices are taken and
     concatenated in order - which matters for callers that later select
-    rows by index."""
+    rows by index.
+
+    Each slice's joined result is spilled to its own temp Parquet file
+    and freed before the next slice is read, rather than accumulated in a
+    Python list - keeping every slice's result alive in a list until one
+    final `pl.concat` just moves the "hold everything at once" problem
+    this function exists to avoid down one level (the same growing-
+    accumulator shape fixed in src/features/windows.py and
+    src/features/events.py earlier), and a `del`/`gc.collect()` inside the
+    loop cannot free a chunk that a list still holds a reference to. The
+    final concat below instead reads the spilled chunks back lazily, so
+    at most one chunk's worth of data needs to be resident at a time."""
     left_lazy = left.lazy()
     # Collected once: left as a LazyFrame would otherwise re-run the
     # right-hand plan (often a scan plus filter) for every slice.
     right_eager = right.lazy().collect().lazy()
 
     total_rows = left_lazy.select(pl.len()).collect().item()
-    parts = []
-    for offset in range(0, total_rows, chunk_rows):
-        part = left_lazy.slice(offset, chunk_rows).join(right_eager, on=on, how="inner").collect()
-        if part.height:
-            parts.append(part)
-        del part
-        gc.collect()
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        chunk_paths = []
+        for offset in range(0, total_rows, chunk_rows):
+            part = (
+                left_lazy.slice(offset, chunk_rows)
+                .join(right_eager, on=on, how="inner")
+                .collect()
+            )
+            if part.height:
+                path = Path(tmp_dir) / f"chunk_{offset}.parquet"
+                part.write_parquet(path, compression="zstd")
+                chunk_paths.append(path)
+            del part
+            gc.collect()
 
-    if not parts:
-        # Preserve the joined schema rather than returning something a
-        # caller's `.height == 0`/column check can't introspect.
-        return left_lazy.slice(0, 0).join(right_eager, on=on, how="inner").collect()
-    return pl.concat(parts, how="vertical")
+        if not chunk_paths:
+            # Preserve the joined schema rather than returning something a
+            # caller's `.height == 0`/column check can't introspect.
+            return left_lazy.slice(0, 0).join(right_eager, on=on, how="inner").collect()
+        return pl.concat([pl.scan_parquet(p) for p in chunk_paths], how="vertical").collect()
 
 
 def assemble_training_frame(
