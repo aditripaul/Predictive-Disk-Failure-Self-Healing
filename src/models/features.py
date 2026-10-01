@@ -74,11 +74,26 @@ def chunked_inner_join(
     src/features/events.py earlier), and a `del`/`gc.collect()` inside the
     loop cannot free a chunk that a list still holds a reference to. The
     final concat below instead reads the spilled chunks back lazily, so
-    at most one chunk's worth of data needs to be resident at a time."""
+    at most one chunk's worth of data needs to be resident at a time.
+
+    `right` is kept lazy and its (scan+filter+select) plan is re-run for
+    every slice, rather than collected once up front and reused - that
+    used to be the design here, on the assumption that the right side of
+    a training-frame join (one horizon's observed-label rows) would
+    always be small next to the wide left side. Against real Q1 data
+    that assumption broke: with a 91-day quarter, most rows are far
+    enough from the end of the ingested range to be observable at a
+    14-day horizon, so the "small" side turned out to be ~26M rows -
+    close to the ~30.6M-row left side - and collecting it once meant
+    holding nearly as much data resident for the ENTIRE loop as slicing
+    the left side was meant to avoid holding in the first place.
+    Re-running `right`'s plan per slice costs some redundant scan+filter
+    work (bounded, and pushed into the Parquet scan itself), in exchange
+    for never holding more of `right` than the current slice's join
+    actually touches - the same "redundant rescan, bounded memory" trade
+    already made for Bronze in pipelines/build_silver.py's batch stage."""
     left_lazy = left.lazy()
-    # Collected once: left as a LazyFrame would otherwise re-run the
-    # right-hand plan (often a scan plus filter) for every slice.
-    right_eager = right.lazy().collect().lazy()
+    right_lazy = right.lazy()
 
     total_rows = left_lazy.select(pl.len()).collect().item()
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -86,7 +101,7 @@ def chunked_inner_join(
         for offset in range(0, total_rows, chunk_rows):
             part = (
                 left_lazy.slice(offset, chunk_rows)
-                .join(right_eager, on=on, how="inner")
+                .join(right_lazy, on=on, how="inner")
                 .collect()
             )
             if part.height:
@@ -99,7 +114,7 @@ def chunked_inner_join(
         if not chunk_paths:
             # Preserve the joined schema rather than returning something a
             # caller's `.height == 0`/column check can't introspect.
-            return left_lazy.slice(0, 0).join(right_eager, on=on, how="inner").collect()
+            return left_lazy.slice(0, 0).join(right_lazy, on=on, how="inner").collect()
         return pl.concat([pl.scan_parquet(p) for p in chunk_paths], how="vertical").collect()
 
 
