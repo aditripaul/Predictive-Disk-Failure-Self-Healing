@@ -42,6 +42,25 @@ smote_comparison:
   subsample_fraction: 1.0
   seed: 0
 
+# Row caps for the two comparison/diagnostic steps that are NOT the
+# primary model, and whose cost scales with the training/validation split
+# size rather than being bounded by the model itself. Both are generous
+# enough that any dataset smaller than the cap is unaffected (the cap
+# only ever kicks in at fleet scale), and both are sampled with a fixed
+# seed so a capped run is still reproducible.
+diagnostics:
+  # Logistic Regression sanity baseline: sklearn's StandardScaler and
+  # LogisticRegression both force a float64 copy of whatever they're
+  # given, so an uncapped fit on a fleet-scale training split needs
+  # ~2x8.9GB on top of the primary model's own matrix. It is explicitly a
+  # non-production sanity check (src/models/logistic_regression_baseline.py),
+  # so fitting it on a bounded sample is the right trade.
+  baseline_max_rows: 1000000
+  # SHAP global feature importance is a mean over |shap value| per
+  # feature, which converges long before millions of rows; TreeExplainer
+  # also materializes a full (rows x features) float64 array.
+  shap_max_rows: 200000
+
 splits:
   strategy: chronological
   train_end: "2026-02-22"

@@ -31,7 +31,7 @@ from src.models.explainability import (
     compute_shap_values,
     global_feature_importance,
 )
-from src.models.features import assemble_training_frame, select_feature_columns
+from src.models.features import assemble_training_frame, feature_matrix, select_feature_columns
 from src.models.hyperparameter_tuning import tune_lightgbm_hyperparameters
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
 from src.models.model_card import build_model_card, render_model_card_markdown
@@ -43,6 +43,21 @@ from src.resource_limits import apply_memory_limit_from_config
 
 SHAP_BACKGROUND_SAMPLE_SIZE = 100
 
+#: Label-table columns the training pipeline actually uses: the target
+#: (`label`), the split assignment, and `event_type`/`days_to_event` for
+#: the warning-lead-time metric - plus the join keys. The label table has
+#: 12 columns and is ~3x the drive-day count (one row per horizon), so
+#: projecting to these before joining avoids carrying ~5.6GB of unused
+#: columns through the join at fleet scale.
+LABEL_COLUMNS_USED = [
+    "drive_id",
+    "date",
+    "label",
+    "split",
+    "event_type",
+    "days_to_event",
+]
+
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
 FEATURES_CONFIG_PATH = Path("configs/features.yaml")
@@ -53,6 +68,22 @@ logger = get_logger(__name__)
 def _log_stage(stage: str, started_at: float, **fields: object) -> None:
     elapsed_seconds = round(time.perf_counter() - started_at, 2)
     logger.info(f"train_model_{stage}", elapsed_seconds=elapsed_seconds, **fields)
+
+
+def _subsample_rows(
+    x: np.ndarray, y: np.ndarray, *, max_rows: int | None, seed: int = 0
+) -> tuple[np.ndarray, np.ndarray]:
+    """`(x, y)` unchanged when they already fit within `max_rows`, else a
+    fixed-seed random row sample of exactly `max_rows` rows.
+
+    Returns the inputs themselves (not a copy) in the common case, so a
+    dataset under the cap costs nothing - the cap only ever materializes a
+    sample at fleet scale. `max_rows=None` disables the cap entirely."""
+    if max_rows is None or x.shape[0] <= max_rows:
+        return x, y
+    rng = np.random.default_rng(seed)
+    selected = rng.choice(x.shape[0], size=max_rows, replace=False)
+    return x[selected], y[selected]
 
 
 def main() -> None:
@@ -77,13 +108,19 @@ def main() -> None:
     # table eagerly first would materialize all ~10GB before the join gets
     # a chance to discard most of it (see src/models/features.py).
     gold_features = pl.scan_parquet(features_path)
-    t0 = time.perf_counter()
-    labels = pl.read_parquet(labels_path)
-    _log_stage("labels_read", t0, row_count=labels.height)
+    # Scanned lazily and projected to LABEL_COLUMNS_USED inside
+    # assemble_training_frame, rather than pl.read_parquet'd: the label
+    # table is one row per drive-day per horizon (31.4M rows, ~5.6GB for
+    # one month of real data) and only one horizon and 6 of its 12
+    # columns are ever used, so reading it whole put ~5GB of dead columns
+    # alive alongside the join's own output.
+    labels = pl.scan_parquet(labels_path)
 
     horizon_days = model_config["primary_horizon_days"]
     t0 = time.perf_counter()
-    frame = assemble_training_frame(gold_features, labels, horizon_days=horizon_days)
+    frame = assemble_training_frame(
+        gold_features, labels, horizon_days=horizon_days, label_columns=LABEL_COLUMNS_USED
+    )
     _log_stage(
         "training_frame_assembled", t0, row_count=frame.height, column_count=len(frame.columns)
     )
@@ -124,7 +161,7 @@ def main() -> None:
     del frame
     gc.collect()
 
-    x_train = splits["train"].select(feature_columns).fill_null(0.0).to_numpy()
+    x_train = feature_matrix(splits["train"], feature_columns)
     y_train = splits["train"]["label"].to_numpy()
     # Same reasoning as `frame` above: once copied into numpy arrays,
     # `splits["train"]` (often the largest split, and still 196 columns
@@ -136,12 +173,13 @@ def main() -> None:
     mlflow.set_tracking_uri(model_config["mlflow"]["tracking_uri"])
     mlflow.set_experiment(model_config["mlflow"]["experiment_name"])
 
-    x_val = splits["validation"].select(feature_columns).fill_null(0.0).to_numpy()
+    x_val = feature_matrix(splits["validation"], feature_columns)
     y_val = splits["validation"]["label"].to_numpy()
     del splits["validation"]
     gc.collect()
 
     model_type = model_config["model"].get("type", "lightgbm")
+    diagnostics_cfg = model_config.get("diagnostics", {})
 
     with mlflow.start_run():
         results: dict = {
@@ -198,7 +236,7 @@ def main() -> None:
             y_val, val_scores, threshold_result["threshold"]
         )
 
-        x_test = splits["test"].select(feature_columns).fill_null(0.0).to_numpy()
+        x_test = feature_matrix(splits["test"], feature_columns)
         y_test = splits["test"]["label"].to_numpy()
         test_scores = predict_proba_positive(model, x_test)
         results["test_metrics"] = evaluate_at_threshold(
@@ -209,13 +247,29 @@ def main() -> None:
         # Model Candidates: "Interpretable sanity baseline") - confirms the
         # primary model is actually adding value over a simple linear model,
         # rather than assuming it. Never used for production decisions.
-        baseline_model = train_logistic_regression_baseline(x_train, y_train)
+        #
+        # Fitted on at most `diagnostics.baseline_max_rows` rows: sklearn's
+        # StandardScaler and LogisticRegression each force a float64 copy
+        # of their input, so an uncapped fit needs ~2x the (already
+        # fleet-scale) training matrix on top of the primary model's own.
+        # This is a non-production sanity check, so a bounded, fixed-seed
+        # sample is the right trade; the cap is high enough that smaller
+        # datasets are fitted in full and unaffected.
+        t0 = time.perf_counter()
+        x_baseline, y_baseline = _subsample_rows(
+            x_train, y_train, max_rows=diagnostics_cfg.get("baseline_max_rows", 1_000_000)
+        )
+        baseline_model = train_logistic_regression_baseline(x_baseline, y_baseline)
         baseline_val_scores = predict_proba_positive(baseline_model, x_val)
         baseline_test_scores = predict_proba_positive(baseline_model, x_test)
         results["logistic_regression_baseline"] = {
             "validation_auprc": compute_auprc(y_val, baseline_val_scores),
             "test_auprc": compute_auprc(y_test, baseline_test_scores),
+            "train_row_count": int(x_baseline.shape[0]),
         }
+        _log_stage("baseline_trained", t0, baseline_row_count=int(x_baseline.shape[0]))
+        del x_baseline, y_baseline
+        gc.collect()
         mlflow.log_metric(
             "baseline_validation_auprc",
             results["logistic_regression_baseline"]["validation_auprc"],
@@ -296,15 +350,24 @@ def main() -> None:
         # SHAP global feature importance (docs/design_goal.md "Explainability
         # by default"): background sample keeps TreeExplainer fast even on a
         # large training set.
+        # Explained on at most `diagnostics.shap_max_rows` rows: the global
+        # importance below is a mean of |shap value| per feature, which
+        # converges long before millions of rows, while TreeExplainer
+        # materializes a full (rows x features) float64 array to get there.
         t0 = time.perf_counter()
         rng = np.random.default_rng(0)
         background_size = min(SHAP_BACKGROUND_SAMPLE_SIZE, x_train.shape[0])
         background = x_train[rng.choice(x_train.shape[0], size=background_size, replace=False)]
+        x_shap, _ = _subsample_rows(
+            x_val, y_val, max_rows=diagnostics_cfg.get("shap_max_rows", 200_000)
+        )
         explainer = build_explainer(model, background)
-        shap_values = compute_shap_values(explainer, x_val)
+        shap_values = compute_shap_values(explainer, x_shap)
         feature_importance = global_feature_importance(shap_values, feature_columns)
         results["shap_global_feature_importance"] = feature_importance[:20]
-        _log_stage("shap_computed", t0, val_row_count=x_val.shape[0])
+        _log_stage("shap_computed", t0, explained_row_count=int(x_shap.shape[0]))
+        del x_shap, shap_values
+        gc.collect()
 
         audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
         audit_dir.mkdir(parents=True, exist_ok=True)
