@@ -24,7 +24,10 @@ def _log_stage(stage: str, started_at: float, **fields: object) -> None:
 
 
 def pivot_badness_wide(
-    canonical_long: pl.DataFrame, *, drive_day: pl.DataFrame | None = None
+    canonical_long: pl.DataFrame,
+    *,
+    drive_day: pl.DataFrame | None = None,
+    attribute_names: list[str] | None = None,
 ) -> pl.DataFrame:
     """`canonical_long` may only carry `drive_id`/`date` alongside the
     melted attribute columns (see
@@ -39,7 +42,17 @@ def pivot_badness_wide(
     cheaper than carrying those columns through the melt itself would
     have been. Omit it if `canonical_long` already carries everything it
     needs (e.g. a test fixture, or any other caller not using the
-    narrowed `id_columns` path)."""
+    narrowed `id_columns` path).
+
+    Pass `attribute_names` explicitly when `canonical_long` is one batch
+    of a larger, batched pivot (see `pipelines/build_gold_features.py`):
+    deriving the attribute list from each batch's own data independently
+    risks a batch that happens to be missing some attribute entirely
+    producing a different (narrower) schema than the others, which would
+    break concatenating the batches back together. Every batch should be
+    given the SAME globally-determined list instead, so a batch missing
+    an attribute just gets an all-null column for it rather than no
+    column at all."""
     id_columns = [
         c
         for c in canonical_long.columns
@@ -66,7 +79,8 @@ def pivot_badness_wide(
     # `run_all_checks`/`check_no_duplicate_drive_day_attribute` in
     # pipelines/build_silver.py.
     t0 = time.perf_counter()
-    attribute_names = canonical_long["smart_attribute_name"].unique().to_list()
+    if attribute_names is None:
+        attribute_names = canonical_long["smart_attribute_name"].unique().to_list()
     wide = canonical_long.group_by(id_columns).agg(
         [
             pl.col("smart_badness_value")

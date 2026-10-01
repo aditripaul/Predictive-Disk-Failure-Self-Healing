@@ -8,7 +8,7 @@ table and a versioned feature registry.
 The feature table is far too wide to hold in memory at fleet scale (~950
 bytes per row across ~196 columns, so ~10GB for a single month of real
 Backblaze data, before counting the intermediates every step allocates on
-top). Splitting the work into per-drive batches (see `_write_wide_batches`)
+top). Splitting the work into per-drive batches (see `_stage_pivot_batch`)
 bounds how much *live* data any one step holds, but that alone isn't
 enough: Polars is built on jemalloc, which on 64-bit Linux defaults to
 `retain`-ing freed virtual memory for reuse instead of returning it to the
@@ -24,10 +24,24 @@ progress to the next pipeline stage without ever fixing the crash outright.
 The only thing that actually resets it is a process boundary: exiting a
 process unconditionally unmaps its entire address space, regardless of what
 the allocator inside it was retaining. So the batch loop below runs each
-batch (and the initial pivot+split) in its own subprocess - `main()` with
-`--stage ...` - orchestrated by a parent process that never itself touches
-a large Polars frame, so its own address space stays flat for the whole
-run.
+batch in its own subprocess - `main()` with `--stage ...` - orchestrated by
+a parent process that never itself touches a large Polars frame, so its own
+address space stays flat for the whole run.
+
+The pivot itself is batched the same way, not done once up front: an
+earlier version of this pipeline pivoted the *entire* canonical_telemetry/
+drive_day tables (153M/30.6M rows for one real quarter) before splitting
+the already-pivoted result into batches, which crashed well before any
+splitting ever happened - the row-count-shrinking steps around it (a
+per-drive metadata aggregate, elsewhere in this pipeline) succeeded on the
+same real data, but reading both full Silver tables eagerly just to pivot
+them did not. `_stage_prepare` now only determines batch count and the
+fleet-wide attribute-name list (both cheap: a row count resolves from
+Parquet footer metadata, and the attribute list is a `.unique()` over one
+narrow string column), and `_stage_pivot_batch` scans-and-filters each
+batch's own slice of both Silver tables before pivoting it - so the full
+canonical_telemetry/drive_day tables are never read into memory as one
+eager object anywhere in this pipeline.
 """
 
 from __future__ import annotations
@@ -100,43 +114,15 @@ def resolve_feature_plan(
     return available_attributes, windows_days, spike_thresholds
 
 
-def _write_wide_batches(
-    wide: pl.DataFrame, tmp_dir: Path, *, target_rows: int
-) -> list[Path]:
-    """Splits `wide` into batches of whole drives, each written to its own
-    Parquet file so the feature pipeline can run on one at a time.
-
-    Batching on a hash of `drive_id` puts every row of a given drive in
-    exactly one batch. That makes the batching invisible to the result:
-    every feature family except the model-family z-scores is computed
-    strictly per drive - `.rolling(index_column="date", group_by="drive_id")`
-    in src/features/windows.py and src/features/events.py, `.over("drive_id")`
-    in src/features/derivatives.py and src/features/lifecycle.py, and plain
-    row-wise arithmetic in src/features/cross_vendor.py and
-    src/features/confidence.py - so a drive's features depend only on that
-    drive's own rows, which are all present in its batch. The z-scores are
-    the single cross-drive computation, and are applied separately from
-    fleet-wide statistics (see `model_family_zscore_stats`).
-
-    Filtering preserves relative row order, so each drive's rows stay in
-    the ascending date order `pivot_badness_wide` established - which is
-    what `.rolling()` requires."""
-    n_batches = max(1, math.ceil(wide.height / target_rows))
-    batch_of_drive = pl.col("drive_id").hash(seed=0) % n_batches
-
-    paths = []
-    for index in range(n_batches):
-        t0 = time.perf_counter()
-        batch = wide.filter(batch_of_drive == index)
-        if batch.is_empty():
-            continue
-        path = tmp_dir / f"wide_batch_{index}.parquet"
-        batch.write_parquet(path, compression="zstd")
-        _log_stage("wide_batch_written", t0, batch_index=index, row_count=batch.height)
-        paths.append(path)
-        del batch
-        gc.collect()
-    return paths
+def _require_silver_inputs(data_config: dict) -> tuple[Path, Path]:
+    silver_dir = Path(data_config["silver_dir"])
+    canonical_path = silver_dir / "canonical_telemetry" / "part.parquet"
+    if not canonical_path.exists():
+        raise FileNotFoundError(f"{canonical_path} not found; run `make build-silver` first.")
+    drive_day_path = silver_dir / "drive_day" / "part.parquet"
+    if not drive_day_path.exists():
+        raise FileNotFoundError(f"{drive_day_path} not found; run `make build-silver` first.")
+    return canonical_path, drive_day_path
 
 
 def build_gold_features(wide: pl.DataFrame, features_config: dict) -> pl.DataFrame:
@@ -207,52 +193,99 @@ def _load_configs() -> tuple[dict, dict]:
 
 
 def _stage_prepare(tmp_dir: Path) -> None:
-    """Subprocess stage: reads Silver, pivots to wide, and splits into
-    per-drive batches. Runs in its own process so that once it exits, its
-    entire address space - including whatever jemalloc is still holding
-    onto from reading ~62M rows of canonical_long/drive_day and pivoting
-    them - is actually released back to the OS, not just logically freed
-    within a process that keeps running."""
+    """Subprocess stage: determines how many drive batches to pivot into
+    and the fleet-wide SMART attribute-name list every batch's pivot must
+    use, without ever reading canonical_telemetry or drive_day into memory
+    as one eager table.
+
+    Both queries are cheap regardless of total row count: drive_day's row
+    count resolves from Parquet footer metadata (no column data read at
+    all), and the attribute-name list is a `.unique()` over one narrow
+    string column. Batch count is based on drive_day's row count (the
+    wide/drive-day grain `feature_batch_target_rows` is calibrated
+    against), not canonical_telemetry's ~5x-larger melted-grain count."""
     configure_logging()
     apply_memory_limit_from_config()
     data_config, _ = _load_configs()
-
-    silver_dir = Path(data_config["silver_dir"])
-    canonical_path = silver_dir / "canonical_telemetry" / "part.parquet"
-    if not canonical_path.exists():
-        raise FileNotFoundError(f"{canonical_path} not found; run `make build-silver` first.")
-    drive_day_path = silver_dir / "drive_day" / "part.parquet"
-    if not drive_day_path.exists():
-        raise FileNotFoundError(f"{drive_day_path} not found; run `make build-silver` first.")
+    canonical_path, drive_day_path = _require_silver_inputs(data_config)
 
     t0 = time.perf_counter()
-    canonical_long = pl.read_parquet(canonical_path)
-    _log_stage("canonical_telemetry_read", t0, row_count=canonical_long.height)
+    drive_day_row_count = pl.scan_parquet(drive_day_path).select(pl.len()).collect().item()
+    _log_stage("drive_day_row_count_determined", t0, row_count=drive_day_row_count)
 
     t0 = time.perf_counter()
-    drive_day = pl.read_parquet(drive_day_path)
-    _log_stage("drive_day_read", t0, row_count=drive_day.height)
-
-    t0 = time.perf_counter()
-    wide = pivot_badness_wide(canonical_long, drive_day=drive_day)
-    _log_stage("pivoted_to_wide", t0, row_count=wide.height, column_count=len(wide.columns))
-
-    del canonical_long, drive_day
-    gc.collect()
+    attribute_names = (
+        pl.scan_parquet(canonical_path)
+        .select(pl.col("smart_attribute_name").unique())
+        .collect()["smart_attribute_name"]
+        .to_list()
+    )
+    _log_stage("attribute_names_determined", t0, attribute_count=len(attribute_names))
+    if not attribute_names:
+        raise ValueError("canonical_telemetry has no SMART attributes; nothing to pivot.")
 
     batch_target_rows = int(
         data_config.get("resource_limits", {}).get(
             "feature_batch_target_rows", DEFAULT_BATCH_TARGET_ROWS
         )
     )
-    t0 = time.perf_counter()
-    wide_batches = _write_wide_batches(wide, tmp_dir, target_rows=batch_target_rows)
-    _log_stage("wide_batched", t0, batch_count=len(wide_batches))
-    if not wide_batches:
-        raise ValueError("Pivoted feature frame is empty; nothing to build features from.")
-
+    n_batches = max(1, math.ceil(drive_day_row_count / batch_target_rows))
     (tmp_dir / PREPARE_MANIFEST_NAME).write_text(
-        json.dumps({"wide_batch_paths": [str(p) for p in wide_batches]})
+        json.dumps({"n_batches": n_batches, "attribute_names": attribute_names})
+    )
+
+
+def _stage_pivot_batch(tmp_dir: Path, batch_index: int, wide_batch_path: Path) -> None:
+    """Subprocess stage: pivots one drive batch - every canonical_telemetry/
+    drive_day row whose drive_id hashes to `batch_index` - into wide form,
+    writing the result to `wide_batch_path`.
+
+    Both Silver tables are scanned and filtered to this batch BEFORE
+    collecting, so only this batch's own slice (roughly `total_rows /
+    n_batches`) is ever materialized - never the full ~153M/~30.6M-row
+    tables. `attribute_names` comes from the prepare stage's manifest
+    (the fleet-wide list, not this batch's own) so every batch's pivoted
+    schema matches exactly, even if some batch happens to have zero rows
+    for a given attribute (see `pivot_badness_wide`'s `attribute_names`
+    parameter)."""
+    configure_logging()
+    apply_memory_limit_from_config()
+    data_config, _ = _load_configs()
+    canonical_path, drive_day_path = _require_silver_inputs(data_config)
+    manifest = json.loads((tmp_dir / PREPARE_MANIFEST_NAME).read_text())
+    n_batches = manifest["n_batches"]
+    attribute_names = manifest["attribute_names"]
+
+    batch_of_drive = pl.col("drive_id").hash(seed=0) % n_batches
+
+    t0 = time.perf_counter()
+    canonical_batch = (
+        pl.scan_parquet(canonical_path).filter(batch_of_drive == batch_index).collect()
+    )
+    drive_day_batch = (
+        pl.scan_parquet(drive_day_path).filter(batch_of_drive == batch_index).collect()
+    )
+    _log_stage(
+        "batch_scanned",
+        t0,
+        batch_index=batch_index,
+        batch_count=n_batches,
+        canonical_row_count=canonical_batch.height,
+        drive_day_row_count=drive_day_batch.height,
+    )
+
+    t0 = time.perf_counter()
+    wide_batch = pivot_badness_wide(
+        canonical_batch, drive_day=drive_day_batch, attribute_names=attribute_names
+    )
+    wide_batch.write_parquet(wide_batch_path, compression="zstd")
+    _log_stage(
+        "wide_batch_pivoted",
+        t0,
+        batch_index=batch_index,
+        batch_count=n_batches,
+        row_count=wide_batch.height,
+        column_count=len(wide_batch.columns),
     )
 
 
@@ -361,8 +394,9 @@ def _run_stage(*args: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--stage", choices=["prepare", "batch", "finalize"])
+    parser.add_argument("--stage", choices=["prepare", "pivot_batch", "batch", "finalize"])
     parser.add_argument("--tmp-dir", type=Path)
+    parser.add_argument("--batch-index", type=int)
     parser.add_argument("--wide-batch-path", type=Path)
     parser.add_argument("--gold-batch-path", type=Path)
     parser.add_argument("--gold-batch-paths", type=Path, nargs="*")
@@ -371,6 +405,9 @@ def main() -> None:
 
     if args.stage == "prepare":
         _stage_prepare(args.tmp_dir)
+        return
+    if args.stage == "pivot_batch":
+        _stage_pivot_batch(args.tmp_dir, args.batch_index, args.wide_batch_path)
         return
     if args.stage == "batch":
         _stage_batch(args.wide_batch_path, args.gold_batch_path)
@@ -394,7 +431,27 @@ def main() -> None:
     try:
         _run_stage("--stage", "prepare", "--tmp-dir", str(tmp_dir))
         manifest = json.loads((tmp_dir / PREPARE_MANIFEST_NAME).read_text())
-        wide_batch_paths = [Path(p) for p in manifest["wide_batch_paths"]]
+        n_batches = manifest["n_batches"]
+
+        wide_batch_paths = []
+        for batch_index in range(n_batches):
+            wide_batch_path = tmp_dir / f"wide_batch_{batch_index}.parquet"
+            _run_stage(
+                "--stage",
+                "pivot_batch",
+                "--tmp-dir",
+                str(tmp_dir),
+                "--batch-index",
+                str(batch_index),
+                "--wide-batch-path",
+                str(wide_batch_path),
+            )
+            wide_batch_paths.append(wide_batch_path)
+            logger.info(
+                "build_gold_features_pivot_batch_done",
+                batch_index=batch_index,
+                batch_count=n_batches,
+            )
 
         gold_batch_paths = []
         for index, wide_batch_path in enumerate(wide_batch_paths):
