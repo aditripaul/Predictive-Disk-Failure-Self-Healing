@@ -32,6 +32,7 @@ from data_contracts.schemas import (
     PredictionOutput,
 )
 from src.models.action_tiers import determine_action_tier
+from src.models.features import chunked_inner_join
 from src.models.training import predict_proba_positive
 
 #: Columns every row of `latest_features` must carry beyond the model's
@@ -52,7 +53,9 @@ REQUIRED_CONFIDENCE_COLUMNS = (
 )
 
 
-def latest_row_per_drive(gold_features: pl.DataFrame) -> pl.DataFrame:
+def latest_row_per_drive(
+    gold_features: pl.DataFrame | pl.LazyFrame, *, chunk_rows: int | None = None
+) -> pl.DataFrame:
     """Each drive's most recent gold-feature row - the "current state of
     the fleet" snapshot batch scoring operates on.
 
@@ -65,8 +68,32 @@ def latest_row_per_drive(gold_features: pl.DataFrame) -> pl.DataFrame:
     real data. A stable global sort by `date` alone still guarantees every
     drive's own rows land in non-decreasing date order, so
     `group_by(maintain_order=True).last()` still picks each drive's
-    latest row."""
-    return gold_features.sort("date").group_by("drive_id", maintain_order=True).last()
+    latest row.
+
+    Pass a `pl.scan_parquet(...)` LazyFrame plus `chunk_rows` to avoid
+    reading the whole gold feature table (~196 columns, ~10GB for one
+    month of real data) just to keep one row per drive (~341k of ~10.5M
+    rows). That path finds each drive's latest date from a two-column
+    projection - cheap, because projection pushdown applies - and then
+    fetches only those rows, joining in slices so the full table is never
+    resident. It returns the same rows as the eager path; they come back
+    in the gold table's own row order rather than grouped per drive,
+    which is immaterial for a fleet snapshot (every consumer works
+    row-wise or keys by `drive_id`)."""
+    if chunk_rows is None:
+        if isinstance(gold_features, pl.LazyFrame):
+            gold_features = gold_features.collect()
+        return gold_features.sort("date").group_by("drive_id", maintain_order=True).last()
+
+    scan = gold_features.lazy()
+    latest_dates = (
+        scan.select(["drive_id", "date"])
+        .group_by("drive_id")
+        .agg(pl.col("date").max().alias("date"))
+    )
+    return chunked_inner_join(
+        scan, latest_dates, on=["drive_id", "date"], chunk_rows=chunk_rows
+    )
 
 
 def join_feature_maturity(

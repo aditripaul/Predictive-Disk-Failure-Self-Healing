@@ -31,6 +31,10 @@ from src.resource_limits import apply_memory_limit_from_config
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
+
+#: Fallback when `resource_limits.training_join_chunk_rows` is absent from
+#: configs/data.yaml.
+DEFAULT_JOIN_CHUNK_ROWS = 2_000_000
 AGENT_CONFIG_PATH = Path("configs/agent.yaml")
 
 logger = get_logger(__name__)
@@ -52,7 +56,16 @@ def main() -> None:
     if not metadata_path.exists():
         raise FileNotFoundError(f"{metadata_path} not found; run `make build-silver` first.")
 
-    latest_features = latest_row_per_drive(pl.read_parquet(features_path))
+    # Scanned, not read: only one row per drive survives (~341k of ~10.5M
+    # for one month of real data), so reading all ~196 columns x every
+    # drive-day first would materialize ~10GB to throw almost all of it
+    # away. See src/models/serving.py::latest_row_per_drive.
+    latest_features = latest_row_per_drive(
+        pl.scan_parquet(features_path),
+        chunk_rows=data_config.get("resource_limits", {}).get(
+            "training_join_chunk_rows", DEFAULT_JOIN_CHUNK_ROWS
+        ),
+    )
     latest_features = join_feature_maturity(latest_features, pl.read_parquet(metadata_path))
 
     mlflow.set_tracking_uri(model_config["mlflow"]["tracking_uri"])

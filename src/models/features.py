@@ -39,6 +39,50 @@ NON_FEATURE_COLUMNS = {
 }
 
 
+def chunked_inner_join(
+    left: pl.DataFrame | pl.LazyFrame,
+    right: pl.DataFrame | pl.LazyFrame,
+    *,
+    on: list[str],
+    chunk_rows: int,
+) -> pl.DataFrame:
+    """Inner-joins `left` to `right` in row slices of `left` rather than
+    all at once, concatenating the results.
+
+    For a wide `scan_parquet` left side there is often nothing for the
+    query engine to prune - every column is wanted, and the rows to keep
+    are defined by the join rather than by a filter - so an unsliced join
+    materializes the entire left table alongside its own output and the
+    join's hash table. Slicing bounds that by the slice size instead.
+
+    Only valid when the join is row-wise: each left row must match at most
+    one right row, and nothing may depend on a left row's neighbours.
+    That is the caller's responsibility.
+
+    Row order matches the unsliced join - slices are taken and
+    concatenated in order - which matters for callers that later select
+    rows by index."""
+    left_lazy = left.lazy()
+    # Collected once: left as a LazyFrame would otherwise re-run the
+    # right-hand plan (often a scan plus filter) for every slice.
+    right_eager = right.lazy().collect().lazy()
+
+    total_rows = left_lazy.select(pl.len()).collect().item()
+    parts = []
+    for offset in range(0, total_rows, chunk_rows):
+        part = left_lazy.slice(offset, chunk_rows).join(right_eager, on=on, how="inner").collect()
+        if part.height:
+            parts.append(part)
+        del part
+        gc.collect()
+
+    if not parts:
+        # Preserve the joined schema rather than returning something a
+        # caller's `.height == 0`/column check can't introspect.
+        return left_lazy.slice(0, 0).join(right_eager, on=on, how="inner").collect()
+    return pl.concat(parts, how="vertical")
+
+
 def assemble_training_frame(
     gold_features: pl.DataFrame | pl.LazyFrame,
     labels: pl.DataFrame | pl.LazyFrame,
@@ -102,35 +146,9 @@ def assemble_training_frame(
             horizon_labels, on=["drive_id", "date"], how="inner"
         ).collect()
 
-    # Collected once and reused across slices: re-running the label scan
-    # and filter for every slice would re-read the whole label table per
-    # chunk. Narrowed by `label_columns`, this is small.
-    horizon_labels_eager = horizon_labels.collect().lazy()
-
-    total_rows = gold_features.lazy().select(pl.len()).collect().item()
-    parts = []
-    for offset in range(0, total_rows, chunk_rows):
-        part = (
-            gold_features.lazy()
-            .slice(offset, chunk_rows)
-            .join(horizon_labels_eager, on=["drive_id", "date"], how="inner")
-            .collect()
-        )
-        if part.height:
-            parts.append(part)
-        del part
-        gc.collect()
-
-    if not parts:
-        # Preserve the joined schema rather than returning something the
-        # caller's `.height == 0` check can't introspect.
-        return (
-            gold_features.lazy()
-            .slice(0, 0)
-            .join(horizon_labels_eager, on=["drive_id", "date"], how="inner")
-            .collect()
-        )
-    return pl.concat(parts, how="vertical")
+    return chunked_inner_join(
+        gold_features, horizon_labels, on=["drive_id", "date"], chunk_rows=chunk_rows
+    )
 
 
 def select_feature_columns(df: pl.DataFrame) -> list[str]:

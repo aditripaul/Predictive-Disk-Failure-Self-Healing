@@ -42,9 +42,26 @@ def main() -> None:
     if not features_path.exists():
         raise FileNotFoundError(f"{features_path} not found; run `make build-features` first.")
 
-    wide_features = pl.read_parquet(features_path)
     attributes = tuple(sequence_cfg.get("attributes", DEFAULT_SEQUENCE_ATTRIBUTES))
     time_steps = sequence_cfg.get("time_steps", 30)
+
+    # Read only the columns the sequence builder actually touches
+    # (`drive_id`, `date`, and the configured attributes - see
+    # src/features/sequences.py::build_sequence_tensors), not the whole
+    # gold feature table. It is ~196 columns and ~10GB for one month of
+    # real data, of which this needs about 11; unlike the join in
+    # src/models/features.py, the columns here are known up front, so
+    # projection pushdown genuinely applies. Attributes absent from the
+    # table are dropped here rather than passed to a scan that would
+    # raise on them - `build_sequence_tensors` already treats a missing
+    # attribute as "not available" and reports `attributes_used`.
+    available = pl.scan_parquet(features_path).collect_schema().names()
+    present_attributes = tuple(a for a in attributes if a in available)
+    wide_features = (
+        pl.scan_parquet(features_path)
+        .select(["drive_id", "date", *present_attributes])
+        .collect()
+    )
 
     tensor, attributes_used, drive_ids, as_of_dates = build_sequence_tensors(
         wide_features, attributes=attributes, time_steps=time_steps
