@@ -169,7 +169,27 @@ def drive_batched_inner_join(
     stay reproducible - same code, same fixed seeds, same resulting
     sample - just not IDENTICAL to a row-offset-chunked join's sample,
     since the physical row order genuinely changed. The set and content
-    of joined rows is unaffected either way."""
+    of joined rows is unaffected either way.
+
+    Each side's batch is `.collect()`-ed on its OWN, separately, before
+    the join - the join itself is then a plain eager `DataFrame.join()`
+    between two already-materialized frames, never a single combined
+    lazy plan with both filters and the join collected together in one
+    `.collect()` call. That matters, not just for style: against real Q1
+    data, an earlier version of this function built exactly that
+    combined plan (`left.filter(...).join(right.filter(...), ...)
+    .collect()`) and it failed with a request to allocate
+    ~354,295,353,634,353,658 bytes - not a real memory need at any
+    conceivable scale, but the signature of a size-computation bug, the
+    same category of failure `assemble_training_frame` hit once already
+    tonight with `engine="streaming"`. Every OTHER batch-join in this
+    codebase (e.g. `pivot_badness_wide`'s drive_day join-back, called
+    from `pipelines/build_gold_features.py`'s per-batch pivot stage)
+    already collects each side separately first and joins two eager
+    frames - this was the one place that instead asked the query
+    optimizer to fuse two hash-filters and a join into one lazy plan,
+    which is the only thing that changed between "works" and that
+    ~354-quintillion-byte failure."""
     left_lazy = left.lazy()
     right_lazy = right.lazy()
     batch_of_drive = pl.col("drive_id").hash(seed=0) % n_batches
@@ -177,23 +197,22 @@ def drive_batched_inner_join(
     with tempfile.TemporaryDirectory() as tmp_dir:
         batch_paths = []
         for batch_index in range(n_batches):
-            part = (
-                left_lazy.filter(batch_of_drive == batch_index)
-                .join(right_lazy.filter(batch_of_drive == batch_index), on=on, how="inner")
-                .collect()
-            )
+            left_batch = left_lazy.filter(batch_of_drive == batch_index).collect()
+            right_batch = right_lazy.filter(batch_of_drive == batch_index).collect()
+            part = left_batch.join(right_batch, on=on, how="inner")
             if part.height:
                 path = Path(tmp_dir) / f"batch_{batch_index}.parquet"
                 part.write_parquet(path, compression="zstd")
                 batch_paths.append(path)
-            del part
+            del left_batch, right_batch, part
             gc.collect()
 
         if not batch_paths:
             # Preserve the joined schema rather than returning something a
             # caller's `.height == 0`/column check can't introspect.
-            empty = left_lazy.filter(pl.lit(False))
-            return empty.join(right_lazy.filter(pl.lit(False)), on=on, how="inner").collect()
+            empty_left = left_lazy.filter(pl.lit(False)).collect()
+            empty_right = right_lazy.filter(pl.lit(False)).collect()
+            return empty_left.join(empty_right, on=on, how="inner")
         return pl.concat([pl.scan_parquet(p) for p in batch_paths], how="vertical").collect()
 
 
