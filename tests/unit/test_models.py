@@ -3,6 +3,7 @@ import datetime as dt
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
+import pytest
 
 from data_contracts.schemas import ActionTier, FeatureMaturity
 from src.models.action_tiers import determine_action_tier
@@ -431,3 +432,57 @@ def test_determine_action_tier_low_risk_is_monitor():
         min_confidence_for_destructive_action=0.8,
     )
     assert tier == ActionTier.MONITOR
+
+
+def _imbalanced_xy(n=4000, positive_rate=0.02, seed=0):
+    rng = np.random.default_rng(seed)
+    x = rng.normal(size=(n, 5)).astype(np.float32)
+    y = (rng.random(n) < positive_rate).astype(int)
+    x[y == 1, 0] += 2.0
+    return x, y
+
+
+def test_train_lightgbm_positive_weight_power_replaces_is_unbalance():
+    from src.models.training import train_lightgbm
+
+    x, y = _imbalanced_xy()
+    model = train_lightgbm(x, y, positive_weight_power=0.5, params={"n_estimators": 5})
+    expected = ((y == 0).sum() / (y == 1).sum()) ** 0.5
+    assert model.get_params()["scale_pos_weight"] == pytest.approx(expected)
+    assert not model.get_params().get("is_unbalance")
+
+
+def test_train_lightgbm_defaults_to_is_unbalance_without_a_power():
+    from src.models.training import train_lightgbm
+
+    x, y = _imbalanced_xy()
+    model = train_lightgbm(x, y, params={"n_estimators": 5})
+    assert model.get_params()["is_unbalance"] is True
+
+
+def test_train_lightgbm_early_stopping_stops_before_n_estimators():
+    from src.models.training import train_lightgbm
+
+    x, y = _imbalanced_xy(n=6000)
+    x_val, y_val = _imbalanced_xy(n=3000, seed=1)
+    model = train_lightgbm(
+        x,
+        y,
+        positive_weight_power=0.5,
+        params={"n_estimators": 2000, "learning_rate": 0.3},
+        eval_x=x_val,
+        eval_y=y_val,
+        early_stopping_rounds=10,
+    )
+    assert model.best_iteration_ < 2000
+
+
+def test_early_stopping_subset_keeps_all_positives_and_caps_negatives():
+    from src.models.training import early_stopping_subset
+
+    y = np.array([1, 0, 0, 0, 0, 0, 1, 0, 0, 0])
+    idx = early_stopping_subset(y, max_negatives=3)
+    assert list(idx) == sorted(idx)
+    assert {0, 6} <= set(idx.tolist())  # both positives kept
+    assert int((y[idx] == 0).sum()) == 3
+    assert len(early_stopping_subset(y, max_negatives=None)) == len(y)

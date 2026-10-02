@@ -968,6 +968,34 @@ Excluded features are zeroed in place and restored, so a variant costs no
 extra copy of the matrices. Delete the kept `data/tmp/train_model_frame_*`
 directory when finished (it holds multi-GB arrays).
 
+**Real-data findings (Q1 2026, 14-day horizon, 345k drives, ~309 failing in test).**
+The first real `make train` produced a useless LightGBM (validation drive
+AUPRC 0.04, one tree, leaf values ~1e7, `is_unbalance` = full class
+ratio). `make experiment-model` isolated the cause and the fix:
+
+| variant | trees | test drive AUPRC | test drive precision @ recall |
+|---|---|---|---|
+| logistic baseline | - | 0.070 | - |
+| old: `is_unbalance` | 1 | 0.028 | 25% @ 0.3% |
+| + regularization only | 1 | 0.001 | none reachable |
+| **sqrt positive weight + regularization + early stopping (shipped)** | 434 | **0.158** | 40% @ 12.6%; 17% @ 38% |
+| same, minus identity features (age, capacity) | 329 | 0.146 | 39% @ 11.7% |
+| same, windowed features only | 200 | 0.141 | 43% @ 8.7% |
+| per-drive sample weights | 351 | 0.145 | 36% @ 12.6% |
+
+Takeaways: the full-ratio class weight was the culprit (regularization alone
+did not help); identity features are *not* what hurts (dropping them lowers
+AUPRC on validation and test alike); per-drive weighting adds nothing.
+
+**Goal status: not met.** Precision >= 95% is only reachable at ~1% drive
+recall. At the goal's recall floor (35%) the best test precision is ~17%
+(about 590 healthy drives alerting per 345k over the test window, catching
+~117 of 309 failures). `tune_drive_level_threshold` therefore reports the
+best achievable point inside the recall range with `target_met: false`
+and the gap in the model card; the 95% target stays in `configs/model.yaml`.
+Closing the remaining gap needs better signal (features, labels, horizon),
+not just tuning.
+
 ---
 
 ## 6. The MAPE-K agent (`src/agent/`)

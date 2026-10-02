@@ -57,3 +57,52 @@ def test_drive_level_metrics_with_no_failing_drives_is_all_zero_not_an_error():
     assert metrics["recall"] == 0.0
     assert metrics["auprc"] == 0.0
     assert metrics["false_alarm_drive_count"] == 1
+
+
+def _threshold_fixture():
+    # 4 failing drives (scores .9 .8 .4 .3), 6 healthy drives (.7 .5 .2 .1 .1 .05)
+    drives = np.array([f"F{i}" for i in range(4)] + [f"H{i}" for i in range(6)])
+    y = np.array([1] * 4 + [0] * 6)
+    scores = np.array([0.9, 0.8, 0.4, 0.3, 0.7, 0.5, 0.2, 0.1, 0.1, 0.05])
+    return drives, y, scores
+
+
+def test_drive_level_threshold_meets_goal_when_reachable():
+    from src.models.threshold import tune_drive_level_threshold
+
+    drives, y, scores = _threshold_fixture()
+    result = tune_drive_level_threshold(
+        drives, y, scores, target_precision=0.6, target_recall_range=(0.5, 0.75)
+    )
+    # thr .8: caught 2/4, 0 false alarms -> precision 1.0, recall .5 (meets)
+    # thr .4: caught 3/4, 2 false alarms -> precision .6, recall .75 (meets)
+    # thr .3: caught 4/4, 2 false alarms -> precision .667, recall 1.0 (meets, highest recall)
+    assert result["target_met"] is True
+    assert result["threshold"] == pytest.approx(0.3)
+    assert result["recall"] == pytest.approx(1.0)
+    assert result["precision"] == pytest.approx(4 / 6)
+
+
+def test_drive_level_threshold_falls_back_to_best_precision_inside_the_recall_range():
+    from src.models.threshold import tune_drive_level_threshold
+
+    drives, y, scores = _threshold_fixture()
+    result = tune_drive_level_threshold(
+        drives, y, scores, target_precision=0.99, target_recall_range=(0.75, 1.0)
+    )
+    # recall >= .75 needs thr <= .4: precision .6 at thr .4, 4/6 at thr .3 -> best is 4/6.
+    assert result["target_met"] is False
+    assert result["recall"] >= 0.75
+    assert result["precision"] == pytest.approx(4 / 6)
+    assert result["precision_gap_to_target"] == pytest.approx(0.99 - 4 / 6)
+    assert result["level"] == "drive"
+
+
+def test_drive_level_threshold_never_returns_a_zero_recall_point_when_unreachable():
+    from src.models.threshold import tune_drive_level_threshold
+
+    drives, y, scores = _threshold_fixture()
+    result = tune_drive_level_threshold(
+        drives, y, scores, target_precision=0.999, target_recall_range=(0.5, 0.75)
+    )
+    assert result["recall"] >= 0.5

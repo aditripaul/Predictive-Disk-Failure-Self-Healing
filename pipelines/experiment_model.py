@@ -31,7 +31,7 @@ from src.logging_config import configure_logging, get_logger
 from src.models.evaluation import compute_auprc, drive_level_metrics, drive_level_table
 from src.models.features import feature_matrix
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
-from src.models.training import predict_proba_positive
+from src.models.training import early_stopping_subset, predict_proba_positive
 from src.resource_limits import apply_memory_limit_from_config
 
 logger = get_logger(__name__)
@@ -62,7 +62,7 @@ REGULARIZED = {
 }
 
 #: name -> (extra LightGBM params, features to exclude, weighting)
-#: exclude: none | identity | non_windowed; weighting: is_unbalance | spw | drive
+#: exclude: none | identity | non_windowed; weighting: is_unbalance | spw[:power] | drive
 VARIANTS: dict[str, tuple[dict[str, Any], str, str]] = {
     "current": ({}, "none", "is_unbalance"),
     "regularized": (REGULARIZED, "none", "is_unbalance"),
@@ -70,6 +70,18 @@ VARIANTS: dict[str, tuple[dict[str, Any], str, str]] = {
     "reg_spw_no_identity": (REGULARIZED, "identity", "spw"),
     "reg_spw_windowed_only": (REGULARIZED, "non_windowed", "spw"),
     "reg_driveweight_no_identity": (REGULARIZED, "identity", "drive"),
+    # Tuning around the configuration that works (reg_spw = what configs/model.yaml
+    # ships): positive weight power, tree size, regularization strength.
+    "spw_power_0.25": (REGULARIZED, "none", "spw:0.25"),
+    "spw_power_0.75": (REGULARIZED, "none", "spw:0.75"),
+    "leaves_15": ({**REGULARIZED, "num_leaves": 15}, "none", "spw"),
+    "leaves_63": ({**REGULARIZED, "num_leaves": 63}, "none", "spw"),
+    "min_child_1000": ({**REGULARIZED, "min_child_samples": 1000}, "none", "spw"),
+    "strong_reg": (
+        {**REGULARIZED, "min_child_samples": 500, "reg_lambda": 50.0},
+        "none",
+        "spw",
+    ),
 }
 
 
@@ -121,10 +133,11 @@ class _Zeroed:
 
 
 def _sample_weights(y: np.ndarray, drive_ids: np.ndarray, weighting: str) -> np.ndarray | None:
-    if weighting == "spw":
+    if weighting.startswith("spw"):
+        power = float(weighting.split(":")[1]) if ":" in weighting else 0.5
         n_pos = max(int((y == 1).sum()), 1)
         weights = np.ones(len(y), dtype=np.float32)
-        weights[y == 1] = np.sqrt((y == 0).sum() / n_pos)
+        weights[y == 1] = ((y == 0).sum() / n_pos) ** power
         return weights
     if weighting == "drive":
         # Each failing drive's positive rows together weigh as much as ONE
@@ -164,15 +177,6 @@ def threshold_for_precision(labels: np.ndarray, scores: np.ndarray, target: floa
     if len(ok) == 0:
         return None
     return float(thresholds[ok[np.argmax(recall[:-1][ok])]])
-
-
-def _early_stop_subset(y: np.ndarray, max_negatives: int = 1_500_000) -> np.ndarray:
-    rng = np.random.default_rng(0)
-    pos = np.flatnonzero(y == 1)
-    neg = np.flatnonzero(y == 0)
-    if len(neg) > max_negatives:
-        neg = rng.choice(neg, size=max_negatives, replace=False)
-    return np.sort(np.concatenate([pos, neg]))
 
 
 def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -290,7 +294,7 @@ def main() -> None:
         "test_drives": test_df["drive_id"].to_numpy(),
     }
     del test_df
-    data["es_idx"] = _early_stop_subset(data["y_val"])
+    data["es_idx"] = early_stopping_subset(data["y_val"])
 
     results: list[dict[str, Any]] = []
     if not args.skip_baseline:

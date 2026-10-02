@@ -15,13 +15,38 @@ model:
   # reproducible. Set to null to train on every row instead (only
   # advisable with a much higher memory cap or a smaller dataset).
   max_train_rows: 5000000
+  # Positive-class weight = (n_negative / n_positive) ** positive_weight_power
+  # (LightGBM scale_pos_weight). 1.0 is the full ratio (the old
+  # is_unbalance); 0.5 (sqrt) is what works. On real Q1 data the full ratio
+  # collapsed training to ONE tree with leaf values ~1e7 (validation drive
+  # AUPRC 0.04); sqrt gave 434 normal trees and drive AUPRC 0.23 (val) /
+  # 0.16 (test), ~4x the logistic baseline. null = old is_unbalance.
+  positive_weight_power: 0.5
+  # Stop adding trees when average precision on a validation subsample
+  # (every positive row + at most early_stopping_max_negatives negatives)
+  # stops improving for this many rounds. null disables early stopping.
+  early_stopping_rounds: 50
+  early_stopping_max_negatives: 1500000
   params:
     objective: binary
-    is_unbalance: true
     num_leaves: 31
     learning_rate: 0.05
-    n_estimators: 500
+    n_estimators: 1000  # upper bound; early stopping picks the real number
+    # Regularization. Every failing drive contributes ~14 near-identical
+    # positive rows, so without these trees isolate individual drives.
+    min_child_samples: 200
+    reg_lambda: 10.0
+    max_delta_step: 1.0
+    feature_fraction: 0.7
+    bagging_fraction: 0.8
+    bagging_freq: 1
 
+# Operating point, chosen on the validation split's DRIVE-level
+# precision/recall curve (src/models/threshold.py): the highest-recall
+# threshold with recall >= the range's lower bound and precision >=
+# target_precision; if that goal is unreachable, the highest-precision
+# threshold with recall >= the lower bound, flagged target_met: false with
+# the gap recorded in the model card. The target is kept as the goal.
 threshold:
   target_precision: 0.95
   target_recall_range: [0.35, 0.50]

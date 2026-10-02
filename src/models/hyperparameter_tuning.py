@@ -40,6 +40,7 @@ def tune_lightgbm_hyperparameters(
     n_trials: int = 20,
     subsample_fraction: float = 0.3,
     seed: int = 0,
+    positive_weight_power: float | None = None,
 ) -> dict[str, Any]:
     """Runs a subsampled Optuna search over `search_space` (each key mapped
     to a `[low, high]` range - an all-int range samples an int, otherwise a
@@ -64,7 +65,9 @@ def tune_lightgbm_hyperparameters(
             for name, (low, high) in search_space.items()
         }
         params = {**base_params, **sampled}
-        model = train_lightgbm(x_sub, y_sub, params=params)
+        model = train_lightgbm(
+            x_sub, y_sub, params=params, positive_weight_power=positive_weight_power
+        )
         scores = predict_proba_positive(model, x_val)
         return compute_auprc(y_val, scores)
 

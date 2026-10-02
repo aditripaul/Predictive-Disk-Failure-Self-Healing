@@ -157,8 +157,12 @@ from src.models.hyperparameter_tuning import tune_lightgbm_hyperparameters
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
 from src.models.model_card import build_model_card, render_model_card_markdown
 from src.models.smote import apply_smote
-from src.models.threshold import tune_threshold_for_precision
-from src.models.training import predict_proba_positive, train_lightgbm
+from src.models.threshold import tune_drive_level_threshold
+from src.models.training import (
+    early_stopping_subset,
+    predict_proba_positive,
+    train_lightgbm,
+)
 from src.models.xgboost_training import train_xgboost
 from src.resource_limits import apply_memory_limit_from_config
 
@@ -827,6 +831,7 @@ def main() -> None:
                     n_trials=hp_search_cfg.get("n_trials", 20),
                     subsample_fraction=hp_search_cfg.get("subsample_fraction", 0.3),
                     seed=hp_search_cfg.get("seed", 0),
+                    positive_weight_power=model_config["model"].get("positive_weight_power"),
                 )
                 model_params = search_result["best_params"]
                 results["hyperparameter_search"] = {
@@ -845,7 +850,27 @@ def main() -> None:
             if model_type == "xgboost":
                 model = train_xgboost(x_train, y_train, params=model_params)
             elif model_type == "lightgbm":
-                model = train_lightgbm(x_train, y_train, params=model_params)
+                early_stopping_rounds = model_config["model"].get("early_stopping_rounds")
+                eval_idx = (
+                    early_stopping_subset(
+                        y_val,
+                        max_negatives=model_config["model"].get(
+                            "early_stopping_max_negatives", 1_500_000
+                        ),
+                    )
+                    if early_stopping_rounds
+                    else None
+                )
+                model = train_lightgbm(
+                    x_train,
+                    y_train,
+                    params=model_params,
+                    positive_weight_power=model_config["model"].get("positive_weight_power"),
+                    eval_x=x_val[eval_idx] if eval_idx is not None else None,
+                    eval_y=y_val[eval_idx] if eval_idx is not None else None,
+                    early_stopping_rounds=early_stopping_rounds,
+                )
+                del eval_idx
             else:
                 raise ValueError(
                     f"Unknown model.type: {model_type!r} (expected lightgbm or xgboost)"
@@ -855,8 +880,20 @@ def main() -> None:
             )
 
             val_scores = predict_proba_positive(model, x_val)
-            threshold_result = tune_threshold_for_precision(
-                y_val, val_scores, target_precision=model_config["threshold"]["target_precision"]
+            # Chosen on the DRIVE-level precision/recall curve, honoring both
+            # the precision target and the recall range; if the goal is
+            # unreachable, the best achievable point inside the recall range
+            # (never a single-drive, ~0%-recall fallback). See
+            # src/models/threshold.py::tune_drive_level_threshold.
+            val_drive_ids = pl.read_parquet(work_dir / "validation_ids.parquet")[
+                "drive_id"
+            ].to_numpy()
+            threshold_result = tune_drive_level_threshold(
+                val_drive_ids,
+                y_val,
+                val_scores,
+                target_precision=model_config["threshold"]["target_precision"],
+                target_recall_range=tuple(model_config["threshold"]["target_recall_range"]),
             )
             results["threshold"] = threshold_result
             results["validation_metrics"] = evaluate_at_threshold(
@@ -881,7 +918,7 @@ def main() -> None:
             # near-identical positive rows, so the row-level numbers above
             # over-count it. See src/models/evaluation.py::drive_level_table.
             results["validation_drive_level"] = drive_level_metrics(
-                pl.read_parquet(work_dir / "validation_ids.parquet")["drive_id"].to_numpy(),
+                val_drive_ids,
                 y_val,
                 val_scores,
                 threshold_result["threshold"],
