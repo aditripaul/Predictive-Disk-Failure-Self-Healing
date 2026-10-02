@@ -87,6 +87,20 @@ than accumulate them, and converting a large result to a different
 representation (Parquet -> Polars -> numpy) can itself double memory if
 the intermediate representation lingers - build directly into the final
 form instead of combining-then-converting through one.
+
+Attempt 7 fixed the memory problem (train, then validation, completed
+successfully for the first time), but immediately surfaced an unrelated
+one: `np.save`'s underlying `array.tofile()` failed with a PARTIAL write
+- the OS ran out of disk space partway through, independent of this
+pipeline's own memory cap. `work_dir` was living under `tempfile`'s
+default location (`/tmp`), which turned out too small to hold
+`frame.parquet` (tens of GB at fleet scale) plus every split's own
+artifacts at once. Fixed by putting `work_dir` under `resource_limits.
+scratch_dir` (`_scratch_base`) instead - `<gold_dir>/../tmp` by default,
+a filesystem already proven to have room for comparably large files -
+and by spilling each split's own row-group parts into a subdirectory of
+`work_dir` rather than a separate `tempfile.TemporaryDirectory()` (which
+would have defaulted right back to `/tmp`).
 """
 
 from __future__ import annotations
@@ -231,6 +245,26 @@ def _require_gold_inputs(data_config: dict) -> tuple[Path, Path]:
             "`make build-labels` first."
         )
     return features_path, labels_path
+
+
+def _scratch_base(data_config: dict) -> Path:
+    """Base directory for `main()`'s `work_dir` (the assembled training
+    frame plus every split's intermediate artifacts - tens of GB
+    combined at fleet scale, all present at once for as long as
+    extraction is running).
+
+    `resource_limits.scratch_dir` if set; otherwise `<gold_dir>/../tmp`,
+    NOT `tempfile`'s own default location (`/tmp`, via `tempfile.
+    mkdtemp()`/`TemporaryDirectory()` with no `dir=` argument) - on real
+    Q1 data, `/tmp` turned out to be a small enough filesystem, unrelated
+    to this pipeline's own memory cap, that writing x_val.npy ran out of
+    disk space mid-write. `gold_dir`'s own filesystem is a safer default
+    since the gold feature/label tables it already holds are comparable
+    in size to what this needs."""
+    configured = data_config.get("resource_limits", {}).get("scratch_dir")
+    base = Path(configured) if configured else Path(data_config["gold_dir"]).parent / "tmp"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
 
 
 def _stage_assemble(work_dir: Path) -> None:
@@ -412,12 +446,20 @@ def _collect_split_rows(
     split_name: str,
     select_columns: list[str],
     read_columns: list[str],
+    tmp_dir: Path,
     extra_predicate: pl.Expr | None = None,
     out_path: Path | None = None,
 ) -> pl.DataFrame | None:
     """Collects one split via `_row_group_parts`, then combines the
     spilled parts through `_finalize_batched_join` - the same proven path
     `join_by_native_row_groups` uses for its own, much larger, result.
+
+    `tmp_dir` (caller-provided, not created here via `tempfile`'s own
+    default location) is where the spilled parts live - see
+    `_stage_extract_split`, which derives it from `work_dir` so every
+    scratch file this pipeline writes lands on the same, deliberately
+    chosen filesystem (`resource_limits.scratch_dir`) rather than
+    whatever the system's default temp directory happens to be.
 
     Pass `out_path` to write the combined result directly there (one
     part at a time, never forming a single combined DataFrame in this
@@ -432,25 +474,24 @@ def _collect_split_rows(
     `_build_feature_arrays`, which builds directly into the final array
     instead."""
     parquet_file = pq.ParquetFile(frame_path)
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        part_paths = _row_group_parts(
-            frame_path,
-            split_name=split_name,
-            select_columns=select_columns,
-            read_columns=read_columns,
-            extra_predicate=extra_predicate,
-            tmp_dir=Path(tmp_dir),
-        )
-        empty = _as_dataframe(
-            pl.from_arrow(parquet_file.schema_arrow.empty_table()),
-            context=f"empty-schema fallback for {frame_path}",
-        ).select(select_columns)
-        _log_rss(f"{split_name}_row_groups_all_done")
-        result = _finalize_batched_join(part_paths, empty, out_path=out_path)
-        _log_rss(f"{split_name}_parts_combined")
-        if out_path is not None:
-            return None
-        return _as_dataframe(result, context=f"_collect_split_rows({split_name}) of {frame_path}")
+    part_paths = _row_group_parts(
+        frame_path,
+        split_name=split_name,
+        select_columns=select_columns,
+        read_columns=read_columns,
+        extra_predicate=extra_predicate,
+        tmp_dir=tmp_dir,
+    )
+    empty = _as_dataframe(
+        pl.from_arrow(parquet_file.schema_arrow.empty_table()),
+        context=f"empty-schema fallback for {frame_path}",
+    ).select(select_columns)
+    _log_rss(f"{split_name}_row_groups_all_done")
+    result = _finalize_batched_join(part_paths, empty, out_path=out_path)
+    _log_rss(f"{split_name}_parts_combined")
+    if out_path is not None:
+        return None
+    return _as_dataframe(result, context=f"_collect_split_rows({split_name}) of {frame_path}")
 
 
 def _build_feature_arrays(
@@ -542,17 +583,27 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
         )
         predicate = _train_sample_predicate(label_counts, max_rows=max_train_rows, seed=0)
         select_columns = [*feature_columns, "label"]
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        # A subdirectory of work_dir, not tempfile's own default location
+        # (typically /tmp): every scratch file this pipeline writes needs
+        # to land on the same, deliberately chosen filesystem - see
+        # main()'s work_dir setup and resource_limits.scratch_dir. On
+        # real data, /tmp itself turned out too small to hold
+        # frame.parquet plus every split's own artifacts at once.
+        part_tmp_dir = work_dir / "_train_parts"
+        part_tmp_dir.mkdir()
+        try:
             part_paths = _row_group_parts(
                 frame_path,
                 split_name="train",
                 select_columns=select_columns,
                 read_columns=sorted({*select_columns, "split", "drive_id", "date"}),
                 extra_predicate=predicate,
-                tmp_dir=Path(tmp_dir),
+                tmp_dir=part_tmp_dir,
             )
             _log_rss("train_row_groups_all_done")
             x_train, y_train = _build_feature_arrays(part_paths, feature_columns)
+        finally:
+            shutil.rmtree(part_tmp_dir, ignore_errors=True)
         _log_rss("train_after_build_arrays")
         row_count = len(y_train)
         np.save(work_dir / "x_train.npy", x_train)
@@ -562,17 +613,21 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
         _log_rss("train_after_y_saved")
     elif split_name == "validation":
         select_columns = [*feature_columns, "label"]
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        part_tmp_dir = work_dir / "_validation_parts"
+        part_tmp_dir.mkdir()
+        try:
             part_paths = _row_group_parts(
                 frame_path,
                 split_name="validation",
                 select_columns=select_columns,
                 read_columns=sorted({*select_columns, "split"}),
                 extra_predicate=None,
-                tmp_dir=Path(tmp_dir),
+                tmp_dir=part_tmp_dir,
             )
             _log_rss("validation_row_groups_all_done")
             x_val, y_val = _build_feature_arrays(part_paths, feature_columns)
+        finally:
+            shutil.rmtree(part_tmp_dir, ignore_errors=True)
         _log_rss("validation_after_build_arrays")
         row_count = len(y_val)
         np.save(work_dir / "x_val.npy", x_val)
@@ -589,13 +644,19 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
         # combined DataFrame in this process either, for test's own
         # (uncapped, so potentially just as large as train's) size.
         select_columns = [*feature_columns, "label", "drive_id", "event_type", "days_to_event"]
-        _collect_split_rows(
-            frame_path,
-            split_name="test",
-            select_columns=select_columns,
-            read_columns=sorted({*select_columns, "split"}),
-            out_path=work_dir / "test_df.parquet",
-        )
+        part_tmp_dir = work_dir / "_test_parts"
+        part_tmp_dir.mkdir()
+        try:
+            _collect_split_rows(
+                frame_path,
+                split_name="test",
+                select_columns=select_columns,
+                read_columns=sorted({*select_columns, "split"}),
+                tmp_dir=part_tmp_dir,
+                out_path=work_dir / "test_df.parquet",
+            )
+        finally:
+            shutil.rmtree(part_tmp_dir, ignore_errors=True)
         _log_rss("test_written")
         row_count = (
             pl.scan_parquet(work_dir / "test_df.parquet").select(pl.len()).collect().item()
@@ -692,7 +753,7 @@ def main() -> None:
     _require_gold_inputs(data_config)
 
     horizon_days = model_config["primary_horizon_days"]
-    work_dir = Path(tempfile.mkdtemp(prefix="train_model_frame_"))
+    work_dir = Path(tempfile.mkdtemp(prefix="train_model_frame_", dir=_scratch_base(data_config)))
     try:
         t0 = time.perf_counter()
         # FOUR separate subprocesses, not one doing everything or even

@@ -30,6 +30,7 @@ from pipelines.train_model import (
     _build_feature_arrays,
     _collect_split_rows,
     _row_group_parts,
+    _scratch_base,
     _subsampled_train_lazy,
     _train_sample_predicate,
 )
@@ -119,11 +120,14 @@ def test_collect_split_rows_matches_a_direct_filter_across_row_group_counts(tmp_
         writer.write_table(frame.to_arrow(), row_group_size=row_group_size)
         writer.close()
 
+        parts_dir = tmp_path / f"parts_{row_group_size}"
+        parts_dir.mkdir()
         out = _collect_split_rows(
             path,
             split_name="validation",
             select_columns=["f0", "label"],
             read_columns=["f0", "label", "split"],
+            tmp_dir=parts_dir,
         )
         key = ["f0"]
         assert out.sort(key).equals(direct.sort(key)), row_group_size
@@ -139,11 +143,14 @@ def test_collect_split_rows_applies_extra_predicate(tmp_path):
     direct = frame.filter((pl.col("split") == "train") & (pl.col("label") == 1)).select(
         ["f0", "label"]
     )
+    parts_dir = tmp_path / "parts"
+    parts_dir.mkdir()
     out = _collect_split_rows(
         path,
         split_name="train",
         select_columns=["f0", "label"],
         read_columns=["f0", "label", "split"],
+        tmp_dir=parts_dir,
         extra_predicate=pl.col("label") == 1,
     )
     key = ["f0"]
@@ -154,12 +161,15 @@ def test_collect_split_rows_empty_result_keeps_the_selected_schema(tmp_path):
     frame = _split_frame(n_drives=6, days=5, seed=3)
     path = tmp_path / "frame.parquet"
     frame.write_parquet(path)
+    parts_dir = tmp_path / "parts"
+    parts_dir.mkdir()
 
     out = _collect_split_rows(
         path,
         split_name="train",
         select_columns=["f0", "label"],
         read_columns=["f0", "label", "split"],
+        tmp_dir=parts_dir,
         extra_predicate=pl.lit(False),
     )
     assert out.shape == (0, 2)
@@ -258,3 +268,28 @@ def _write_parquet(path: Path, df: pl.DataFrame, *, row_group_size: int) -> Path
     writer.write_table(df.to_arrow(), row_group_size=row_group_size)
     writer.close()
     return path
+
+
+def test_scratch_base_defaults_to_a_tmp_dir_next_to_gold_dir(tmp_path):
+    """Regression test for main()'s work_dir living under tempfile's own
+    default location (/tmp) - on real Q1 data, that turned out to be a
+    small enough filesystem that writing x_val.npy ran out of disk space
+    mid-write, independent of this pipeline's own memory cap. The
+    default must NOT be tempfile.gettempdir(); it must be resolvable
+    from data_config alone, next to a directory (gold_dir) already known
+    to hold comparably large files."""
+    gold_dir = tmp_path / "data" / "gold"
+    base = _scratch_base({"gold_dir": str(gold_dir)})
+    assert base == tmp_path / "data" / "tmp"
+    assert base.is_dir()
+
+
+def test_scratch_base_honors_an_explicit_scratch_dir(tmp_path):
+    configured = tmp_path / "elsewhere"
+    data_config = {
+        "gold_dir": str(tmp_path / "data" / "gold"),
+        "resource_limits": {"scratch_dir": str(configured)},
+    }
+    base = _scratch_base(data_config)
+    assert base == configured
+    assert base.is_dir()

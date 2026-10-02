@@ -98,3 +98,16 @@ resource_limits:
   # raise it for fewer, larger batches. See
   # pipelines/build_labels.py's module docstring.
   label_batch_target_rows: 2000000
+  # Base directory for pipelines/train_model.py's scratch work_dir
+  # (the assembled training frame plus each split's intermediate
+  # artifacts - tens of GB combined at fleet scale, all present at once
+  # for as long as extraction is running). Set to null (the default) to
+  # use `<gold_dir>/../tmp` instead of the system temp directory
+  # (`/tmp`, via Python's tempfile module) - on real Q1 data, `/tmp` was
+  # a small enough filesystem (independent of this pipeline's own
+  # memory cap above) that writing x_val.npy ran out of disk space
+  # mid-write. `gold_dir`'s own filesystem is a safer default since the
+  # gold feature/label tables it already holds are comparable in size.
+  # Only set this if you want the scratch files somewhere else entirely
+  # (e.g. a faster or larger disk than either default).
+  scratch_dir: null
