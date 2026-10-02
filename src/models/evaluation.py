@@ -144,6 +144,63 @@ def compute_warning_lead_time_days(
     }
 
 
+def drive_level_table(
+    drive_ids: np.ndarray, y_true: np.ndarray, y_scores: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Collapses row-level labels/scores to one (label, score) pair per drive.
+
+    A drive is *failing* if any of its rows has `label == 1` (it falls
+    inside a failure's prediction horizon), otherwise *healthy*. Its score
+    is the highest score over its positive-window rows for a failing drive
+    - "was it flagged inside the warning window?" - and over all of its
+    rows for a healthy one - "did it ever raise an alert?". Alerts a
+    failing drive raises before its positive window are not counted for
+    or against it. Returns `(drive_labels, drive_scores)`, aligned and
+    ordered by drive_id (deterministic)."""
+    df = pl.DataFrame({"drive_id": drive_ids, "y": y_true, "score": y_scores})
+    failing = df.group_by("drive_id").agg((pl.col("y") == 1).any().alias("is_failing"))
+    scored = (
+        df.join(failing, on="drive_id")
+        .filter(~pl.col("is_failing") | (pl.col("y") == 1))
+        .group_by("drive_id")
+        .agg(pl.col("score").max(), pl.col("is_failing").first())
+        .sort("drive_id")
+    )
+    return (
+        scored["is_failing"].to_numpy().astype(int),
+        scored["score"].to_numpy().astype(float),
+    )
+
+
+def drive_level_metrics(
+    drive_ids: np.ndarray, y_true: np.ndarray, y_scores: np.ndarray, threshold: float
+) -> dict[str, Any]:
+    """The model-goal metrics (precision >= 95%, recall 35-50%) at the
+    level an operator experiences them: per DRIVE, not per drive-day. One
+    failing drive contributes ~horizon near-identical positive rows, so
+    row-level precision/recall over-count it (see `drive_level_table` for
+    how a drive is labeled and scored). `precision` = caught failing
+    drives / (caught + healthy drives that alerted); `recall` = caught /
+    failing drives."""
+    labels, scores = drive_level_table(drive_ids, y_true, y_scores)
+    flagged = scores >= threshold
+    failing = labels == 1
+    caught = int((flagged & failing).sum())
+    false_alarms = int((flagged & ~failing).sum())
+    failing_count = int(failing.sum())
+    healthy_count = int((~failing).sum())
+    return {
+        "failing_drive_count": failing_count,
+        "healthy_drive_count": healthy_count,
+        "caught_drive_count": caught,
+        "false_alarm_drive_count": false_alarms,
+        "precision": caught / (caught + false_alarms) if caught + false_alarms else 0.0,
+        "recall": caught / failing_count if failing_count else 0.0,
+        "false_alarm_rate": false_alarms / healthy_count if healthy_count else 0.0,
+        "auprc": compute_auprc(labels, scores) if failing_count else 0.0,
+    }
+
+
 def evaluate_at_threshold(y_true: np.ndarray, y_scores: np.ndarray, threshold: float) -> dict:
     y_pred = (y_scores >= threshold).astype(int)
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()

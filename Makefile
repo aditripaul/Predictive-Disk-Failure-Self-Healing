@@ -1,7 +1,7 @@
 .PHONY: install lint format test test-unit test-integration test-chaos test-golden test-property \
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
-	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train \
+	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model \
 	build-sequences train-lstm score-fleet plots \
 	agent-demo dashboard api final-report
 
@@ -101,8 +101,13 @@ build-features:
 build-labels:
 	uv run python pipelines/build_labels.py
 
+# `make train TRAIN_ARGS=--keep-work-dir` keeps the scratch arrays for
+# `make experiment-model` (pipelines/experiment_model.py).
 train:
-	uv run python pipelines/train_model.py
+	uv run python pipelines/train_model.py $(TRAIN_ARGS)
+
+experiment-model:
+	uv run python pipelines/experiment_model.py $(EXPERIMENT_ARGS)
 
 # Optional LSTM comparison branch (docs/dataset_strategy.md section 16.2).
 # Requires `uv sync --extra torch` first - not part of the default install.

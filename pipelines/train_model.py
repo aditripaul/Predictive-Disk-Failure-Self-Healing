@@ -138,6 +138,7 @@ from src.logging_config import configure_logging, get_logger
 from src.models.evaluation import (
     compute_auprc,
     compute_warning_lead_time_days,
+    drive_level_metrics,
     evaluate_at_threshold,
 )
 from src.models.explainability import (
@@ -252,6 +253,18 @@ def _scratch_base(data_config: dict) -> Path:
     base = Path(configured) if configured else Path(data_config["gold_dir"]).parent / "tmp"
     base.mkdir(parents=True, exist_ok=True)
     return base
+
+
+def _write_id_columns(part_paths: list[Path], columns: list[str], out_path: Path) -> None:
+    """Writes just `columns` (drive_id, days_to_event, ...) from the spilled
+    part files to one small Parquet file, row-aligned with the arrays
+    `_build_feature_arrays` builds from the same parts (same order). Needed
+    for drive-level evaluation and per-drive weighting; read narrow, one
+    part at a time, so it adds nothing to the peak."""
+    frames = [pl.read_parquet(path, columns=columns) for path in part_paths]
+    (pl.concat(frames) if frames else pl.DataFrame({c: [] for c in columns})).write_parquet(
+        out_path, compression="zstd"
+    )
 
 
 def _stage_assemble(work_dir: Path) -> None:
@@ -566,7 +579,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             )
         )
         predicate = _train_sample_predicate(label_counts, max_rows=max_train_rows, seed=0)
-        select_columns = [*feature_columns, "label"]
+        select_columns = [*feature_columns, "label", "drive_id"]
         # A subdirectory of work_dir, not tempfile's own default location
         # (typically /tmp): every scratch file this pipeline writes needs
         # to land on the same, deliberately chosen filesystem - see
@@ -585,6 +598,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
                 tmp_dir=part_tmp_dir,
             )
             x_train, y_train = _build_feature_arrays(part_paths, feature_columns)
+            _write_id_columns(part_paths, ["drive_id"], work_dir / "train_ids.parquet")
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
         row_count = len(y_train)
@@ -592,7 +606,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
         del x_train
         np.save(work_dir / "y_train.npy", y_train)
     elif split_name == "validation":
-        select_columns = [*feature_columns, "label"]
+        select_columns = [*feature_columns, "label", "drive_id", "days_to_event"]
         part_tmp_dir = work_dir / "_validation_parts"
         part_tmp_dir.mkdir()
         try:
@@ -605,6 +619,9 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
                 tmp_dir=part_tmp_dir,
             )
             x_val, y_val = _build_feature_arrays(part_paths, feature_columns)
+            _write_id_columns(
+                part_paths, ["drive_id", "days_to_event"], work_dir / "validation_ids.parquet"
+            )
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
         row_count = len(y_val)
@@ -705,6 +722,12 @@ def main() -> None:
     parser.add_argument("--stage", choices=["assemble", "extract-split"])
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--split", choices=["train", "validation", "test"])
+    parser.add_argument(
+        "--keep-work-dir",
+        action="store_true",
+        help="Keep the scratch work dir (x_*/y_*.npy, *_ids.parquet, test_df.parquet) after "
+        "the run, for pipelines/experiment_model.py. Delete it yourself when done.",
+    )
     args = parser.parse_args()
 
     if args.stage == "assemble":
@@ -853,6 +876,22 @@ def main() -> None:
             results["test_metrics"] = evaluate_at_threshold(
                 y_test, test_scores, threshold_result["threshold"]
             )
+            # The model goal (precision >= 95%, recall 35-50%) is judged per
+            # DRIVE, not per drive-day: a failing drive contributes ~horizon
+            # near-identical positive rows, so the row-level numbers above
+            # over-count it. See src/models/evaluation.py::drive_level_table.
+            results["validation_drive_level"] = drive_level_metrics(
+                pl.read_parquet(work_dir / "validation_ids.parquet")["drive_id"].to_numpy(),
+                y_val,
+                val_scores,
+                threshold_result["threshold"],
+            )
+            results["test_drive_level"] = drive_level_metrics(
+                test_df["drive_id"].to_numpy(),
+                y_test,
+                test_scores,
+                threshold_result["threshold"],
+            )
 
             # Logistic Regression sanity baseline (docs/project_plan.md Phase 6
             # Model Candidates: "Interpretable sanity baseline") - confirms the
@@ -945,6 +984,10 @@ def main() -> None:
             mlflow.log_metric("validation_precision", results["validation_metrics"]["precision"])
             mlflow.log_metric("validation_recall", results["validation_metrics"]["recall"])
             mlflow.log_metric("test_auprc", results["test_metrics"]["auprc"])
+            for split_key in ("validation", "test"):
+                drive_level = results[f"{split_key}_drive_level"]
+                for metric in ("precision", "recall", "auprc"):
+                    mlflow.log_metric(f"{split_key}_drive_{metric}", drive_level[metric])
             mlflow.log_metric(
                 "test_expected_calibration_error",
                 results["test_metrics"]["calibration"]["expected_calibration_error"],
@@ -1022,6 +1065,10 @@ def main() -> None:
                 threshold_result=threshold_result,
                 validation_metrics=results["validation_metrics"],
                 test_metrics=results["test_metrics"],
+                drive_level_metrics={
+                    "validation": results["validation_drive_level"],
+                    "test": results["test_drive_level"],
+                },
                 shap_top_features=(
                     feature_importance[:20] if feature_importance is not None else None
                 ),
@@ -1046,6 +1093,8 @@ def main() -> None:
             logger.info("threshold_tuned", **threshold_result)
             logger.info("validation_metrics", **results["validation_metrics"])
             logger.info("test_metrics", **results["test_metrics"])
+            logger.info("validation_drive_level", **results["validation_drive_level"])
+            logger.info("test_drive_level", **results["test_drive_level"])
             logger.info(
                 "logistic_regression_baseline", **results["logistic_regression_baseline"]
             )
@@ -1056,7 +1105,10 @@ def main() -> None:
                 logger.info("shap_feature_importance_written", path=str(shap_report_path))
             logger.info("model_card_written", path=str(model_card_md_path))
     finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
+        if args.keep_work_dir:
+            logger.info("work_dir_kept", path=str(work_dir))
+        else:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

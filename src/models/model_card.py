@@ -34,6 +34,7 @@ def build_model_card(
     test_warning_lead_time: dict[str, Any] | None = None,
     logistic_regression_baseline: dict[str, Any] | None = None,
     smote_comparison: dict[str, Any] | None = None,
+    drive_level_metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "generated_at": dt.datetime.now(dt.UTC).isoformat(),
@@ -70,6 +71,9 @@ def build_model_card(
             "test_warning_lead_time": test_warning_lead_time,
             "logistic_regression_baseline": logistic_regression_baseline,
             "smote_comparison": smote_comparison,
+            # Per-drive precision/recall/AUPRC (src/models/evaluation.py::
+            # drive_level_metrics) - the level the model goal is stated at.
+            "drive_level_metrics": drive_level_metrics,
         },
         # `shap_top_features=None` means SHAP was skipped for this run
         # (configs/model.yaml diagnostics.shap_enabled: false).
@@ -121,6 +125,7 @@ def render_model_card_markdown(card: dict[str, Any]) -> str:
         f"- Threshold policy: {evaluation['threshold_policy']}",
         f"- Validation metrics: {evaluation['validation_metrics']}",
         f"- Test metrics: {evaluation['test_metrics']}",
+        f"- Drive-level metrics: {evaluation.get('drive_level_metrics')}",
         f"- Test warning lead time: {evaluation['test_warning_lead_time']}",
         f"- Logistic Regression sanity baseline: {evaluation['logistic_regression_baseline']}",
         f"- SMOTE comparison: {evaluation['smote_comparison']}",

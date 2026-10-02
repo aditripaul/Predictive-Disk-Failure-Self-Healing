@@ -943,6 +943,33 @@ under a cgroup: `systemd-run --user --scope -p MemoryMax=20G make train`.
 
 ---
 
+### 5.12 Judging and improving the model: drive-level metrics and `make experiment-model`
+
+The model goal (precision >= 95%, recall 35-50%, `configs/model.yaml`) is
+stated per *drive*, but row-level metrics count a failing drive's ~14
+near-identical positive rows 14 times. `src/models/evaluation.py::
+drive_level_metrics` reports it per drive: a failing drive is *caught* if
+any row inside its prediction window scores >= threshold, a healthy drive
+is a *false alarm* if any of its rows does. `make train` now logs it
+(`validation_drive_level`, `test_drive_level`), writes it to the evaluation
+report and model card, and logs `*_drive_precision/recall/auprc` to MLflow.
+Row-level numbers are still reported next to it.
+
+To try modelling ideas without re-running the whole join:
+
+```bash
+make train TRAIN_ARGS=--keep-work-dir   # once; keeps x_*.npy, *_ids.parquet, test_df.parquet
+make experiment-model                   # compares variants (pipelines/experiment_model.py)
+```
+
+Each variant is early-stopped on a validation subsample and scored at row
+and drive level; thresholds are chosen on validation and applied to test.
+Excluded features are zeroed in place and restored, so a variant costs no
+extra copy of the matrices. Delete the kept `data/tmp/train_model_frame_*`
+directory when finished (it holds multi-GB arrays).
+
+---
+
 ## 6. The MAPE-K agent (`src/agent/`)
 
 ### 6.1 State (`state.py`)

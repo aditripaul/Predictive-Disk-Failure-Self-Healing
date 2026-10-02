@@ -102,3 +102,14 @@ def test_build_model_card_records_shap_as_skipped_when_disabled():
     markdown = render_model_card_markdown(card)
     assert "SHAP skipped for this run" in markdown
     assert "Top features:" not in markdown
+
+
+def test_build_model_card_includes_drive_level_metrics_when_provided():
+    drive_level = {"validation": {"precision": 0.4}, "test": {"precision": 0.3}}
+    card = _sample_card(drive_level_metrics=drive_level)
+    assert card["evaluation"]["drive_level_metrics"] == drive_level
+    assert "Drive-level metrics" in render_model_card_markdown(card)
+
+
+def test_build_model_card_drive_level_metrics_default_to_none():
+    assert _sample_card()["evaluation"]["drive_level_metrics"] is None
