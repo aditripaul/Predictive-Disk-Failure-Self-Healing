@@ -394,6 +394,14 @@ default-to-class-weighting guidance.
 
 ### 5.1 Explainability (SHAP)
 
+> **Configurable, off by default.** `make train` only computes SHAP when
+> `configs/model.yaml` has `diagnostics.shap_enabled: true`. On real fleet
+> data it takes ~30 minutes and can fail SHAP's own additivity check when
+> the model has extreme leaf values (seen with a raw score near -10,000,000).
+> When disabled, no `shap_feature_importance.json` is written (a stale one
+> is deleted), the model card's Explainability section says SHAP was
+> skipped, and `make plots` warns that the SHAP report is missing.
+
 `src/models/explainability.py` wraps `shap.TreeExplainer` (exact and fast
 for LightGBM) around the trained model:
 
@@ -873,6 +881,65 @@ loaded. Things to know before relying on it:
   level, since it's the opposite case: `tests/smoke/test_smoke.py` only
   `ast.parse`s that file's source to check for syntax errors and never
   imports/executes it, so a real side effect there is safe.
+
+---
+
+### 5.11 How `make train` fits in RAM (the resolution)
+
+**Symptom.** On real Backblaze Q1 data (25.7M drive-days, ~200 columns,
+32 Parquet row groups), `make train` kept aborting with allocation failures
+("Cannot allocate memory", Rust "memory allocation of N bytes failed"),
+each time one step later after every fix, and finally on ~940KB requests.
+
+**Root cause: the cap measured the wrong thing.** The cap was `RLIMIT_AS`
+(virtual address space). Polars/jemalloc keep freed ranges mapped, glibc
+reserves an arena per thread, and LightGBM/OpenMP/Polars thread pools
+reserve stacks — address space that is never touched. Measured peak RSS at
+each crash was ~6–10GB under a 20GB cap. **Fix (`src/resource_limits.py`):
+the cap is now enforced on resident memory (RSS)** by a watchdog thread
+(§5.10), so only RAM actually in use counts. That alone is what made the
+last crashes disappear.
+
+**Real memory is also kept low.** Three measures in
+`pipelines/train_model.py` bound the *actual* peak, so the RSS cap has
+headroom:
+
+1. *Row-group-at-a-time reads, spilled to disk.* The 25.7M-row join
+   (`join_by_native_row_groups`) and each split's extraction
+   (`_row_group_parts`) read one Parquet row group with pyarrow, keep only
+   that split's rows, write them to a small part file and drop them.
+   Measured RSS stays flat at ~2–3GB across all 32 groups.
+2. *Build the numpy matrix directly.* `_build_feature_arrays`
+   pre-allocates the final float32 matrix and fills it part by part.
+   Combining parts into one DataFrame and then converting held both copies
+   at once (~6GB + ~3.7GB).
+3. *Training-row cap.* `model.max_train_rows` (5M) keeps every failure row
+   and hash-subsamples the healthy rows deterministically (16.1M -> 5.0M
+   train rows), because one dense float32 copy of the full train split no
+   longer fits comfortably.
+
+Each heavy step (join; train / validation / test extraction) runs as its
+own subprocess (`--stage assemble`, `--stage extract-split --split X`),
+communicating through `.npy`/Parquet files in a scratch dir. This keeps the
+orchestrator small and frees each step's memory unconditionally on exit.
+
+**Disk, not RAM.** Scratch files (the joined frame is tens of GB) go to
+`resource_limits.scratch_dir`, default `<gold_dir>/../tmp` — not `/tmp`,
+which was too small on the reference machine.
+
+**Measured on the real run** (peak RSS per stage, `memory_checkpoint`
+log lines): join ~ flat; train extraction 6.0GB; validation 6.6GB; test
+2.0GB; training + baseline in the orchestrator completed under the 20GB
+cap.
+
+**If it still hits the cap:** the process logs `memory_limit_exceeded`
+with the RSS and exits with code 86. Lower `model.max_train_rows`,
+`diagnostics.baseline_max_rows` or `diagnostics.shap_max_rows`, or raise
+`resource_limits.max_memory_gb`. For a strict kernel-enforced limit run
+under a cgroup: `systemd-run --user --scope -p MemoryMax=20G make train`.
+
+**SHAP is optional and off by default** (`diagnostics.shap_enabled` in
+`configs/model.yaml`, see §5.1).
 
 ---
 

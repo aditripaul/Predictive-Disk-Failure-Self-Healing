@@ -1004,20 +1004,29 @@ def main() -> None:
             # importance below is a mean of |shap value| per feature, which
             # converges long before millions of rows, while TreeExplainer
             # materializes a full (rows x features) float64 array to get there.
-            t0 = time.perf_counter()
-            rng = np.random.default_rng(0)
-            background_size = min(SHAP_BACKGROUND_SAMPLE_SIZE, x_train.shape[0])
-            background = x_train[rng.choice(x_train.shape[0], size=background_size, replace=False)]
-            x_shap, _ = _subsample_rows(
-                x_val, y_val, max_rows=diagnostics_cfg.get("shap_max_rows", 200_000)
-            )
-            explainer = build_explainer(model, background)
-            shap_values = compute_shap_values(explainer, x_shap)
-            feature_importance = global_feature_importance(shap_values, feature_columns)
-            results["shap_global_feature_importance"] = feature_importance[:20]
-            _log_stage("shap_computed", t0, explained_row_count=int(x_shap.shape[0]))
-            del x_shap, shap_values
-            gc.collect()
+            # Optional (configs/model.yaml diagnostics.shap_enabled, off by
+            # default): slow on fleet-scale data, and SHAP's additivity check
+            # fails outright when the model has extreme leaf values.
+            feature_importance: list[dict[str, float | str]] | None = None
+            if diagnostics_cfg.get("shap_enabled", False):
+                t0 = time.perf_counter()
+                rng = np.random.default_rng(0)
+                background_size = min(SHAP_BACKGROUND_SAMPLE_SIZE, x_train.shape[0])
+                background = x_train[
+                    rng.choice(x_train.shape[0], size=background_size, replace=False)
+                ]
+                x_shap, _ = _subsample_rows(
+                    x_val, y_val, max_rows=diagnostics_cfg.get("shap_max_rows", 200_000)
+                )
+                explainer = build_explainer(model, background)
+                shap_values = compute_shap_values(explainer, x_shap)
+                feature_importance = global_feature_importance(shap_values, feature_columns)
+                results["shap_global_feature_importance"] = feature_importance[:20]
+                _log_stage("shap_computed", t0, explained_row_count=int(x_shap.shape[0]))
+                del x_shap, shap_values
+                gc.collect()
+            else:
+                logger.info("shap_skipped", reason="diagnostics.shap_enabled is false")
 
             audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
             audit_dir.mkdir(parents=True, exist_ok=True)
@@ -1025,8 +1034,14 @@ def main() -> None:
             report_path.write_text(json.dumps(results, indent=2, default=str))
 
             shap_report_path = audit_dir / "shap_feature_importance.json"
-            shap_report_path.write_text(json.dumps(feature_importance, indent=2, default=str))
-            mlflow.log_artifact(str(shap_report_path))
+            if feature_importance is not None:
+                shap_report_path.write_text(json.dumps(feature_importance, indent=2, default=str))
+                mlflow.log_artifact(str(shap_report_path))
+            else:
+                # Never leave an earlier run's SHAP report next to this
+                # run's evaluation report - generate_performance_plots.py
+                # would plot it as if it described this model.
+                shap_report_path.unlink(missing_ok=True)
 
             dataset_version_record = latest_dataset_version(Path(data_config["audit_dir"]))
             model_card = build_model_card(
@@ -1042,7 +1057,9 @@ def main() -> None:
                 threshold_result=threshold_result,
                 validation_metrics=results["validation_metrics"],
                 test_metrics=results["test_metrics"],
-                shap_top_features=feature_importance[:20],
+                shap_top_features=(
+                    feature_importance[:20] if feature_importance is not None else None
+                ),
                 train_row_count=x_train.shape[0],
                 test_warning_lead_time=results["test_warning_lead_time"],
                 logistic_regression_baseline=results["logistic_regression_baseline"],
@@ -1068,9 +1085,10 @@ def main() -> None:
                 "logistic_regression_baseline", **results["logistic_regression_baseline"]
             )
             logger.info("test_warning_lead_time", **results["test_warning_lead_time"])
-            logger.info("top_shap_features", features=feature_importance[:5])
             logger.info("evaluation_report_written", path=str(report_path))
-            logger.info("shap_feature_importance_written", path=str(shap_report_path))
+            if feature_importance is not None:
+                logger.info("top_shap_features", features=feature_importance[:5])
+                logger.info("shap_feature_importance_written", path=str(shap_report_path))
             logger.info("model_card_written", path=str(model_card_md_path))
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

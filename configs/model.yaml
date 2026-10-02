@@ -66,6 +66,13 @@ diagnostics:
   # non-production sanity check (src/models/logistic_regression_baseline.py),
   # so fitting it on a bounded sample is the right trade.
   baseline_max_rows: 1000000
+  # SHAP global feature importance (TreeExplainer on the validation
+  # split). Disabled by default: on real fleet data it is slow (~30 min
+  # for shap_max_rows) and fails SHAP's own additivity check whenever the
+  # model has extreme leaf values. When disabled, no
+  # shap_feature_importance.json is written (a stale one from an earlier
+  # run is removed) and the model card records SHAP as skipped.
+  shap_enabled: false
   # SHAP global feature importance is a mean over |shap value| per
   # feature, which converges long before millions of rows; TreeExplainer
   # also materializes a full (rows x features) float64 array.

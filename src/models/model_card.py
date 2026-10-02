@@ -29,7 +29,7 @@ def build_model_card(
     threshold_result: dict[str, Any],
     validation_metrics: dict[str, Any],
     test_metrics: dict[str, Any],
-    shap_top_features: list[dict[str, Any]],
+    shap_top_features: list[dict[str, Any]] | None,
     train_row_count: int,
     test_warning_lead_time: dict[str, Any] | None = None,
     logistic_regression_baseline: dict[str, Any] | None = None,
@@ -71,9 +71,11 @@ def build_model_card(
             "logistic_regression_baseline": logistic_regression_baseline,
             "smote_comparison": smote_comparison,
         },
+        # `shap_top_features=None` means SHAP was skipped for this run
+        # (configs/model.yaml diagnostics.shap_enabled: false).
         "explainability": {
-            "method": "shap.TreeExplainer",
-            "top_features": shap_top_features,
+            "method": "shap.TreeExplainer" if shap_top_features is not None else None,
+            "top_features": shap_top_features or [],
         },
         "limitations_and_risks": [
             "Trained primarily on Backblaze data; SMART-Z is an external "
@@ -124,11 +126,15 @@ def render_model_card_markdown(card: dict[str, Any]) -> str:
         f"- SMOTE comparison: {evaluation['smote_comparison']}",
         "",
         "## Explainability",
-        f"- Method: {card['explainability']['method']}",
-        "- Top features:",
     ]
-    for entry in card["explainability"]["top_features"]:
-        lines.append(f"  - {entry}")
+    if card["explainability"]["method"] is None:
+        lines.append(
+            "- SHAP skipped for this run (configs/model.yaml diagnostics.shap_enabled: false)"
+        )
+    else:
+        lines += [f"- Method: {card['explainability']['method']}", "- Top features:"]
+        for entry in card["explainability"]["top_features"]:
+            lines.append(f"  - {entry}")
     lines += ["", "## Limitations and Risks"]
     lines += [f"- {risk}" for risk in card["limitations_and_risks"]]
     lines.append("")

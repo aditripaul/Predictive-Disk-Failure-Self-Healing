@@ -93,3 +93,12 @@ def test_render_model_card_markdown_contains_key_sections():
     assert "## Explainability" in markdown
     assert "## Limitations and Risks" in markdown
     assert "drive_age_days" in markdown
+
+
+def test_build_model_card_records_shap_as_skipped_when_disabled():
+    card = _sample_card(shap_top_features=None)
+    assert card["explainability"]["method"] is None
+    assert card["explainability"]["top_features"] == []
+    markdown = render_model_card_markdown(card)
+    assert "SHAP skipped for this run" in markdown
+    assert "Top features:" not in markdown
