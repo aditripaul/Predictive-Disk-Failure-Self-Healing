@@ -105,6 +105,7 @@ from src.models.explainability import (
 )
 from src.models.features import (
     _as_dataframe,
+    _finalize_batched_join,
     assemble_training_frame,
     feature_matrix,
     select_feature_columns,
@@ -323,39 +324,50 @@ def _collect_split_rows(
     that leaves Polars' own query engine to decide how many row groups to
     decode concurrently.
 
-    On real data, a fresh, otherwise-idle subprocess whose ONLY job was
-    one such plain scan+filter+collect still failed to allocate a few GB
-    it needed - even smaller than what an earlier split's collect, in its
-    own equally fresh subprocess, had just needed successfully. Decoding
-    several ~185-column row groups at once (Polars' default, unlike the
-    disciplined one-row-group-at-a-time loop this function uses) multiplies
-    peak transient memory by however many the engine chooses to decode in
-    parallel, on top of the growing accumulated output - explaining a
-    peak that depends on more than just the final result's own size.
+    Each row group's filtered/selected slice is spilled to its own small
+    temp Parquet file and dropped immediately, exactly like
+    `join_by_native_row_groups` - NOT accumulated as a live DataFrame in a
+    Python list across the whole loop, which an earlier version of this
+    function did. On real data that was enough, on its own, to fail the
+    final combination step even for train's OWN split (well within the
+    memory cap on its own): every row group's slice - summing to the
+    split's entire final size - stayed alive as Python objects for the
+    whole loop, on top of the per-row-group decode work, rather than each
+    one being written out and freed before the next row group is read.
+    `_finalize_batched_join` does the final combine, reading the spilled
+    parts back from disk - the same proven path `join_by_native_row_groups`
+    uses for its own, much larger, result.
 
     `read_columns` are the raw columns read from each row group (must
     cover `select_columns`, `"split"`, and anything `extra_predicate`
     references); `select_columns` are what survives into the returned
     DataFrame."""
     parquet_file = pq.ParquetFile(frame_path)
-    parts: list[pl.DataFrame] = []
-    for i in range(parquet_file.num_row_groups):
-        table = parquet_file.read_row_group(i, columns=read_columns)
-        batch = _as_dataframe(pl.from_arrow(table), context=f"row group {i} of {frame_path}")
-        batch = batch.filter(pl.col("split") == split_name)
-        if extra_predicate is not None:
-            batch = batch.filter(extra_predicate)
-        if batch.height:
-            parts.append(batch.select(select_columns))
-        del table, batch
-        gc.collect()
-    if not parts:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        part_paths: list[Path] = []
+        for i in range(parquet_file.num_row_groups):
+            table = parquet_file.read_row_group(i, columns=read_columns)
+            batch = _as_dataframe(pl.from_arrow(table), context=f"row group {i} of {frame_path}")
+            batch = batch.filter(pl.col("split") == split_name)
+            if extra_predicate is not None:
+                batch = batch.filter(extra_predicate)
+            if batch.height:
+                part = batch.select(select_columns)
+                path = Path(tmp_dir) / f"part_{i}.parquet"
+                part.write_parquet(path, compression="zstd")
+                part_paths.append(path)
+                del part
+            del table, batch
+            gc.collect()
+
         empty = _as_dataframe(
             pl.from_arrow(parquet_file.schema_arrow.empty_table()),
             context=f"empty-schema fallback for {frame_path}",
+        ).select(select_columns)
+        return _as_dataframe(
+            _finalize_batched_join(part_paths, empty, out_path=None),
+            context=f"_collect_split_rows({split_name}) of {frame_path}",
         )
-        return empty.select(select_columns)
-    return pl.concat(parts, how="vertical")
 
 
 def _stage_extract_split(work_dir: Path, split_name: str) -> None:
