@@ -82,10 +82,13 @@ def run_cycle(
     fleet-state/predictions read endpoints below."""
     outcome = orchestrator.run_cycle(body.thread_id)
     state = outcome.get("state", {})
+    prediction_drives = state.get("prediction_summary", {}).get("drives", [])
     if "fleet_snapshot_id" in state:
-        store.set_fleet_state({"fleet_snapshot_id": state["fleet_snapshot_id"]})
+        store.set_fleet_state(
+            {"fleet_snapshot_id": state["fleet_snapshot_id"], "drives": prediction_drives}
+        )
     if "prediction_summary" in state:
-        store.set_latest_predictions(state["prediction_summary"].get("drives", []))
+        store.set_latest_predictions(prediction_drives)
     return outcome
 
 

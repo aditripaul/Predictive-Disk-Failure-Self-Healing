@@ -300,3 +300,17 @@ def test_pending_actions_lists_only_pending(client):
     )
     response = test_client.get("/api/v1/actions/pending")
     assert len(response.json()["actions"]) == 1
+
+
+def test_run_cycle_populates_fleet_state_drives():
+    store = InMemoryAuditStore()
+    orchestrator = _build_orchestrator(store, [HEALTHY_DRIVE])
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    try:
+        test_client = TestClient(app)
+        test_client.post("/api/v1/agent/run-cycle", json={"thread_id": "t-fleet"})
+        fleet_state = test_client.get("/api/v1/fleet/state").json()
+    finally:
+        app.dependency_overrides.clear()
+    assert [d["drive_id"] for d in fleet_state["drives"]] == [HEALTHY_DRIVE["drive_id"]]

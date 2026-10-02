@@ -25,9 +25,13 @@ st.set_page_config(page_title="Disk Failure Self-Healing Agent", layout="wide")
 st.title("Disk Failure Self-Healing Agent — Fleet & Trust Dashboard")
 
 
-def _get(path: str) -> dict:
+def _get(path: str, *, empty_on_404: bool = False) -> dict:
+    """`empty_on_404`: some endpoints (fleet state) legitimately 404 until
+    the agent has run a cycle - that's an empty state, not an error."""
     try:
         response = requests.get(f"{API_BASE_URL}{path}", timeout=5)
+        if empty_on_404 and response.status_code == 404:
+            return {}
         response.raise_for_status()
         return response.json()
     except requests.RequestException as exc:
@@ -50,17 +54,24 @@ tab_fleet, tab_trust, tab_approvals, tab_audit = st.tabs(
 )
 
 with tab_fleet:
-    fleet_state = _get("/api/v1/fleet/state")
+    fleet_state = _get("/api/v1/fleet/state", empty_on_404=True)
     drives = fleet_state.get("drives", [])
     if drives:
         by_state: dict[str, int] = {}
         for d in drives:
-            by_state[d["state"]] = by_state.get(d["state"], 0) + 1
+            label = str(d.get("state", "unknown"))
+            by_state[label] = by_state.get(label, 0) + 1
         st.metric("Total drives", len(drives))
         st.bar_chart(by_state)
         st.dataframe(drives)
     else:
-        st.info("No fleet state reported yet.")
+        st.info(
+            "No fleet state reported yet - the API only has one after the agent "
+            "has run a decision cycle."
+        )
+    if st.button("Run agent cycle"):
+        if _post("/api/v1/agent/run-cycle", {}):
+            st.rerun()
 
 with tab_trust:
     trend = _get("/api/v1/reliability/trust-trend").get("trust_trend", [])
