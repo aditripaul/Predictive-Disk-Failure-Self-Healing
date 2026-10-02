@@ -27,19 +27,36 @@ never touches gold_features or the label table itself, so its own address
 space stays clean for everything that runs after.
 
 Once the join itself stopped crashing, the next failure on real data
-moved one step downstream: `main()` used to collect all three splits
-(train/validation/test) as full eager, full-width DataFrames in one go,
-then build a second, similarly sized numpy copy of each while the
+moved one step downstream, TWICE. First, `main()` collected all three
+splits (train/validation/test) as full eager, full-width DataFrames in
+one go, then built a second, similarly sized numpy copy of each while the
 DataFrame was still alive - several times the size of even the largest
-single split, at a scale (tens of millions of rows) where a single clean
-copy of the train split alone was already multiple GB. `main()` now
-collects each split ONE AT A TIME, each projected at scan time to only
-the columns it actually needs (see the split-extraction block below), and
-additionally caps the train split's row count (DEFAULT_MAX_TRAIN_ROWS /
-`model.max_train_rows`, _subsampled_train_lazy) - keeping every failure
-(positive-label) row and randomly subsampling negatives down to the cap -
-since even a single copy of a real quarter's full train split no longer
-reliably fits regardless of how many redundant copies are removed.
+single split. Collecting each split ONE AT A TIME instead, each projected
+at scan time to only the columns it needs, plus capping the train split's
+row count (DEFAULT_MAX_TRAIN_ROWS / `model.max_train_rows`,
+_subsampled_train_lazy - every failure/positive-label row is kept, and
+negative rows are randomly subsampled down to the cap), fixed that - but
+on real data the very next split's collect then failed anyway, with a
+plain `OSError: Cannot allocate memory`, even though its own share of the
+data was much smaller than train's. The reason is the same jemalloc/
+RLIMIT_AS high-water-mark effect described above, one level down: doing
+train's collect, validation's collect, and test's collect all in the same
+top-level orchestrator process means each later collect inherits
+whatever peak the earlier ones left behind, never mind that any one of
+them individually would fit.
+
+So split extraction moved into the SAME subprocess as the join (`--stage
+assemble`, now given a `--work-dir` rather than a single `--frame-path`):
+it assembles the frame, then immediately collects and caps each split
+inside itself, writing each one out as a small, already-converted
+artifact (`x_train.npy`/`y_train.npy`/`x_val.npy`/`y_val.npy`, a narrow
+`test_df.parquet`, and a `split_meta.json` with the row counts and
+`feature_columns`) before exiting. The top-level orchestrator now never
+scans or filters the assembled frame itself at all - it only loads these
+already-small, already-final artifacts (a few GB `np.load` and a narrow
+Parquet read, not a multi-column scan+filter+cast+collect pipeline), so
+there is no heavy Polars work left in its own process to leave a
+high-water mark behind in the first place.
 """
 
 from __future__ import annotations
@@ -155,11 +172,19 @@ def _require_gold_inputs(data_config: dict) -> tuple[Path, Path]:
     return features_path, labels_path
 
 
-def _stage_assemble(frame_path: Path) -> None:
+def _stage_assemble(work_dir: Path) -> None:
     """Subprocess stage: joins gold features to the label table for the
-    primary horizon and writes the result to `frame_path`. See the module
-    docstring for why this runs in its own process rather than as the
-    first step of `main()`."""
+    primary horizon, then immediately collects and caps each split into a
+    small, already-converted artifact under `work_dir` - `x_train.npy`/
+    `y_train.npy`/`x_val.npy`/`y_val.npy`, a narrow `test_df.parquet`, and
+    a `split_meta.json` with `feature_columns` and each split's row count.
+
+    Both the join AND the split extraction run here, in the same process,
+    rather than the join alone: see the module docstring for why the very
+    next split's collect failed with a plain OSError even when its own
+    share of the data was much smaller than train's, once collecting
+    train/validation/test was moved out of `main()`'s single dict
+    comprehension but still ran sequentially in `main()`'s own process."""
     configure_logging()
     apply_memory_limit_from_config()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
@@ -181,6 +206,8 @@ def _stage_assemble(frame_path: Path) -> None:
     labels = pl.scan_parquet(labels_path)
 
     horizon_days = model_config["primary_horizon_days"]
+    work_dir.mkdir(parents=True, exist_ok=True)
+    frame_path = work_dir / "frame.parquet"
     t0 = time.perf_counter()
     # gold_features_path lets assemble_training_frame join by gold
     # features' own existing row groups (one per batch, already written
@@ -201,7 +228,6 @@ def _stage_assemble(frame_path: Path) -> None:
     # every batch's own join succeeded, and reassembling them all into
     # one eager DataFrame right before writing it straight back out
     # (which frame.write_parquet(...) below used to do) is what failed.
-    frame_path.parent.mkdir(parents=True, exist_ok=True)
     assemble_training_frame(
         gold_features,
         labels,
@@ -219,6 +245,110 @@ def _stage_assemble(frame_path: Path) -> None:
     row_count = pl.scan_parquet(frame_path).select(pl.len()).collect().item()
     column_count = len(pl.scan_parquet(frame_path).collect_schema().names())
     _log_stage("training_frame_assembled", t0, row_count=row_count, column_count=column_count)
+
+    # Split row counts read via a projection to just `split` - one narrow
+    # column, cheap regardless of the frame's ~196-column width - rather
+    # than collecting any split to check it's non-empty.
+    split_counts_df = (
+        pl.scan_parquet(frame_path).group_by("split").agg(pl.len().alias("count")).collect()
+    )
+    if split_counts_df.height == 0:
+        raise ValueError(
+            f"No rows with an observed (non-censored) {horizon_days}-day label. "
+            "This is expected against the synthetic stub dataset, which has too "
+            "short a history for any row to reach horizon observability - it will "
+            "resolve once real Backblaze data (Phase 1) is ingested."
+        )
+    split_counts = dict(
+        zip(split_counts_df["split"].to_list(), split_counts_df["count"].to_list(), strict=True)
+    )
+    empty_splits = [
+        name for name in ("train", "validation", "test") if split_counts.get(name, 0) == 0
+    ]
+    if empty_splits:
+        raise ValueError(
+            f"Split(s) {empty_splits} have no observed-label rows for "
+            f"horizon={horizon_days}d. Ensure the chronological split boundaries "
+            "in configs/model.yaml align with the ingested data's date range."
+        )
+
+    # A schema-only read (no rows) is enough for select_feature_columns,
+    # which only inspects `.columns`/`.dtypes`.
+    feature_columns = select_feature_columns(pl.scan_parquet(frame_path).limit(0).collect())
+
+    # Splits are collected ONE AT A TIME below, each projected down to
+    # only the columns it actually needs, rather than all three collected
+    # together as full ~196-column frames. At fleet scale (tens of
+    # millions of rows for a real quarter) that meant peak memory was
+    # several times the size of even the largest single split: all three
+    # full-width splits alive simultaneously, then a second, similarly
+    # sized numpy copy per split built while the source Polars frame was
+    # STILL alive. The train split is additionally capped - see
+    # DEFAULT_MAX_TRAIN_ROWS and _subsampled_train_lazy - because even a
+    # single clean copy of every real quarter's full train split no
+    # longer fits in the memory cap, regardless of how many redundant
+    # copies are removed. Each result is written to `work_dir` as soon as
+    # it's built rather than kept as a Python object, so this subprocess
+    # can exit (unmapping its entire address space) as soon as the last
+    # one is written - see the module docstring for why that matters even
+    # though every individual split, on its own, fits comfortably.
+    t0 = time.perf_counter()
+    max_train_rows = model_config["model"].get("max_train_rows", DEFAULT_MAX_TRAIN_ROWS)
+    train_lazy = _subsampled_train_lazy(
+        pl.scan_parquet(frame_path).filter(pl.col("split") == "train"),
+        max_rows=max_train_rows,
+    )
+    train_df = train_lazy.select([*feature_columns, "label"]).collect()
+    train_row_count = train_df.height
+    np.save(work_dir / "x_train.npy", feature_matrix(train_df, feature_columns))
+    np.save(work_dir / "y_train.npy", train_df["label"].to_numpy())
+    del train_df
+    gc.collect()
+
+    validation_df = (
+        pl.scan_parquet(frame_path)
+        .filter(pl.col("split") == "validation")
+        .select([*feature_columns, "label"])
+        .collect()
+    )
+    np.save(work_dir / "x_val.npy", feature_matrix(validation_df, feature_columns))
+    np.save(work_dir / "y_val.npy", validation_df["label"].to_numpy())
+    del validation_df
+    gc.collect()
+
+    # Kept as a narrow Parquet file rather than also converted to numpy:
+    # main() still needs test's drive_id/event_type/days_to_event columns
+    # (for the warning-lead-time metric) alongside its feature matrix, not
+    # just x_test/y_test.
+    test_df = (
+        pl.scan_parquet(frame_path)
+        .filter(pl.col("split") == "test")
+        .select([*feature_columns, "label", "drive_id", "event_type", "days_to_event"])
+        .collect()
+    )
+    test_df.write_parquet(work_dir / "test_df.parquet", compression="zstd")
+    del test_df
+    gc.collect()
+
+    (work_dir / "split_meta.json").write_text(
+        json.dumps(
+            {
+                "feature_columns": feature_columns,
+                "train_row_count": train_row_count,
+                "train_before_cap": split_counts["train"],
+                "validation_row_count": split_counts["validation"],
+                "test_row_count": split_counts["test"],
+            }
+        )
+    )
+    _log_stage(
+        "splits_extracted",
+        t0,
+        train=train_row_count,
+        train_before_cap=split_counts["train"],
+        validation=split_counts["validation"],
+        test=split_counts["test"],
+    )
 
 
 def _run_stage(*args: str) -> None:
@@ -267,17 +397,19 @@ def _subsampled_train_lazy(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--stage", choices=["assemble"])
-    parser.add_argument("--frame-path", type=Path)
+    parser.add_argument("--work-dir", type=Path)
     args = parser.parse_args()
 
     if args.stage == "assemble":
-        _stage_assemble(args.frame_path)
+        _stage_assemble(args.work_dir)
         return
 
     # No --stage: the top-level orchestrator. It never itself scans
-    # gold_features or the label table - only the assemble subprocess it
-    # spawns does - so its own address space stays clean for splits, model
-    # training, and SHAP, no matter how large the join was.
+    # gold_features, the label table, or the assembled training frame -
+    # only the assemble subprocess it spawns does, all the way through
+    # collecting and capping each split - so its own address space stays
+    # clean for model training and SHAP, no matter how large the join or
+    # the splits were. See the module docstring.
     configure_logging()
     apply_memory_limit_from_config()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
@@ -286,98 +418,33 @@ def main() -> None:
     _require_gold_inputs(data_config)
 
     horizon_days = model_config["primary_horizon_days"]
-    frame_tmp_dir = Path(tempfile.mkdtemp(prefix="train_model_frame_"))
-    frame_path = frame_tmp_dir / "frame.parquet"
+    work_dir = Path(tempfile.mkdtemp(prefix="train_model_frame_"))
     try:
-        _run_stage("--stage", "assemble", "--frame-path", str(frame_path))
-
-        # Split row counts read via a projection to just `split` - one
-        # narrow column, cheap regardless of the frame's ~196-column
-        # width - rather than collecting any split to check it's
-        # non-empty.
-        split_counts_df = (
-            pl.scan_parquet(frame_path).group_by("split").agg(pl.len().alias("count")).collect()
-        )
-        if split_counts_df.height == 0:
-            raise ValueError(
-                f"No rows with an observed (non-censored) {horizon_days}-day label. "
-                "This is expected against the synthetic stub dataset, which has too "
-                "short a history for any row to reach horizon observability - it will "
-                "resolve once real Backblaze data (Phase 1) is ingested."
-            )
-        split_counts = dict(
-            zip(
-                split_counts_df["split"].to_list(),
-                split_counts_df["count"].to_list(),
-                strict=True,
-            )
-        )
-        empty_splits = [
-            name for name in ("train", "validation", "test") if split_counts.get(name, 0) == 0
-        ]
-        if empty_splits:
-            raise ValueError(
-                f"Split(s) {empty_splits} have no observed-label rows for "
-                f"horizon={horizon_days}d. Ensure the chronological split boundaries "
-                "in configs/model.yaml align with the ingested data's date range."
-            )
-
-        # A schema-only read (no rows) is enough for select_feature_columns,
-        # which only inspects `.columns`/`.dtypes` - the assembled frame
-        # itself is never read into this process as one eager object.
-        feature_columns = select_feature_columns(pl.scan_parquet(frame_path).limit(0).collect())
-
-        # Splits are collected ONE AT A TIME below, each projected down to
-        # only the columns it actually needs, rather than all three
-        # collected together as full ~196-column frames (the previous
-        # approach). At fleet scale (tens of millions of rows for a real
-        # quarter) that meant peak memory was several times the size of
-        # even the largest single split: all three full-width splits alive
-        # simultaneously, then a second, similarly sized numpy copy per
-        # split built while the source Polars frame was STILL alive. Doing
-        # one split at a time, narrowed to just the columns it needs,
-        # bounds peak memory to roughly one split's worth instead. The
-        # train split is additionally capped - see DEFAULT_MAX_TRAIN_ROWS
-        # and _subsampled_train_lazy - because even a single clean copy of
-        # every real quarter's full train split no longer fits in the
-        # memory cap, regardless of how many redundant copies are removed.
         t0 = time.perf_counter()
-        max_train_rows = model_config["model"].get("max_train_rows", DEFAULT_MAX_TRAIN_ROWS)
-        train_lazy = _subsampled_train_lazy(
-            pl.scan_parquet(frame_path).filter(pl.col("split") == "train"),
-            max_rows=max_train_rows,
-        )
-        train_df = train_lazy.select([*feature_columns, "label"]).collect()
-        x_train = feature_matrix(train_df, feature_columns)
-        y_train = train_df["label"].to_numpy()
-        train_row_count = train_df.height
-        # Same reasoning as `frame` above: once copied into numpy arrays,
-        # `train_df` (often the largest split, and still every feature
-        # column wide) is dead weight for the rest of the run - model
-        # training, SHAP, and model-card generation never touch it again.
-        del train_df
-        gc.collect()
+        _run_stage("--stage", "assemble", "--work-dir", str(work_dir))
+
+        split_meta = json.loads((work_dir / "split_meta.json").read_text())
+        feature_columns = split_meta["feature_columns"]
+        x_train = np.load(work_dir / "x_train.npy")
+        y_train = np.load(work_dir / "y_train.npy")
 
         mlflow.set_tracking_uri(model_config["mlflow"]["tracking_uri"])
         mlflow.set_experiment(model_config["mlflow"]["experiment_name"])
 
-        validation_df = (
-            pl.scan_parquet(frame_path)
-            .filter(pl.col("split") == "validation")
-            .select([*feature_columns, "label"])
-            .collect()
-        )
-        x_val = feature_matrix(validation_df, feature_columns)
-        y_val = validation_df["label"].to_numpy()
-        del validation_df
-        gc.collect()
+        x_val = np.load(work_dir / "x_val.npy")
+        y_val = np.load(work_dir / "y_val.npy")
+        # Distinct from _stage_assemble's own "splits_extracted" log: this
+        # one times the round trip through the assemble subprocess
+        # (spawn, join, split extraction, and loading the compact
+        # artifacts back) as seen from main(), not the split extraction
+        # itself.
         _log_stage(
-            "splits_extracted",
+            "splits_loaded",
             t0,
-            train=train_row_count,
-            train_before_cap=split_counts["train"],
-            validation=split_counts["validation"],
-            test=split_counts["test"],
+            train=split_meta["train_row_count"],
+            train_before_cap=split_meta["train_before_cap"],
+            validation=split_meta["validation_row_count"],
+            test=split_meta["test_row_count"],
         )
 
         model_type = model_config["model"].get("type", "lightgbm")
@@ -444,20 +511,13 @@ def main() -> None:
                 y_val, val_scores, threshold_result["threshold"]
             )
 
-            # Collected here, right before its first use, rather than
-            # up front with train/validation: test is only needed from
-            # this point on, so collecting it earlier would just extend
-            # how long it overlaps with x_train/train_df in memory for no
-            # benefit. Projected to feature_columns plus the handful of
-            # extra columns compute_warning_lead_time_days needs below
-            # (drive_id, event_type, days_to_event), not every column in
-            # the assembled frame.
-            test_df = (
-                pl.scan_parquet(frame_path)
-                .filter(pl.col("split") == "test")
-                .select([*feature_columns, "label", "drive_id", "event_type", "days_to_event"])
-                .collect()
-            )
+            # Loaded here, right before its first use, rather than up
+            # front with train/validation: test is only needed from this
+            # point on. Already narrowed to feature_columns plus the
+            # handful of extra columns compute_warning_lead_time_days
+            # needs below (drive_id, event_type, days_to_event) by the
+            # assemble subprocess that wrote it - see _stage_assemble.
+            test_df = pl.read_parquet(work_dir / "test_df.parquet")
             x_test = feature_matrix(test_df, feature_columns)
             y_test = test_df["label"].to_numpy()
             test_scores = predict_proba_positive(model, x_test)
@@ -649,7 +709,7 @@ def main() -> None:
             logger.info("shap_feature_importance_written", path=str(shap_report_path))
             logger.info("model_card_written", path=str(model_card_md_path))
     finally:
-        shutil.rmtree(frame_tmp_dir, ignore_errors=True)
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
