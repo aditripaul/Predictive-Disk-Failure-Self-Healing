@@ -107,6 +107,42 @@ def test_drive_batched_inner_join_empty_result_keeps_the_joined_schema():
     assert set(out.columns) == {"drive_id", "date", "f0", "label"}
 
 
+def test_drive_batched_inner_join_out_path_matches_the_returned_dataframe(tmp_path):
+    """out_path is the actual production path now (pipelines/train_model.py
+    always passes it) - the whole point is that the joined result is
+    NEVER held as one eager DataFrame, so this must be checked by reading
+    the written file back, not by inspecting a return value (out_path
+    returns None)."""
+    wide, narrow = _wide_and_narrow_fixture(n_drives=15, days=10, seed=4)
+    direct = wide.join(narrow, on=["drive_id", "date"], how="inner")
+    key = ["drive_id", "date"]
+
+    path = tmp_path / "joined.parquet"
+    result = drive_batched_inner_join(
+        wide.lazy(), narrow.lazy(), on=["drive_id", "date"], n_batches=5, out_path=path
+    )
+    assert result is None
+    out = pl.read_parquet(path)
+    assert out.sort(key).equals(direct.sort(key).select(out.columns))
+
+
+def test_drive_batched_inner_join_out_path_empty_result_writes_the_joined_schema(tmp_path):
+    """Covers _finalize_batched_join's empty-batches branch: when every
+    batch is empty, no ParquetWriter is ever opened, so the empty schema
+    must still be written explicitly rather than leaving no file at
+    all."""
+    wide = pl.DataFrame({"drive_id": ["X"], "date": [dt.date(2024, 1, 1)], "f0": [1.0]})
+    narrow = pl.DataFrame({"drive_id": ["Y"], "date": [dt.date(2024, 1, 1)], "label": [1]})
+    path = tmp_path / "joined.parquet"
+    result = drive_batched_inner_join(
+        wide.lazy(), narrow.lazy(), on=["drive_id", "date"], n_batches=4, out_path=path
+    )
+    assert result is None
+    out = pl.read_parquet(path)
+    assert out.shape == (0, 4)
+    assert set(out.columns) == {"drive_id", "date", "f0", "label"}
+
+
 def test_join_by_native_row_groups_matches_a_direct_join_across_row_group_counts(tmp_path):
     """Covers the two things build_gold_features.py's own writer can
     produce: a single row group (small datasets never split) and
@@ -159,6 +195,28 @@ def test_join_by_native_row_groups_empty_result_keeps_the_joined_schema(tmp_path
     assert set(out.columns) == {"drive_id", "date", "f0", "label"}
 
 
+def test_join_by_native_row_groups_out_path_matches_the_returned_dataframe(tmp_path):
+    """Same production-path check as drive_batched_inner_join's out_path
+    test, for the row-group-native join path assemble_training_frame
+    actually uses in pipelines/train_model.py."""
+    wide, narrow = _wide_and_narrow_fixture(n_drives=15, days=12, seed=5)
+    direct = wide.join(narrow, on=["drive_id", "date"], how="inner")
+    key = ["drive_id", "date"]
+
+    wide_path = tmp_path / "wide.parquet"
+    writer = pq.ParquetWriter(wide_path, wide.to_arrow().schema)
+    writer.write_table(wide.to_arrow(), row_group_size=25)
+    writer.close()
+
+    out_path = tmp_path / "joined.parquet"
+    result = join_by_native_row_groups(
+        wide_path, narrow.lazy(), on=["drive_id", "date"], out_path=out_path
+    )
+    assert result is None
+    out = pl.read_parquet(out_path)
+    assert out.sort(key).equals(direct.sort(key).select(out.columns))
+
+
 def test_assemble_training_frame_gold_features_path_matches_the_in_memory_path(tmp_path):
     """pipelines/train_model.py always passes gold_features_path now, so
     this is the actual production code path - pins it against the
@@ -187,6 +245,43 @@ def test_assemble_training_frame_gold_features_path_matches_the_in_memory_path(t
         gold_features_path=path,
     )
     key = ["drive_id", "date"]
+    assert baseline.sort(key).equals(via_path.sort(key).select(baseline.columns))
+
+
+def test_assemble_training_frame_out_path_matches_the_in_memory_path(tmp_path):
+    """The exact combination pipelines/train_model.py's _stage_assemble
+    now uses in production: gold_features_path (join by native row
+    groups) plus out_path (write incrementally, never hold the full
+    joined training frame as one eager DataFrame). This is the code path
+    that fixed the crash that happened right after all row groups
+    processed successfully - every earlier test either returns a
+    DataFrame or exercises out_path alone, not both together."""
+    wide, narrow = _wide_and_narrow_fixture(n_drives=20, days=10, seed=6)
+    wide = wide.with_columns(pl.lit("Seagate HDD").alias("model_family"))
+    labels = narrow.rename({"label": "label"}).with_columns(
+        pl.lit(14, dtype=pl.Int64).alias("horizon_days"),
+        pl.lit("train").alias("split"),
+    )
+
+    baseline = assemble_training_frame(wide, labels, horizon_days=14)
+
+    gold_path = tmp_path / "gold.parquet"
+    writer = pq.ParquetWriter(gold_path, wide.to_arrow().schema)
+    writer.write_table(wide.to_arrow(), row_group_size=40)  # force several row groups
+    writer.close()
+
+    frame_path = tmp_path / "frame.parquet"
+    result = assemble_training_frame(
+        wide.lazy(),
+        labels,
+        horizon_days=14,
+        chunk_rows=17,
+        gold_features_path=gold_path,
+        out_path=frame_path,
+    )
+    assert result is None
+    key = ["drive_id", "date"]
+    via_path = pl.read_parquet(frame_path)
     assert baseline.sort(key).equals(via_path.sort(key).select(baseline.columns))
 
 

@@ -163,7 +163,19 @@ def _stage_assemble(frame_path: Path) -> None:
     # ~196-column, ~10GB (one real quarter) file once per batch just to
     # evaluate an unprunable filter. See src/models/features.py's
     # join_by_native_row_groups for the full explanation.
-    frame = assemble_training_frame(
+    #
+    # out_path=frame_path: the joined training frame can itself be tens
+    # of millions of rows at fleet scale, and this function was just
+    # going to write it to frame_path immediately after anyway - passing
+    # the destination straight through means it's written incrementally,
+    # one batch at a time, and never exists as a single eager DataFrame
+    # in this process at all. Against real Q1 data, this was the actual
+    # remaining crash after every earlier fix in this join's history:
+    # every batch's own join succeeded, and reassembling them all into
+    # one eager DataFrame right before writing it straight back out
+    # (which frame.write_parquet(...) below used to do) is what failed.
+    frame_path.parent.mkdir(parents=True, exist_ok=True)
+    assemble_training_frame(
         gold_features,
         labels,
         horizon_days=horizon_days,
@@ -172,12 +184,14 @@ def _stage_assemble(frame_path: Path) -> None:
             "training_join_chunk_rows", DEFAULT_TRAINING_JOIN_CHUNK_ROWS
         ),
         gold_features_path=features_path,
+        out_path=frame_path,
     )
-    _log_stage(
-        "training_frame_assembled", t0, row_count=frame.height, column_count=len(frame.columns)
-    )
-    frame_path.parent.mkdir(parents=True, exist_ok=True)
-    frame.write_parquet(frame_path, compression="zstd")
+    # row_count/column_count read back from the written file - cheap,
+    # metadata-only for the count - rather than from the DataFrame this
+    # function no longer returns.
+    row_count = pl.scan_parquet(frame_path).select(pl.len()).collect().item()
+    column_count = len(pl.scan_parquet(frame_path).collect_schema().names())
+    _log_stage("training_frame_assembled", t0, row_count=row_count, column_count=column_count)
 
 
 def _run_stage(*args: str) -> None:

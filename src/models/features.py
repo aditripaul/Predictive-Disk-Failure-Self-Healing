@@ -48,15 +48,78 @@ NON_FEATURE_COLUMNS = {
 }
 
 
+def _finalize_batched_join(
+    part_paths: list[Path],
+    empty_result: pl.DataFrame,
+    *,
+    out_path: Path | None,
+) -> pl.DataFrame | None:
+    """Combines a batched join's already-spilled part files into the
+    final result.
+
+    When `out_path` is given, writes it there incrementally via a
+    Parquet row-group writer, one part per row group, and returns
+    `None` - the joined result is NEVER held as a single eager
+    DataFrame. This is required once that result can be tens of
+    millions of rows: `pipelines/train_model.py`'s training-frame join
+    got every earlier fix right (bounding the wide table's own read,
+    bounding each batch's join) and still crashed, because this final
+    step used to do `pl.concat([...]).collect()` - reassembling every
+    batch back into one eager ~26-30M-row DataFrame right after the
+    batching had successfully avoided ever materializing anything
+    that large. Since the caller (`_stage_assemble`) was just going to
+    `.write_parquet()` that DataFrame immediately anyway, writing each
+    batch straight to the destination - the same incremental-write
+    pattern `pipelines/build_gold_features.py`'s finalize stage already
+    uses - reaches the same end state without the pointless full
+    materialization in between.
+
+    When `out_path` is `None` (the default), concatenates the parts
+    into one eager DataFrame and returns it instead - correct and
+    proportionate for a genuinely small result, e.g.
+    `src/models/serving.py::latest_row_per_drive`'s one-row-per-drive
+    join, which a caller may need to keep working with in memory rather
+    than just writing to disk.
+
+    `empty_result` (an eager, correctly-shaped but zero-row DataFrame)
+    covers the case where `part_paths` is empty - either returned
+    directly, or written as a schema-correct empty file, so a caller's
+    `.height == 0` check or the written file's schema is well-formed
+    either way."""
+    if out_path is not None:
+        writer = None
+        try:
+            for path in part_paths:
+                part = pl.read_parquet(path)
+                table = part.to_arrow()
+                if writer is None:
+                    writer = pq.ParquetWriter(out_path, table.schema, compression="zstd")
+                writer.write_table(table)
+                del part, table
+                gc.collect()
+        finally:
+            if writer is not None:
+                writer.close()
+        if writer is None:
+            empty_result.write_parquet(out_path, compression="zstd")
+        return None
+
+    if not part_paths:
+        return empty_result
+    return pl.concat([pl.scan_parquet(p) for p in part_paths], how="vertical").collect()
+
+
 def chunked_inner_join(
     left: pl.DataFrame | pl.LazyFrame,
     right: pl.DataFrame | pl.LazyFrame,
     *,
     on: list[str],
     chunk_rows: int,
-) -> pl.DataFrame:
+    out_path: Path | None = None,
+) -> pl.DataFrame | None:
     """Inner-joins `left` to `right` in row slices of `left` rather than
-    all at once, concatenating the results.
+    all at once, concatenating the results (or, if `out_path` is given,
+    writing them there directly instead - see `_finalize_batched_join`).
 
     For a wide `scan_parquet` left side there is often nothing for the
     query engine to prune - every column is wanted, and the rows to keep
@@ -118,11 +181,11 @@ def chunked_inner_join(
             del part
             gc.collect()
 
-        if not chunk_paths:
-            # Preserve the joined schema rather than returning something a
-            # caller's `.height == 0`/column check can't introspect.
-            return left_lazy.slice(0, 0).join(right_lazy, on=on, how="inner").collect()
-        return pl.concat([pl.scan_parquet(p) for p in chunk_paths], how="vertical").collect()
+        # Preserve the joined schema rather than something a caller's
+        # `.height == 0`/column check (or the written file, if `out_path`
+        # is given) can't introspect.
+        empty_result = left_lazy.slice(0, 0).join(right_lazy, on=on, how="inner").collect()
+        return _finalize_batched_join(chunk_paths, empty_result, out_path=out_path)
 
 
 def drive_batched_inner_join(
@@ -131,7 +194,8 @@ def drive_batched_inner_join(
     *,
     on: list[str],
     n_batches: int,
-) -> pl.DataFrame:
+    out_path: Path | None = None,
+) -> pl.DataFrame | None:
     """Inner-joins `left` to `right` in batches of whole drives - both
     sides filtered to the SAME `hash(drive_id) % n_batches` bucket before
     joining, rather than slicing only `left` by row offset (see
@@ -195,7 +259,16 @@ def drive_batched_inner_join(
     frames - this was the one place that instead asked the query
     optimizer to fuse two hash-filters and a join into one lazy plan,
     which is the only thing that changed between "works" and that
-    ~354-quintillion-byte failure."""
+    ~354-quintillion-byte failure.
+
+    Pass `out_path` to write the combined result directly there instead
+    of returning it as one eager DataFrame - see
+    `_finalize_batched_join`. Required once the joined result can be
+    tens of millions of rows (the training frame at fleet scale): even
+    after every batch's own join is bounded, concatenating all of them
+    back into one eager DataFrame at the end reintroduces the exact
+    "materialize the whole thing" problem the batching was meant to
+    avoid."""
     left_lazy = left.lazy()
     right_lazy = right.lazy()
     batch_of_drive = pl.col("drive_id").hash(seed=0) % n_batches
@@ -213,13 +286,13 @@ def drive_batched_inner_join(
             del left_batch, right_batch, part
             gc.collect()
 
-        if not batch_paths:
-            # Preserve the joined schema rather than returning something a
-            # caller's `.height == 0`/column check can't introspect.
-            empty_left = left_lazy.filter(pl.lit(False)).collect()
-            empty_right = right_lazy.filter(pl.lit(False)).collect()
-            return empty_left.join(empty_right, on=on, how="inner")
-        return pl.concat([pl.scan_parquet(p) for p in batch_paths], how="vertical").collect()
+        # Preserve the joined schema rather than something a caller's
+        # `.height == 0`/column check (or the written file, if `out_path`
+        # is given) can't introspect.
+        empty_left = left_lazy.filter(pl.lit(False)).collect()
+        empty_right = right_lazy.filter(pl.lit(False)).collect()
+        empty_result = empty_left.join(empty_right, on=on, how="inner")
+        return _finalize_batched_join(batch_paths, empty_result, out_path=out_path)
 
 
 def _as_dataframe(value: object, *, context: str) -> pl.DataFrame:
@@ -241,7 +314,8 @@ def join_by_native_row_groups(
     *,
     on: list[str],
     max_rows_per_join: int | None = None,
-) -> pl.DataFrame:
+    out_path: Path | None = None,
+) -> pl.DataFrame | None:
     """Inner-joins the Parquet file at `wide_path` to `narrow`, reading
     `wide_path` by its OWN existing row groups rather than re-deriving
     batches with a fresh filter.
@@ -301,7 +375,20 @@ def join_by_native_row_groups(
     happens to have been written as one - a small dataset that never
     needed batching in build_gold_features.py, or any other single-row-
     group Parquet file, both handled correctly, just with no batching
-    benefit."""
+    benefit.
+
+    Pass `out_path` to write the combined result directly there instead
+    of returning it as one eager DataFrame - see
+    `_finalize_batched_join`. This is the reason this parameter exists
+    at all: against real Q1 data, every row group processed
+    successfully (confirming the row-group read and per-row-group join
+    were both correctly bounded), and the crash still happened - in the
+    final `pl.concat([...]).collect()` that used to run after this
+    loop, reassembling all ~30 batches back into one eager ~26-30M-row
+    DataFrame. `pipelines/train_model.py`'s caller was just going to
+    `.write_parquet()` that DataFrame immediately anyway, so writing
+    each batch directly to the destination avoids that pointless full
+    materialization entirely."""
     narrow_lazy = narrow.lazy()
     parquet_file = pq.ParquetFile(wide_path)
     logger.info(
@@ -350,14 +437,13 @@ def join_by_native_row_groups(
             del wide_batch, narrow_batch
             gc.collect()
 
-        if not batch_paths:
-            empty_wide = _as_dataframe(
-                pl.from_arrow(parquet_file.schema_arrow.empty_table()),
-                context=f"empty-schema fallback for {wide_path}",
-            )
-            empty_narrow = narrow_lazy.filter(pl.lit(False)).collect()
-            return empty_wide.join(empty_narrow, on=on, how="inner")
-        return pl.concat([pl.scan_parquet(p) for p in batch_paths], how="vertical").collect()
+        empty_wide = _as_dataframe(
+            pl.from_arrow(parquet_file.schema_arrow.empty_table()),
+            context=f"empty-schema fallback for {wide_path}",
+        )
+        empty_narrow = narrow_lazy.filter(pl.lit(False)).collect()
+        empty_result = empty_wide.join(empty_narrow, on=on, how="inner")
+        return _finalize_batched_join(batch_paths, empty_result, out_path=out_path)
 
 
 def assemble_training_frame(
@@ -368,7 +454,8 @@ def assemble_training_frame(
     label_columns: list[str] | None = None,
     chunk_rows: int | None = None,
     gold_features_path: Path | None = None,
-) -> pl.DataFrame:
+    out_path: Path | None = None,
+) -> pl.DataFrame | None:
     """Joins gold features to the label table for one horizon, keeping only
     rows with an observed (non-censored) label.
 
@@ -423,7 +510,19 @@ def assemble_training_frame(
     ignored once a path is available. `drive_batched_inner_join` remains
     the fallback when no path is given - e.g. for callers/tests using an
     in-memory or non-Parquet `gold_features` - since it needs an actual
-    file to read row groups from."""
+    file to read row groups from.
+
+    Pass `out_path` to write the result directly there instead of
+    returning it as one eager DataFrame (returns `None` when given) -
+    see `_finalize_batched_join`. `pipelines/train_model.py` always
+    passes this: at fleet scale the joined training frame can be tens
+    of millions of rows, and it was just going to `.write_parquet()`
+    whatever this function returned anyway, so materializing it as one
+    eager object first was pure waste - and, against real Q1 data, the
+    actual remaining crash after every other fix in this join's history:
+    every batch's own join succeeded, and the final
+    `pl.concat([...]).collect()` that used to run after them (silently
+    reassembling the whole result) is what failed."""
     horizon_labels = labels.lazy().filter(
         (pl.col("horizon_days") == horizon_days) & pl.col("label").is_not_null()
     )
@@ -431,9 +530,13 @@ def assemble_training_frame(
         horizon_labels = horizon_labels.select(label_columns)
 
     if chunk_rows is None:
-        return gold_features.lazy().join(
+        result = gold_features.lazy().join(
             horizon_labels, on=["drive_id", "date"], how="inner"
         ).collect()
+        if out_path is not None:
+            result.write_parquet(out_path, compression="zstd")
+            return None
+        return result
 
     if gold_features_path is not None:
         return join_by_native_row_groups(
@@ -441,12 +544,17 @@ def assemble_training_frame(
             horizon_labels,
             on=["drive_id", "date"],
             max_rows_per_join=chunk_rows,
+            out_path=out_path,
         )
 
     total_rows = gold_features.lazy().select(pl.len()).collect().item()
     n_batches = max(1, math.ceil(total_rows / chunk_rows))
     return drive_batched_inner_join(
-        gold_features, horizon_labels, on=["drive_id", "date"], n_batches=n_batches
+        gold_features,
+        horizon_labels,
+        on=["drive_id", "date"],
+        n_batches=n_batches,
+        out_path=out_path,
     )
 
 

@@ -32,7 +32,7 @@ from data_contracts.schemas import (
     PredictionOutput,
 )
 from src.models.action_tiers import determine_action_tier
-from src.models.features import chunked_inner_join
+from src.models.features import _as_dataframe, chunked_inner_join
 from src.models.training import predict_proba_positive
 
 #: Columns every row of `latest_features` must carry beyond the model's
@@ -91,8 +91,12 @@ def latest_row_per_drive(
         .group_by("drive_id")
         .agg(pl.col("date").max().alias("date"))
     )
-    return chunked_inner_join(
-        scan, latest_dates, on=["drive_id", "date"], chunk_rows=chunk_rows
+    # No out_path is passed, so chunked_inner_join always returns a
+    # DataFrame here at runtime - _as_dataframe narrows the type instead
+    # of a bare assert (which vanishes under -O).
+    return _as_dataframe(
+        chunked_inner_join(scan, latest_dates, on=["drive_id", "date"], chunk_rows=chunk_rows),
+        context="latest_row_per_drive's chunked join",
     )
 
 
