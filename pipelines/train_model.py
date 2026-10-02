@@ -64,12 +64,29 @@ whatever high-water mark the earlier splits' collects had left behind in
 that same process, even though any one split alone fit comfortably.
 Attempt 3 moved ALL split collection into the join's own subprocess -
 failed again, because the join's OWN retained memory was enough to starve
-the very first split collected right after it. Only isolating EVERY
+the very first split collected right after it. Attempt 4 isolated EVERY
 distinct heavy Polars collect into its own process - the join, and each
-split separately - stopped failing. The lesson: reasoning about which
-step is "the heavy one" and isolating just that is not enough; any two
-heavy steps sharing a process are unsafe together, regardless of how
-small either one is by itself.
+split separately - and got further, but a plain `scan_parquet(...)
+.filter(...).collect()` still failed even in a fully isolated process
+(attempt 5's fix: row-group-native reads, `_row_group_parts`), and even
+THAT still failed once fixed to spill each row group to disk instead of
+accumulating results in memory (attempt 6). Peak-RSS instrumentation
+(`_log_rss`) finally pinned attempt 6's failure exactly: forming ONE
+combined Polars DataFrame from all the spilled parts, then converting
+THAT to a numpy array, needed both the ~6GB combined DataFrame and a
+further ~3.7GB array alive at once - together enough to fail even though
+either one alone fit easily. Attempt 7 (`_build_feature_arrays`) builds
+the numpy array directly from the spilled parts instead, one part at a
+time, never forming a combined DataFrame at all.
+
+The lesson generalizes beyond "isolate the heavy step" (attempts 1-4) to
+"the SHAPE of how a result is built matters, not just which process it
+runs in" (attempts 5-7): reading a wide file needs explicit row-group
+discipline, a loop must spill and drop each iteration's result rather
+than accumulate them, and converting a large result to a different
+representation (Parquet -> Polars -> numpy) can itself double memory if
+the intermediate representation lingers - build directly into the final
+form instead of combining-then-converting through one.
 """
 
 from __future__ import annotations
@@ -331,14 +348,15 @@ def _stage_assemble(work_dir: Path) -> None:
     )
 
 
-def _collect_split_rows(
+def _row_group_parts(
     frame_path: Path,
     *,
     split_name: str,
     select_columns: list[str],
     read_columns: list[str],
-    extra_predicate: pl.Expr | None = None,
-) -> pl.DataFrame:
+    extra_predicate: pl.Expr | None,
+    tmp_dir: Path,
+) -> list[Path]:
     """Reads `frame_path` ONE PARQUET ROW GROUP AT A TIME via
     `pyarrow.parquet.ParquetFile.read_row_group` - the same technique
     `src/models/features.py::join_by_native_row_groups` already uses for
@@ -349,53 +367,121 @@ def _collect_split_rows(
     decode concurrently.
 
     Each row group's filtered/selected slice is spilled to its own small
-    temp Parquet file and dropped immediately, exactly like
-    `join_by_native_row_groups` - NOT accumulated as a live DataFrame in a
-    Python list across the whole loop, which an earlier version of this
-    function did. On real data that was enough, on its own, to fail the
-    final combination step even for train's OWN split (well within the
-    memory cap on its own): every row group's slice - summing to the
-    split's entire final size - stayed alive as Python objects for the
-    whole loop, on top of the per-row-group decode work, rather than each
-    one being written out and freed before the next row group is read.
-    `_finalize_batched_join` does the final combine, reading the spilled
-    parts back from disk - the same proven path `join_by_native_row_groups`
-    uses for its own, much larger, result.
+    temp Parquet file (under `tmp_dir`, caller-owned) and dropped
+    immediately, exactly like `join_by_native_row_groups` - NOT
+    accumulated as a live DataFrame in a Python list across the whole
+    loop, which an earlier version of this function did. On real data
+    that was enough, on its own, to fail a later step even for train's
+    OWN split (well within the memory cap on its own): every row group's
+    slice - summing to the split's entire final size - stayed alive as
+    Python objects for the whole loop, on top of the per-row-group decode
+    work, rather than each one being written out and freed before the
+    next row group is read.
 
     `read_columns` are the raw columns read from each row group (must
     cover `select_columns`, `"split"`, and anything `extra_predicate`
-    references); `select_columns` are what survives into the returned
-    DataFrame."""
+    references); `select_columns` are what survives into each part file.
+    Returns the spilled parts' paths - see `_collect_split_rows` (small
+    results: combine into one returned/written DataFrame via
+    `_finalize_batched_join`) and `_build_feature_arrays` (large results:
+    build a numpy array directly from the parts, without ever forming a
+    combined DataFrame at all) for what to do with them."""
+    parquet_file = pq.ParquetFile(frame_path)
+    part_paths: list[Path] = []
+    for i in range(parquet_file.num_row_groups):
+        table = parquet_file.read_row_group(i, columns=read_columns)
+        batch = _as_dataframe(pl.from_arrow(table), context=f"row group {i} of {frame_path}")
+        batch = batch.filter(pl.col("split") == split_name)
+        if extra_predicate is not None:
+            batch = batch.filter(extra_predicate)
+        if batch.height:
+            part = batch.select(select_columns)
+            path = tmp_dir / f"part_{i}.parquet"
+            part.write_parquet(path, compression="zstd")
+            part_paths.append(path)
+            del part
+        del table, batch
+        gc.collect()
+        _log_rss(f"{split_name}_row_group_{i}_done")
+    return part_paths
+
+
+def _collect_split_rows(
+    frame_path: Path,
+    *,
+    split_name: str,
+    select_columns: list[str],
+    read_columns: list[str],
+    extra_predicate: pl.Expr | None = None,
+    out_path: Path | None = None,
+) -> pl.DataFrame | None:
+    """Collects one split via `_row_group_parts`, then combines the
+    spilled parts through `_finalize_batched_join` - the same proven path
+    `join_by_native_row_groups` uses for its own, much larger, result.
+
+    Pass `out_path` to write the combined result directly there (one
+    part at a time, never forming a single combined DataFrame in this
+    process - see `_finalize_batched_join`) instead of returning it; used
+    by test's `_stage_extract_split` branch to write `test_df.parquet`
+    directly. Train and validation do NOT use this function at all, for
+    the same reason: they need a numpy array, not a DataFrame or a file,
+    and forming a combined DataFrame only to immediately convert it to a
+    numpy array meant both the combined DataFrame AND the array it
+    produced needed to be resident at once - on real data, together
+    enough to fail an allocation smaller than either one alone. See
+    `_build_feature_arrays`, which builds directly into the final array
+    instead."""
     parquet_file = pq.ParquetFile(frame_path)
     with tempfile.TemporaryDirectory() as tmp_dir:
-        part_paths: list[Path] = []
-        for i in range(parquet_file.num_row_groups):
-            table = parquet_file.read_row_group(i, columns=read_columns)
-            batch = _as_dataframe(pl.from_arrow(table), context=f"row group {i} of {frame_path}")
-            batch = batch.filter(pl.col("split") == split_name)
-            if extra_predicate is not None:
-                batch = batch.filter(extra_predicate)
-            if batch.height:
-                part = batch.select(select_columns)
-                path = Path(tmp_dir) / f"part_{i}.parquet"
-                part.write_parquet(path, compression="zstd")
-                part_paths.append(path)
-                del part
-            del table, batch
-            gc.collect()
-            _log_rss(f"{split_name}_row_group_{i}_done")
-
+        part_paths = _row_group_parts(
+            frame_path,
+            split_name=split_name,
+            select_columns=select_columns,
+            read_columns=read_columns,
+            extra_predicate=extra_predicate,
+            tmp_dir=Path(tmp_dir),
+        )
         empty = _as_dataframe(
             pl.from_arrow(parquet_file.schema_arrow.empty_table()),
             context=f"empty-schema fallback for {frame_path}",
         ).select(select_columns)
         _log_rss(f"{split_name}_row_groups_all_done")
-        result = _as_dataframe(
-            _finalize_batched_join(part_paths, empty, out_path=None),
-            context=f"_collect_split_rows({split_name}) of {frame_path}",
-        )
+        result = _finalize_batched_join(part_paths, empty, out_path=out_path)
         _log_rss(f"{split_name}_parts_combined")
-        return result
+        if out_path is not None:
+            return None
+        return _as_dataframe(result, context=f"_collect_split_rows({split_name}) of {frame_path}")
+
+
+def _build_feature_arrays(
+    part_paths: list[Path], feature_columns: list[str], *, label_column: str = "label"
+) -> tuple[np.ndarray, np.ndarray]:
+    """Builds `(x, y)` directly from `_row_group_parts`' spilled parts,
+    filling ONE pre-allocated array part by part - never forming a single
+    combined Polars DataFrame first, unlike `_collect_split_rows`'s
+    `out_path=None` path. On real data, that combined DataFrame (~6GB for
+    a 5-million-row, ~187-column train split - every part concatenated
+    into one Polars frame) plus the further numpy array `feature_matrix`
+    would then build FROM that combined frame were, together, enough to
+    fail an allocation (~3.7GB) smaller than either one alone. Building
+    directly into the final array instead means the only large thing
+    resident at any point is the array itself, plus one small part's own
+    data - never a second nearly-full-size copy alongside it."""
+    if not part_paths:
+        return np.empty((0, len(feature_columns)), dtype=np.float32), np.empty((0,))
+    total_rows = sum(pq.ParquetFile(p).metadata.num_rows for p in part_paths)
+    x = np.empty((total_rows, len(feature_columns)), dtype=np.float32)
+    y_parts: list[np.ndarray] = []
+    offset = 0
+    for path in part_paths:
+        part_df = pl.read_parquet(path)
+        n = part_df.height
+        x[offset : offset + n] = feature_matrix(part_df, feature_columns)
+        y_parts.append(part_df[label_column].to_numpy())
+        offset += n
+        del part_df
+        gc.collect()
+    return x, np.concatenate(y_parts)
 
 
 def _stage_extract_split(work_dir: Path, split_name: str) -> None:
@@ -416,9 +502,13 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
     failed to allocate memory it needed on its own. See the module
     docstring: every distinct heavy Polars collect needs its own
     process, not just every "phase" of the pipeline. Collects via
-    _collect_split_rows (native row-group reads), not a plain
+    row-group-native reads (`_row_group_parts`), not a plain
     scan+filter+collect - see that function's docstring for why a fully
-    isolated subprocess still wasn't enough on its own."""
+    isolated subprocess still wasn't enough on its own. Train and
+    validation build their numpy arrays directly from the spilled parts
+    (`_build_feature_arrays`), never forming a combined Polars DataFrame
+    first - see that function's docstring for why even THAT (row-group-
+    native, spilled-to-disk-per-part) still wasn't enough on its own."""
     configure_logging()
     apply_memory_limit_from_config()
     model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
@@ -452,56 +542,65 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
         )
         predicate = _train_sample_predicate(label_counts, max_rows=max_train_rows, seed=0)
         select_columns = [*feature_columns, "label"]
-        _log_rss("train_before_collect")
-        split_df = _collect_split_rows(
-            frame_path,
-            split_name="train",
-            select_columns=select_columns,
-            read_columns=sorted({*select_columns, "split", "drive_id", "date"}),
-            extra_predicate=predicate,
-        )
-        _log_rss("train_after_collect")
-        x_train = feature_matrix(split_df, feature_columns)
-        _log_rss("train_after_feature_matrix")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            part_paths = _row_group_parts(
+                frame_path,
+                split_name="train",
+                select_columns=select_columns,
+                read_columns=sorted({*select_columns, "split", "drive_id", "date"}),
+                extra_predicate=predicate,
+                tmp_dir=Path(tmp_dir),
+            )
+            _log_rss("train_row_groups_all_done")
+            x_train, y_train = _build_feature_arrays(part_paths, feature_columns)
+        _log_rss("train_after_build_arrays")
+        row_count = len(y_train)
         np.save(work_dir / "x_train.npy", x_train)
         del x_train
         _log_rss("train_after_x_saved")
-        np.save(work_dir / "y_train.npy", split_df["label"].to_numpy())
+        np.save(work_dir / "y_train.npy", y_train)
         _log_rss("train_after_y_saved")
     elif split_name == "validation":
         select_columns = [*feature_columns, "label"]
-        _log_rss("validation_before_collect")
-        split_df = _collect_split_rows(
-            frame_path,
-            split_name="validation",
-            select_columns=select_columns,
-            read_columns=sorted({*select_columns, "split"}),
-        )
-        _log_rss("validation_after_collect")
-        x_val = feature_matrix(split_df, feature_columns)
-        _log_rss("validation_after_feature_matrix")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            part_paths = _row_group_parts(
+                frame_path,
+                split_name="validation",
+                select_columns=select_columns,
+                read_columns=sorted({*select_columns, "split"}),
+                extra_predicate=None,
+                tmp_dir=Path(tmp_dir),
+            )
+            _log_rss("validation_row_groups_all_done")
+            x_val, y_val = _build_feature_arrays(part_paths, feature_columns)
+        _log_rss("validation_after_build_arrays")
+        row_count = len(y_val)
         np.save(work_dir / "x_val.npy", x_val)
         del x_val
         _log_rss("validation_after_x_saved")
-        np.save(work_dir / "y_val.npy", split_df["label"].to_numpy())
+        np.save(work_dir / "y_val.npy", y_val)
         _log_rss("validation_after_y_saved")
     else:
         # Kept as a narrow Parquet file rather than also converted to
         # numpy: main() still needs test's drive_id/event_type/
         # days_to_event columns (for the warning-lead-time metric)
-        # alongside its feature matrix, not just x_test/y_test.
+        # alongside its feature matrix, not just x_test/y_test. Written
+        # directly via out_path - _collect_split_rows never forms a
+        # combined DataFrame in this process either, for test's own
+        # (uncapped, so potentially just as large as train's) size.
         select_columns = [*feature_columns, "label", "drive_id", "event_type", "days_to_event"]
-        split_df = _collect_split_rows(
+        _collect_split_rows(
             frame_path,
             split_name="test",
             select_columns=select_columns,
             read_columns=sorted({*select_columns, "split"}),
+            out_path=work_dir / "test_df.parquet",
         )
-        split_df.write_parquet(work_dir / "test_df.parquet", compression="zstd")
+        _log_rss("test_written")
+        row_count = (
+            pl.scan_parquet(work_dir / "test_df.parquet").select(pl.len()).collect().item()
+        )
 
-    row_count = split_df.height
-    del split_df
-    gc.collect()
     (work_dir / f"{split_name}_meta.json").write_text(json.dumps({"row_count": row_count}))
     _log_stage(f"{split_name}_split_extracted", t0, row_count=row_count)
 

@@ -9,20 +9,31 @@ _collect_split_rows and _train_sample_predicate cover the row-group-
 native split extraction _stage_extract_split uses instead of a plain
 scan_parquet(...).filter(...).collect() - see _collect_split_rows'
 docstring for why a fully isolated, otherwise-idle subprocess still
-wasn't enough on real data."""
+wasn't enough on real data.
+
+_build_feature_arrays covers the further fix on top of that: it builds
+(x, y) directly from _row_group_parts' spilled parts rather than
+combining them into one Polars DataFrame first and converting that -
+which, on real data, needed a combined DataFrame and a further numpy
+array alive at once, together enough to fail an allocation smaller than
+either alone."""
 
 import datetime as dt
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
 
 from pipelines.train_model import (
+    _build_feature_arrays,
     _collect_split_rows,
+    _row_group_parts,
     _subsampled_train_lazy,
     _train_sample_predicate,
 )
-from src.models.features import drive_batched_inner_join
+from src.models.features import drive_batched_inner_join, feature_matrix
 
 
 def _labeled_frame(n_rows: int = 20_000, positive_fraction: float = 0.01, seed: int = 0):
@@ -204,3 +215,46 @@ def test_finalize_batched_join_out_path_writes_one_row_group_per_batch(tmp_path)
     )
     assert result is None
     assert pq.ParquetFile(out_path).num_row_groups == 1
+
+
+def test_build_feature_arrays_matches_feature_matrix_across_multiple_parts(tmp_path):
+    """_build_feature_arrays must produce exactly what feature_matrix
+    would from the SAME rows combined into one DataFrame - it's meant to
+    be a drop-in replacement for "combine into one DataFrame, then call
+    feature_matrix on it", not a different computation, just built
+    without ever forming that combined DataFrame. The source frame is
+    already train-only and untouched by row-group boundaries (each
+    group's rows are written and read back in place), so row order must
+    come out identical too, not just the same set of rows."""
+    frame = _split_frame(n_drives=15, days=12, seed=4).filter(pl.col("split") == "train")
+    feature_columns = ["f0"]
+    expected_x = feature_matrix(frame, feature_columns)
+    expected_y = frame["label"].to_numpy()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        part_paths = _row_group_parts(
+            _write_parquet(tmp_path / "frame.parquet", frame, row_group_size=7),
+            split_name="train",
+            select_columns=["f0", "label"],
+            read_columns=["f0", "label", "split"],
+            extra_predicate=None,
+            tmp_dir=Path(tmp_dir),
+        )
+        x, y = _build_feature_arrays(part_paths, feature_columns)
+
+    np.testing.assert_array_equal(x, expected_x)
+    np.testing.assert_array_equal(y, expected_y)
+
+
+def test_build_feature_arrays_empty_parts_returns_correctly_shaped_arrays():
+    x, y = _build_feature_arrays([], ["f0", "f1"])
+    assert x.shape == (0, 2)
+    assert y.shape == (0,)
+    assert x.dtype == np.float32
+
+
+def _write_parquet(path: Path, df: pl.DataFrame, *, row_group_size: int) -> Path:
+    writer = pq.ParquetWriter(path, df.to_arrow().schema)
+    writer.write_table(df.to_arrow(), row_group_size=row_group_size)
+    writer.close()
+    return path
