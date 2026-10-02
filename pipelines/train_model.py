@@ -5,58 +5,55 @@ model with class-imbalance weighting, tunes a precision-first threshold on
 the validation split, evaluates on validation and test, and logs metrics
 plus the model to MLflow.
 
-Assembling the training frame (joining the ~196-column, ~10GB-for-one-
-month gold feature table to the label table) runs in its own subprocess
-(`--stage assemble`), for the same reason batches are isolated into their
-own subprocesses in pipelines/build_gold_features.py: Polars is built on
-jemalloc, which on 64-bit Linux defaults to retaining freed virtual memory
-for reuse rather than returning it to the OS. RLIMIT_AS (this pipeline's
-memory cap, src/resource_limits.py) constrains mapped address space, not
-resident memory, so within one process it tracks the high-water mark of
-everything that process has EVER allocated, not what's currently live.
-Chunking the join (src/models/features.py::assemble_training_frame) keeps
-that join itself under the cap, but every subsequent step in the same
-process - splits, model training, SHAP - would otherwise inherit the
-join's high-water mark on top of its own needs, and on real data that was
-enough to fail on allocations of a few hundred KB right after the join
-finished successfully. Exiting a process unconditionally unmaps its
-entire address space regardless of what the allocator was retaining, so
-the assemble subprocess writes the joined frame to a temp Parquet file
-and exits; the top-level orchestrator (this function with no `--stage`)
-never touches gold_features or the label table itself, so its own address
-space stays clean for everything that runs after.
+Runs as THREE separate processes in sequence - assemble, extract-splits,
+then this top-level orchestrator (no `--stage`) - all sharing one
+`--work-dir`. Polars is built on jemalloc, which on 64-bit Linux defaults
+to retaining freed virtual memory for reuse rather than returning it to
+the OS. RLIMIT_AS (this pipeline's memory cap, src/resource_limits.py)
+constrains mapped address space, not resident memory, so within one
+process it tracks the high-water mark of everything that process has
+EVER allocated, not what's currently live - deleting a large object and
+calling gc.collect() does NOT lower this ceiling. Exiting a process
+unconditionally unmaps its entire address space regardless of what the
+allocator was retaining, so that's the only thing that reliably works
+here, and each of the three stages below exists because folding it into
+the process before it kept failing on real (fleet-scale) data even
+though each step, in isolation, fits the memory cap comfortably:
 
-Once the join itself stopped crashing, the next failure on real data
-moved one step downstream, TWICE. First, `main()` collected all three
-splits (train/validation/test) as full eager, full-width DataFrames in
-one go, then built a second, similarly sized numpy copy of each while the
-DataFrame was still alive - several times the size of even the largest
-single split. Collecting each split ONE AT A TIME instead, each projected
-at scan time to only the columns it needs, plus capping the train split's
-row count (DEFAULT_MAX_TRAIN_ROWS / `model.max_train_rows`,
-_subsampled_train_lazy - every failure/positive-label row is kept, and
-negative rows are randomly subsampled down to the cap), fixed that - but
-on real data the very next split's collect then failed anyway, with a
-plain `OSError: Cannot allocate memory`, even though its own share of the
-data was much smaller than train's. The reason is the same jemalloc/
-RLIMIT_AS high-water-mark effect described above, one level down: doing
-train's collect, validation's collect, and test's collect all in the same
-top-level orchestrator process means each later collect inherits
-whatever peak the earlier ones left behind, never mind that any one of
-them individually would fit.
+1. `--stage assemble`: joins gold features (~196 columns, ~10GB for one
+   month) to the label table (src/models/features.py::
+   assemble_training_frame, itself internally batched) and writes the
+   joined frame straight to `work_dir/frame.parquet`, never held as one
+   eager DataFrame in this process. Exits immediately after.
+2. `--stage extract-splits`: reads `frame.parquet` (written by a PRIOR,
+   already-exited process, not held over from step 1) and collects each
+   of train/validation/test ONE AT A TIME, each projected at scan time to
+   only the columns it needs. Train is additionally capped
+   (DEFAULT_MAX_TRAIN_ROWS / `model.max_train_rows`,
+   _subsampled_train_lazy - every failure/positive-label row is kept,
+   negative rows randomly subsampled down to the cap) because even a
+   single clean copy of a real quarter's full train split no longer fits
+   the cap on its own. Writes each split out as a small, already-
+   converted artifact under `work_dir` (`x_train.npy`/`y_train.npy`/
+   `x_val.npy`/`y_val.npy`, a narrow `test_df.parquet`, and a
+   `split_meta.json` with `feature_columns` and each split's row count)
+   and exits.
+3. The top-level orchestrator (this function): never scans or filters
+   either the gold tables or the assembled frame itself - it only loads
+   step 2's already-small, already-final artifacts (a few GB `np.load`
+   and a narrow Parquet read, not a scan+filter+cast+collect pipeline),
+   then trains the model, tunes the threshold, evaluates, and runs SHAP.
 
-So split extraction moved into the SAME subprocess as the join (`--stage
-assemble`, now given a `--work-dir` rather than a single `--frame-path`):
-it assembles the frame, then immediately collects and caps each split
-inside itself, writing each one out as a small, already-converted
-artifact (`x_train.npy`/`y_train.npy`/`x_val.npy`/`y_val.npy`, a narrow
-`test_df.parquet`, and a `split_meta.json` with the row counts and
-`feature_columns`) before exiting. The top-level orchestrator now never
-scans or filters the assembled frame itself at all - it only loads these
-already-small, already-final artifacts (a few GB `np.load` and a narrow
-Parquet read, not a multi-column scan+filter+cast+collect pipeline), so
-there is no heavy Polars work left in its own process to leave a
-high-water mark behind in the first place.
+Steps 1 and 2 were originally one process ("assemble" did the join, then
+immediately collected and capped every split before exiting), on the
+theory that isolating "assemble + splits" from `main()`'s own model
+training/SHAP would be enough. On real data it wasn't: the join's own
+retained virtual memory, even after it finished successfully and its
+Python objects were freed, was still large enough that the very FIRST
+split collected right after it - in the same process - failed a few-GB
+allocation it needed. Splitting them into two separate processes fixed
+that, consistent with why each individual piece here gets its own
+process rather than sharing one "as long as it's not `main()`".
 """
 
 from __future__ import annotations
@@ -174,17 +171,19 @@ def _require_gold_inputs(data_config: dict) -> tuple[Path, Path]:
 
 def _stage_assemble(work_dir: Path) -> None:
     """Subprocess stage: joins gold features to the label table for the
-    primary horizon, then immediately collects and caps each split into a
-    small, already-converted artifact under `work_dir` - `x_train.npy`/
-    `y_train.npy`/`x_val.npy`/`y_val.npy`, a narrow `test_df.parquet`, and
-    a `split_meta.json` with `feature_columns` and each split's row count.
+    primary horizon and writes the result to `work_dir / "frame.parquet"`.
 
-    Both the join AND the split extraction run here, in the same process,
-    rather than the join alone: see the module docstring for why the very
-    next split's collect failed with a plain OSError even when its own
-    share of the data was much smaller than train's, once collecting
-    train/validation/test was moved out of `main()`'s single dict
-    comprehension but still ran sequentially in `main()`'s own process."""
+    Deliberately does ONLY the join, not split extraction too - an
+    earlier version of this function did both in one process, on the
+    theory that isolating "assemble + splits" from `main()` would be
+    enough. On real data it wasn't: the join's own high-water mark
+    (jemalloc, RLIMIT_AS - see the module docstring) was still large
+    enough that the very first split collected right after it, in the
+    SAME process, failed to allocate a few GB it needed. Exiting a
+    process unconditionally unmaps its entire address space regardless
+    of what the allocator was retaining, so the join gets its own
+    process here, and split extraction (_stage_extract_splits) gets a
+    separate one of its own."""
     configure_logging()
     apply_memory_limit_from_config()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
@@ -245,6 +244,24 @@ def _stage_assemble(work_dir: Path) -> None:
     row_count = pl.scan_parquet(frame_path).select(pl.len()).collect().item()
     column_count = len(pl.scan_parquet(frame_path).collect_schema().names())
     _log_stage("training_frame_assembled", t0, row_count=row_count, column_count=column_count)
+
+
+def _stage_extract_splits(work_dir: Path) -> None:
+    """Subprocess stage: reads `work_dir / "frame.parquet"` (written by a
+    PRIOR, already-exited `_stage_assemble` run) and collects and caps
+    each split into a small, already-converted artifact under `work_dir`
+    - `x_train.npy`/`y_train.npy`/`x_val.npy`/`y_val.npy`, a narrow
+    `test_df.parquet`, and a `split_meta.json` with `feature_columns` and
+    each split's row count. Runs in its own process, separate from both
+    `_stage_assemble` and `main()` - see the module docstring and
+    `_stage_assemble`'s docstring for why even sharing a process with
+    just the join (not `main()`'s model training) was still enough to
+    fail."""
+    configure_logging()
+    apply_memory_limit_from_config()
+    model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
+    horizon_days = model_config["primary_horizon_days"]
+    frame_path = work_dir / "frame.parquet"
 
     # Split row counts read via a projection to just `split` - one narrow
     # column, cheap regardless of the frame's ~196-column width - rather
@@ -396,20 +413,23 @@ def _subsampled_train_lazy(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--stage", choices=["assemble"])
+    parser.add_argument("--stage", choices=["assemble", "extract-splits"])
     parser.add_argument("--work-dir", type=Path)
     args = parser.parse_args()
 
     if args.stage == "assemble":
         _stage_assemble(args.work_dir)
         return
+    if args.stage == "extract-splits":
+        _stage_extract_splits(args.work_dir)
+        return
 
     # No --stage: the top-level orchestrator. It never itself scans
     # gold_features, the label table, or the assembled training frame -
-    # only the assemble subprocess it spawns does, all the way through
-    # collecting and capping each split - so its own address space stays
-    # clean for model training and SHAP, no matter how large the join or
-    # the splits were. See the module docstring.
+    # the assemble and extract-splits subprocesses it spawns, in
+    # sequence, do all of that - so its own address space stays clean for
+    # model training and SHAP, no matter how large the join or the splits
+    # were. See the module docstring.
     configure_logging()
     apply_memory_limit_from_config()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
@@ -421,7 +441,16 @@ def main() -> None:
     work_dir = Path(tempfile.mkdtemp(prefix="train_model_frame_"))
     try:
         t0 = time.perf_counter()
+        # Two SEPARATE subprocesses, not one doing both: the join's own
+        # retained virtual memory (jemalloc, RLIMIT_AS - see the module
+        # docstring) was still large enough, when split extraction ran
+        # in the same process right after it, to fail the very first
+        # split's allocation - even though that split fits comfortably
+        # on its own. Each subprocess here gets a fully clean address
+        # space, guaranteed by starting a new process rather than by
+        # anything either stage does internally.
         _run_stage("--stage", "assemble", "--work-dir", str(work_dir))
+        _run_stage("--stage", "extract-splits", "--work-dir", str(work_dir))
 
         split_meta = json.loads((work_dir / "split_meta.json").read_text())
         feature_columns = split_meta["feature_columns"]
