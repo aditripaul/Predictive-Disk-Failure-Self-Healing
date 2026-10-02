@@ -81,7 +81,8 @@ split separately - and got further, but a plain `scan_parquet(...)
 (attempt 5's fix: row-group-native reads, `_row_group_parts`), and even
 THAT still failed once fixed to spill each row group to disk instead of
 accumulating results in memory (attempt 6). Peak-RSS instrumentation
-(`_log_rss`) finally pinned attempt 6's failure exactly: forming ONE
+(`resource.getrusage` checkpoints, since removed) finally pinned
+attempt 6's failure exactly: forming ONE
 combined Polars DataFrame from all the spilled parts, then converting
 THAT to a numpy array, needed both the ~6GB combined DataFrame and a
 further ~3.7GB array alive at once - together enough to fail even though
@@ -123,11 +124,6 @@ import subprocess
 import sys
 import tempfile
 import time
-
-try:
-    import resource
-except ImportError:  # Windows - diagnostic-only, see _log_rss
-    resource = None  # type: ignore[assignment]
 from pathlib import Path
 
 import numpy as np
@@ -208,25 +204,6 @@ logger = get_logger(__name__)
 def _log_stage(stage: str, started_at: float, **fields: object) -> None:
     elapsed_seconds = round(time.perf_counter() - started_at, 2)
     logger.info(f"train_model_{stage}", elapsed_seconds=elapsed_seconds, **fields)
-
-
-def _log_rss(checkpoint: str) -> None:
-    """Diagnostic-only: this process's peak resident memory so far
-    (`ru_maxrss`, KB on Linux -> logged as MB), at a specific checkpoint.
-    RLIMIT_AS caps virtual address space, not resident memory, so this
-    doesn't directly show *why* an allocation failed - but a crash that
-    happens before any of a stage's own completion log fires gives no
-    other way to tell which of several candidate steps (row-group
-    collection, the final combine, feature_matrix's to_numpy(), np.save)
-    was actually responsible. A no-op on Windows, where the `resource`
-    module doesn't exist."""
-    if resource is None:
-        return
-    logger.info(
-        "memory_checkpoint",
-        checkpoint=checkpoint,
-        max_rss_mb=round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
-    )
 
 
 def _subsample_rows(
@@ -446,7 +423,6 @@ def _row_group_parts(
             del part
         del table, batch
         gc.collect()
-        _log_rss(f"{split_name}_row_group_{i}_done")
     return part_paths
 
 
@@ -496,9 +472,7 @@ def _collect_split_rows(
         pl.from_arrow(parquet_file.schema_arrow.empty_table()),
         context=f"empty-schema fallback for {frame_path}",
     ).select(select_columns)
-    _log_rss(f"{split_name}_row_groups_all_done")
     result = _finalize_batched_join(part_paths, empty, out_path=out_path)
-    _log_rss(f"{split_name}_parts_combined")
     if out_path is not None:
         return None
     return _as_dataframe(result, context=f"_collect_split_rows({split_name}) of {frame_path}")
@@ -610,17 +584,13 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
                 extra_predicate=predicate,
                 tmp_dir=part_tmp_dir,
             )
-            _log_rss("train_row_groups_all_done")
             x_train, y_train = _build_feature_arrays(part_paths, feature_columns)
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
-        _log_rss("train_after_build_arrays")
         row_count = len(y_train)
         np.save(work_dir / "x_train.npy", x_train)
         del x_train
-        _log_rss("train_after_x_saved")
         np.save(work_dir / "y_train.npy", y_train)
-        _log_rss("train_after_y_saved")
     elif split_name == "validation":
         select_columns = [*feature_columns, "label"]
         part_tmp_dir = work_dir / "_validation_parts"
@@ -634,17 +604,13 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
                 extra_predicate=None,
                 tmp_dir=part_tmp_dir,
             )
-            _log_rss("validation_row_groups_all_done")
             x_val, y_val = _build_feature_arrays(part_paths, feature_columns)
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
-        _log_rss("validation_after_build_arrays")
         row_count = len(y_val)
         np.save(work_dir / "x_val.npy", x_val)
         del x_val
-        _log_rss("validation_after_x_saved")
         np.save(work_dir / "y_val.npy", y_val)
-        _log_rss("validation_after_y_saved")
     else:
         # Kept as a narrow Parquet file rather than also converted to
         # numpy: main() still needs test's drive_id/event_type/
@@ -667,7 +633,6 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             )
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
-        _log_rss("test_written")
         row_count = (
             pl.scan_parquet(work_dir / "test_df.parquet").select(pl.len()).collect().item()
         )

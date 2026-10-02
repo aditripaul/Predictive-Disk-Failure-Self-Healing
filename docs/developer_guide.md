@@ -927,8 +927,8 @@ orchestrator small and frees each step's memory unconditionally on exit.
 `resource_limits.scratch_dir`, default `<gold_dir>/../tmp` — not `/tmp`,
 which was too small on the reference machine.
 
-**Measured on the real run** (peak RSS per stage, `memory_checkpoint`
-log lines): join ~ flat; train extraction 6.0GB; validation 6.6GB; test
+**Measured on the real run** (peak RSS per stage, from temporary checkpoints since
+removed): join ~ flat; train extraction 6.0GB; validation 6.6GB; test
 2.0GB; training + baseline in the orchestrator completed under the 20GB
 cap.
 
