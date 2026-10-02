@@ -1,61 +1,98 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.resource_limits import apply_memory_limit_from_config, apply_memory_limit_gb
+import src.resource_limits as resource_limits
+from src.resource_limits import (
+    _watch_rss,
+    apply_memory_limit_from_config,
+    apply_memory_limit_gb,
+    current_rss_bytes,
+)
 
 
-def test_apply_memory_limit_gb_is_a_noop_when_none():
-    with patch("src.resource_limits.resource") as mock_resource:
-        apply_memory_limit_gb(None)
-    mock_resource.setrlimit.assert_not_called()
+@pytest.fixture(autouse=True)
+def _never_start_a_real_watchdog():
+    """Every test runs with the watchdog thread class mocked and the
+    module's "already started" state reset, so no test can ever arm a
+    real RSS watchdog that would kill the pytest process."""
+    with (
+        patch.object(resource_limits, "_watchdog", None),
+        patch("src.resource_limits.threading.Thread") as mock_thread,
+    ):
+        yield mock_thread
 
 
-def test_apply_memory_limit_gb_is_a_noop_when_zero_or_negative():
-    with patch("src.resource_limits.resource") as mock_resource:
-        apply_memory_limit_gb(0)
-        apply_memory_limit_gb(-5)
-    mock_resource.setrlimit.assert_not_called()
+def test_current_rss_bytes_reads_a_plausible_value_on_linux():
+    rss = current_rss_bytes()
+    assert rss is not None
+    assert 1024**2 < rss < 1024**4
 
 
-def test_apply_memory_limit_gb_converts_gigabytes_to_bytes():
-    with patch("src.resource_limits.resource") as mock_resource:
-        mock_resource.RLIM_INFINITY = -1
-        mock_resource.getrlimit.return_value = (-1, -1)
-        apply_memory_limit_gb(12)
-
-    mock_resource.setrlimit.assert_called_once()
-    args, _ = mock_resource.setrlimit.call_args
-    limit_name, (soft, hard) = args
-    assert limit_name is mock_resource.RLIMIT_AS
-    assert soft == 12 * 1024**3
-    assert hard == 12 * 1024**3
+def test_current_rss_bytes_is_none_when_statm_is_unreadable():
+    with patch.object(resource_limits, "_STATM_PATH", "/nonexistent/statm"):
+        assert current_rss_bytes() is None
 
 
-def test_apply_memory_limit_gb_never_raises_an_existing_tighter_hard_limit():
-    with patch("src.resource_limits.resource") as mock_resource:
-        mock_resource.RLIM_INFINITY = -1
-        existing_hard = 8 * 1024**3  # a tighter hard limit already in place
-        mock_resource.getrlimit.return_value = (-1, existing_hard)
-        apply_memory_limit_gb(12)
-
-    args, _ = mock_resource.setrlimit.call_args
-    _limit_name, (soft, hard) = args
-    assert soft == 12 * 1024**3
-    assert hard == existing_hard  # kept, not raised to 12GB
+def test_apply_memory_limit_gb_is_a_noop_when_none_zero_or_negative(_never_start_a_real_watchdog):
+    apply_memory_limit_gb(None)
+    apply_memory_limit_gb(0)
+    apply_memory_limit_gb(-5)
+    _never_start_a_real_watchdog.assert_not_called()
 
 
-def test_apply_memory_limit_gb_logs_a_warning_instead_of_raising_on_failure():
-    with patch("src.resource_limits.resource") as mock_resource:
-        mock_resource.RLIM_INFINITY = -1
-        mock_resource.getrlimit.return_value = (-1, -1)
-        mock_resource.setrlimit.side_effect = OSError("nope")
-        apply_memory_limit_gb(12)  # must not raise
+def test_apply_memory_limit_gb_starts_a_daemon_watchdog_with_the_cap_in_bytes(
+    _never_start_a_real_watchdog,
+):
+    apply_memory_limit_gb(12)
+
+    _never_start_a_real_watchdog.assert_called_once()
+    kwargs = _never_start_a_real_watchdog.call_args.kwargs
+    assert kwargs["target"] is _watch_rss
+    assert kwargs["args"] == (12 * 1024**3,)
+    assert kwargs["daemon"] is True
+    _never_start_a_real_watchdog.return_value.start.assert_called_once()
 
 
-def test_apply_memory_limit_gb_is_a_noop_on_platforms_without_the_resource_module():
-    with patch("src.resource_limits.resource", None):
-        apply_memory_limit_gb(12)  # must not raise (e.g. on Windows)
+def test_apply_memory_limit_gb_starts_only_one_watchdog_per_process(_never_start_a_real_watchdog):
+    _never_start_a_real_watchdog.return_value.is_alive.return_value = True
+    apply_memory_limit_gb(12)
+    apply_memory_limit_gb(12)
+    _never_start_a_real_watchdog.assert_called_once()
+
+
+def test_apply_memory_limit_gb_is_a_noop_where_rss_cannot_be_read(_never_start_a_real_watchdog):
+    with patch("src.resource_limits.current_rss_bytes", return_value=None):
+        apply_memory_limit_gb(12)  # must not raise (e.g. macOS/Windows)
+    _never_start_a_real_watchdog.assert_not_called()
+
+
+def test_watch_rss_fires_once_rss_exceeds_the_cap():
+    readings = iter([100, None, 200, 1001])
+    on_exceeded = MagicMock()
+    _watch_rss(1000, read_rss=lambda: next(readings), on_exceeded=on_exceeded, interval=0)
+    on_exceeded.assert_called_once_with(1001, 1000)
+
+
+def test_watch_rss_does_not_fire_at_exactly_the_cap():
+    readings = iter([1000, 1000, 1001])
+    on_exceeded = MagicMock()
+    _watch_rss(1000, read_rss=lambda: next(readings), on_exceeded=on_exceeded, interval=0)
+    on_exceeded.assert_called_once_with(1001, 1000)
+
+
+def test_rss_ignores_virtual_reservations_that_never_become_resident():
+    """The point of measuring RSS: reserving (but never touching) a large
+    address range - what jemalloc, glibc arenas and thread pools do all
+    the time - must not count against the cap. RLIMIT_AS counted it."""
+    import mmap
+
+    before = current_rss_bytes()
+    reservation = mmap.mmap(-1, 1024**3)  # 1GB, untouched
+    try:
+        assert current_rss_bytes() - before < 64 * 1024**2
+    finally:
+        reservation.close()
 
 
 def test_apply_memory_limit_from_config_reads_configs_data_yaml():
@@ -75,13 +112,3 @@ def test_apply_memory_limit_from_config_defaults_to_none_when_section_absent():
     ):
         apply_memory_limit_from_config()
     mock_apply.assert_called_once_with(None)
-
-
-@pytest.fixture(autouse=True)
-def _never_actually_limit_this_test_process():
-    """Belt-and-suspenders: even though every test above mocks `resource`
-    directly, this guards against a future test accidentally calling the
-    real apply_memory_limit_gb/from_config and capping the pytest
-    process's own memory."""
-    with patch("resource.setrlimit") as mock_setrlimit:
-        yield mock_setrlimit

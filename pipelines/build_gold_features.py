@@ -14,7 +14,8 @@ enough: Polars is built on jemalloc, which on 64-bit Linux defaults to
 `retain`-ing freed virtual memory for reuse instead of returning it to the
 OS (`madvise(MADV_DONTNEED)` drops the physical pages, but the address-space
 mapping itself stays reserved). `RLIMIT_AS` - the memory cap this pipeline
-runs under (src/resource_limits.py) - constrains mapped address space, not
+used to run under (it is RSS-based now; see src/resource_limits.py) -
+constrains mapped address space, not
 resident memory, so it tracks the *high-water mark of everything this
 process has ever allocated*, not what's currently live. `del` and
 `gc.collect()` free the data but never lower that high-water mark, which is

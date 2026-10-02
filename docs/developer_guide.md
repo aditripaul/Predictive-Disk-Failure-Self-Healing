@@ -779,7 +779,7 @@ jemalloc (confirmed via `strings` on the compiled extension —
 Linux defaults to *retaining* freed virtual memory for reuse instead of
 returning it to the OS. `madvise(MADV_DONTNEED)` drops the physical pages
 (so RSS goes down), but the address-space mapping itself stays reserved.
-`RLIMIT_AS` — the cap this pipeline runs under (§ above) — constrains
+`RLIMIT_AS` — the cap this pipeline *used to* run under (now RSS-based, see below) — constrains
 mapped address space, not resident memory, so within a single process it
 tracks the *high-water mark of everything that process has ever
 allocated*, not what's currently live. `del` and `gc.collect()` free the
@@ -835,22 +835,33 @@ form, not from batching.
 table per batch) is the knob: lower it if `make build-features` still
 hits the cap, raise it for fewer, larger batches.
 
-`apply_memory_limit_from_config()` reads this value and calls
-`resource.setrlimit(resource.RLIMIT_AS, (soft, hard))` — the same
-mechanism as the shell's `ulimit -v`, capping the process's total virtual
-address space. It's called as the first thing in every pipeline's
-`main()` (right after `configure_logging()`), so the limit is in force
-before any data is loaded. Three things to know before relying on it:
+`apply_memory_limit_from_config()` reads this value and starts a daemon
+watchdog thread that samples the process's **resident** memory (RSS, from
+`/proc/self/statm`) every 0.25s and stops the process — logging
+`memory_limit_exceeded`, exit code 86 — once RSS exceeds the cap. It's
+called as the first thing in every pipeline's `main()` (right after
+`configure_logging()`), so the limit is in force before any data is
+loaded. Things to know before relying on it:
 
-- **POSIX-only.** The `resource` module doesn't exist on Windows;
-  `apply_memory_limit_gb` detects this (`resource is None`) and logs a
-  warning instead of raising, so the pipeline still runs, just unlimited.
-- **It doesn't raise a catchable Python exception.** `RLIMIT_AS` caps
-  virtual address space at the OS level; Polars/PyArrow/numpy allocate in
-  native code, and blowing through the limit there typically aborts the
-  process outright (e.g. a killed process or a C-level abort) rather than
-  raising a Python `MemoryError` you could catch and handle gracefully.
-  Treat the cap as "fail loudly and stop," not "degrade gracefully."
+- **Why RSS and not `RLIMIT_AS`.** The cap used to be `RLIMIT_AS`
+  (`ulimit -v`), which limits *virtual address space*. That turned out to
+  be the wrong quantity: jemalloc (Polars) keeps freed ranges mapped,
+  glibc malloc reserves a 64MB arena per thread, and LightGBM/OpenMP and
+  Polars thread pools each reserve stacks — all address space that is
+  never touched. On real data, `make train` aborted on allocations of a
+  few hundred KB while measured peak RSS was ~6–10GB under a 20GB cap,
+  and the gap grows with core count. The historical notes above about
+  jemalloc "high-water marks" describe that old mechanism; the
+  per-process stage split they motivated is kept because it still lowers
+  real peak memory.
+- **Linux-only.** Where `/proc/self/statm` is unreadable (macOS,
+  Windows), `apply_memory_limit_gb` logs a warning instead of raising,
+  so the pipeline still runs, just unlimited.
+- **It's polled, not a hard allocation limit.** A single very fast
+  allocation can overshoot the cap briefly before the watchdog notices,
+  so keep the cap comfortably below physical RAM. For a strict kernel-
+  enforced limit, run the target under a cgroup instead, e.g.
+  `systemd-run --user --scope -p MemoryMax=20G -p MemorySwapMax=0 make train`.
 - **`src/api/main.py` deliberately does NOT call it.** FastAPI's
   `TestClient` really executes the app's `lifespan` context manager (test
   dependency overrides don't prevent that), so a call placed there would

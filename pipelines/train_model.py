@@ -5,6 +5,16 @@ model with class-imbalance weighting, tunes a precision-first threshold on
 the validation split, evaluates on validation and test, and logs metrics
 plus the model to MLflow.
 
+Note (2026-09-30): the memory cap is now enforced on resident memory
+(RSS), not on `RLIMIT_AS` virtual address space - see
+src/resource_limits.py. Every crash described below, including the
+last one (a few-hundred-KB allocation failing in the orchestrator right
+after LightGBM training, at far less than 20GB of real use), was the
+virtual-address cap tripping on reserved-but-unused address space, not
+on memory actually in use. The stage split below is kept because it
+still lowers real peak memory, but it is no longer load-bearing for the
+cap itself.
+
 Runs as FOUR separate processes in sequence - assemble, then one
 extract-split per split (train, validation, test), then this top-level
 orchestrator (no `--stage`) - all sharing one `--work-dir`. Polars is
