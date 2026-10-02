@@ -5,6 +5,16 @@ horizons_days: [7, 14, 30]
 
 model:
   type: lightgbm  # lightgbm | xgboost (src/models/training.py, src/models/xgboost_training.py)
+  # Caps the primary model's training row count (pipelines/train_model.py,
+  # DEFAULT_MAX_TRAIN_ROWS/_subsampled_train_lazy). At fleet scale, a real
+  # quarter's train split is tens of millions of rows - even a single
+  # clean copy of its feature matrix no longer fits in resource_limits.
+  # max_memory_gb below. Every failure (positive-label) row is always
+  # kept; negative rows are randomly subsampled down to this cap with a
+  # deterministic hash(drive_id, date) seed, so a capped run is still
+  # reproducible. Set to null to train on every row instead (only
+  # advisable with a much higher memory cap or a smaller dataset).
+  max_train_rows: 5000000
   params:
     objective: binary
     is_unbalance: true
