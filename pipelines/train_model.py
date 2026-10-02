@@ -86,6 +86,7 @@ from pathlib import Path
 
 import numpy as np
 import polars as pl
+import pyarrow.parquet as pq
 import yaml
 
 import mlflow
@@ -102,7 +103,12 @@ from src.models.explainability import (
     compute_shap_values,
     global_feature_importance,
 )
-from src.models.features import assemble_training_frame, feature_matrix, select_feature_columns
+from src.models.features import (
+    _as_dataframe,
+    assemble_training_frame,
+    feature_matrix,
+    select_feature_columns,
+)
 from src.models.hyperparameter_tuning import tune_lightgbm_hyperparameters
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
 from src.models.model_card import build_model_card, render_model_card_markdown
@@ -300,6 +306,58 @@ def _stage_assemble(work_dir: Path) -> None:
     )
 
 
+def _collect_split_rows(
+    frame_path: Path,
+    *,
+    split_name: str,
+    select_columns: list[str],
+    read_columns: list[str],
+    extra_predicate: pl.Expr | None = None,
+) -> pl.DataFrame:
+    """Reads `frame_path` ONE PARQUET ROW GROUP AT A TIME via
+    `pyarrow.parquet.ParquetFile.read_row_group` - the same technique
+    `src/models/features.py::join_by_native_row_groups` already uses for
+    this exact file for this exact reason - filtering each row group down
+    to `split_name` (and `extra_predicate`, if given) before moving to
+    the next, rather than a plain `scan_parquet(...).filter(...).collect()`
+    that leaves Polars' own query engine to decide how many row groups to
+    decode concurrently.
+
+    On real data, a fresh, otherwise-idle subprocess whose ONLY job was
+    one such plain scan+filter+collect still failed to allocate a few GB
+    it needed - even smaller than what an earlier split's collect, in its
+    own equally fresh subprocess, had just needed successfully. Decoding
+    several ~185-column row groups at once (Polars' default, unlike the
+    disciplined one-row-group-at-a-time loop this function uses) multiplies
+    peak transient memory by however many the engine chooses to decode in
+    parallel, on top of the growing accumulated output - explaining a
+    peak that depends on more than just the final result's own size.
+
+    `read_columns` are the raw columns read from each row group (must
+    cover `select_columns`, `"split"`, and anything `extra_predicate`
+    references); `select_columns` are what survives into the returned
+    DataFrame."""
+    parquet_file = pq.ParquetFile(frame_path)
+    parts: list[pl.DataFrame] = []
+    for i in range(parquet_file.num_row_groups):
+        table = parquet_file.read_row_group(i, columns=read_columns)
+        batch = _as_dataframe(pl.from_arrow(table), context=f"row group {i} of {frame_path}")
+        batch = batch.filter(pl.col("split") == split_name)
+        if extra_predicate is not None:
+            batch = batch.filter(extra_predicate)
+        if batch.height:
+            parts.append(batch.select(select_columns))
+        del table, batch
+        gc.collect()
+    if not parts:
+        empty = _as_dataframe(
+            pl.from_arrow(parquet_file.schema_arrow.empty_table()),
+            context=f"empty-schema fallback for {frame_path}",
+        )
+        return empty.select(select_columns)
+    return pl.concat(parts, how="vertical")
+
+
 def _stage_extract_split(work_dir: Path, split_name: str) -> None:
     """Subprocess stage: reads `work_dir / "frame.parquet"` (written by a
     PRIOR, already-exited `_stage_assemble` run) and collects ONE split -
@@ -317,7 +375,10 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
     validation's collect, right after it in the same process, still
     failed to allocate memory it needed on its own. See the module
     docstring: every distinct heavy Polars collect needs its own
-    process, not just every "phase" of the pipeline."""
+    process, not just every "phase" of the pipeline. Collects via
+    _collect_split_rows (native row-group reads), not a plain
+    scan+filter+collect - see that function's docstring for why a fully
+    isolated subprocess still wasn't enough on its own."""
     configure_logging()
     apply_memory_limit_from_config()
     model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
@@ -326,19 +387,48 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
     feature_columns = frame_meta["feature_columns"]
 
     t0 = time.perf_counter()
-    split_lazy = pl.scan_parquet(frame_path).filter(pl.col("split") == split_name)
 
     if split_name == "train":
-        # Capped - see DEFAULT_MAX_TRAIN_ROWS and _subsampled_train_lazy
+        # Capped - see DEFAULT_MAX_TRAIN_ROWS and _train_sample_predicate
         # - because even a single clean copy of every real quarter's
         # full train split no longer fits in the memory cap on its own.
+        # Counts read via the existing lazy scan first - cheap and narrow
+        # (just split+label), unlike the wide per-row-group read below,
+        # so it doesn't need the same row-group discipline.
         max_train_rows = model_config["model"].get("max_train_rows", DEFAULT_MAX_TRAIN_ROWS)
-        split_lazy = _subsampled_train_lazy(split_lazy, max_rows=max_train_rows)
-        split_df = split_lazy.select([*feature_columns, "label"]).collect()
+        label_counts_df = (
+            pl.scan_parquet(frame_path)
+            .filter(pl.col("split") == "train")
+            .group_by("label")
+            .agg(pl.len().alias("count"))
+            .collect()
+        )
+        label_counts = dict(
+            zip(
+                label_counts_df["label"].to_list(),
+                label_counts_df["count"].to_list(),
+                strict=True,
+            )
+        )
+        predicate = _train_sample_predicate(label_counts, max_rows=max_train_rows, seed=0)
+        select_columns = [*feature_columns, "label"]
+        split_df = _collect_split_rows(
+            frame_path,
+            split_name="train",
+            select_columns=select_columns,
+            read_columns=sorted({*select_columns, "split", "drive_id", "date"}),
+            extra_predicate=predicate,
+        )
         np.save(work_dir / "x_train.npy", feature_matrix(split_df, feature_columns))
         np.save(work_dir / "y_train.npy", split_df["label"].to_numpy())
     elif split_name == "validation":
-        split_df = split_lazy.select([*feature_columns, "label"]).collect()
+        select_columns = [*feature_columns, "label"]
+        split_df = _collect_split_rows(
+            frame_path,
+            split_name="validation",
+            select_columns=select_columns,
+            read_columns=sorted({*select_columns, "split"}),
+        )
         np.save(work_dir / "x_val.npy", feature_matrix(split_df, feature_columns))
         np.save(work_dir / "y_val.npy", split_df["label"].to_numpy())
     else:
@@ -346,9 +436,13 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
         # numpy: main() still needs test's drive_id/event_type/
         # days_to_event columns (for the warning-lead-time metric)
         # alongside its feature matrix, not just x_test/y_test.
-        split_df = split_lazy.select(
-            [*feature_columns, "label", "drive_id", "event_type", "days_to_event"]
-        ).collect()
+        select_columns = [*feature_columns, "label", "drive_id", "event_type", "days_to_event"]
+        split_df = _collect_split_rows(
+            frame_path,
+            split_name="test",
+            select_columns=select_columns,
+            read_columns=sorted({*select_columns, "split"}),
+        )
         split_df.write_parquet(work_dir / "test_df.parquet", compression="zstd")
 
     row_count = split_df.height
@@ -390,15 +484,31 @@ def _subsampled_train_lazy(
     counts = dict(
         zip(label_counts["label"].to_list(), label_counts["count"].to_list(), strict=True)
     )
-    n_positive = counts.get(1, 0)
-    n_negative = counts.get(0, 0)
+    predicate = _train_sample_predicate(counts, max_rows=max_rows, seed=seed)
+    return train_lazy if predicate is None else train_lazy.filter(predicate)
+
+
+def _train_sample_predicate(
+    label_counts: dict[int, int], *, max_rows: int | None, seed: int
+) -> pl.Expr | None:
+    """The filter expression `_subsampled_train_lazy` (a lazy scan) and
+    `_stage_extract_split`'s row-group-native path (an eager per-row-group
+    loop) both use to decide which train rows to keep - factored out so
+    the two call sites sample identically rather than maintaining the
+    hashing logic twice. Returns `None` when no cap applies (label_counts'
+    total is already <= max_rows, or max_rows is None) - see
+    _subsampled_train_lazy for what the expression means."""
+    if max_rows is None:
+        return None
+    n_positive = label_counts.get(1, 0)
+    n_negative = label_counts.get(0, 0)
     if n_positive + n_negative <= max_rows:
-        return train_lazy
+        return None
     target_negative = max(0, max_rows - n_positive)
     keep_fraction = min(1.0, target_negative / n_negative) if n_negative else 1.0
     hash_bucket = 1_000_000
     row_hash = (pl.col("drive_id").hash(seed=seed) ^ pl.col("date").hash(seed=seed)) % hash_bucket
-    return train_lazy.filter((pl.col("label") == 1) | (row_hash < int(keep_fraction * hash_bucket)))
+    return (pl.col("label") == 1) | (row_hash < int(keep_fraction * hash_bucket))
 
 
 def main() -> None:

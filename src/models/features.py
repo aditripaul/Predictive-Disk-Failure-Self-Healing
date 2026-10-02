@@ -94,7 +94,17 @@ def _finalize_batched_join(
                 table = part.to_arrow()
                 if writer is None:
                     writer = pq.ParquetWriter(out_path, table.schema, compression="zstd")
-                writer.write_table(table)
+                # row_group_size=table.num_rows: pq.ParquetWriter.write_table's
+                # default caps a row group at 1,048,576 rows, silently
+                # splitting any part bigger than that into two-plus row
+                # groups instead of the one-row-group-per-part this writer
+                # is meant to produce (the same issue already fixed in
+                # pipelines/build_gold_features.py's _stage_finalize, for
+                # the same reason: downstream readers that iterate this
+                # file's row groups one at a time - e.g.
+                # join_by_native_row_groups, pipelines/train_model.py's
+                # split extraction - assume that layout).
+                writer.write_table(table, row_group_size=table.num_rows)
                 del part, table
                 gc.collect()
         finally:
