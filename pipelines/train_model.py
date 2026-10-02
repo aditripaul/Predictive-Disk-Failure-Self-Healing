@@ -82,6 +82,11 @@ import subprocess
 import sys
 import tempfile
 import time
+
+try:
+    import resource
+except ImportError:  # Windows - diagnostic-only, see _log_rss
+    resource = None  # type: ignore[assignment]
 from pathlib import Path
 
 import numpy as np
@@ -162,6 +167,25 @@ logger = get_logger(__name__)
 def _log_stage(stage: str, started_at: float, **fields: object) -> None:
     elapsed_seconds = round(time.perf_counter() - started_at, 2)
     logger.info(f"train_model_{stage}", elapsed_seconds=elapsed_seconds, **fields)
+
+
+def _log_rss(checkpoint: str) -> None:
+    """Diagnostic-only: this process's peak resident memory so far
+    (`ru_maxrss`, KB on Linux -> logged as MB), at a specific checkpoint.
+    RLIMIT_AS caps virtual address space, not resident memory, so this
+    doesn't directly show *why* an allocation failed - but a crash that
+    happens before any of a stage's own completion log fires gives no
+    other way to tell which of several candidate steps (row-group
+    collection, the final combine, feature_matrix's to_numpy(), np.save)
+    was actually responsible. A no-op on Windows, where the `resource`
+    module doesn't exist."""
+    if resource is None:
+        return
+    logger.info(
+        "memory_checkpoint",
+        checkpoint=checkpoint,
+        max_rss_mb=round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
+    )
 
 
 def _subsample_rows(
@@ -359,15 +383,19 @@ def _collect_split_rows(
                 del part
             del table, batch
             gc.collect()
+            _log_rss(f"{split_name}_row_group_{i}_done")
 
         empty = _as_dataframe(
             pl.from_arrow(parquet_file.schema_arrow.empty_table()),
             context=f"empty-schema fallback for {frame_path}",
         ).select(select_columns)
-        return _as_dataframe(
+        _log_rss(f"{split_name}_row_groups_all_done")
+        result = _as_dataframe(
             _finalize_batched_join(part_paths, empty, out_path=None),
             context=f"_collect_split_rows({split_name}) of {frame_path}",
         )
+        _log_rss(f"{split_name}_parts_combined")
+        return result
 
 
 def _stage_extract_split(work_dir: Path, split_name: str) -> None:
@@ -424,6 +452,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
         )
         predicate = _train_sample_predicate(label_counts, max_rows=max_train_rows, seed=0)
         select_columns = [*feature_columns, "label"]
+        _log_rss("train_before_collect")
         split_df = _collect_split_rows(
             frame_path,
             split_name="train",
@@ -431,18 +460,31 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             read_columns=sorted({*select_columns, "split", "drive_id", "date"}),
             extra_predicate=predicate,
         )
-        np.save(work_dir / "x_train.npy", feature_matrix(split_df, feature_columns))
+        _log_rss("train_after_collect")
+        x_train = feature_matrix(split_df, feature_columns)
+        _log_rss("train_after_feature_matrix")
+        np.save(work_dir / "x_train.npy", x_train)
+        del x_train
+        _log_rss("train_after_x_saved")
         np.save(work_dir / "y_train.npy", split_df["label"].to_numpy())
+        _log_rss("train_after_y_saved")
     elif split_name == "validation":
         select_columns = [*feature_columns, "label"]
+        _log_rss("validation_before_collect")
         split_df = _collect_split_rows(
             frame_path,
             split_name="validation",
             select_columns=select_columns,
             read_columns=sorted({*select_columns, "split"}),
         )
-        np.save(work_dir / "x_val.npy", feature_matrix(split_df, feature_columns))
+        _log_rss("validation_after_collect")
+        x_val = feature_matrix(split_df, feature_columns)
+        _log_rss("validation_after_feature_matrix")
+        np.save(work_dir / "x_val.npy", x_val)
+        del x_val
+        _log_rss("validation_after_x_saved")
         np.save(work_dir / "y_val.npy", split_df["label"].to_numpy())
+        _log_rss("validation_after_y_saved")
     else:
         # Kept as a narrow Parquet file rather than also converted to
         # numpy: main() still needs test's drive_id/event_type/
