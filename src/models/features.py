@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import polars as pl
+import pyarrow.parquet as pq
 
 #: Dtypes a gold feature column may have to be usable as a model feature.
 NUMERIC_DTYPES = (
@@ -216,6 +217,77 @@ def drive_batched_inner_join(
         return pl.concat([pl.scan_parquet(p) for p in batch_paths], how="vertical").collect()
 
 
+def join_by_native_row_groups(
+    wide_path: Path,
+    narrow: pl.DataFrame | pl.LazyFrame,
+    *,
+    on: list[str],
+) -> pl.DataFrame:
+    """Inner-joins the Parquet file at `wide_path` to `narrow`, reading
+    `wide_path` by its OWN existing row groups rather than re-deriving
+    batches with a fresh filter.
+
+    This exists because `drive_batched_inner_join`'s `hash(drive_id) %
+    n_batches` filter is not something Parquet row-group statistics can
+    use for pruning - row groups aren't laid out by hash bucket - so
+    evaluating it means scanning and decoding EVERY column of EVERY row
+    of `wide_path` to find each batch's ~1/n_batches share, once per
+    batch. For a ~196-column, ~10GB (one real quarter) gold feature
+    table with n_batches in the teens, that is the wide table's full
+    ~10GB read multiplied by n_batches - far more I/O and peak buffer
+    use than the join itself needs, and the likely reason
+    drive_batched_inner_join, even after being fixed to collect each
+    side separately, still failed against real Q1 data on a small but
+    real allocation with zero progress logged.
+
+    `pipelines/build_gold_features.py`'s finalize stage already writes
+    the gold feature table with a `pyarrow.parquet.ParquetWriter`, one
+    `write_table()` call per batch of whole drives - so the file already
+    has exactly one row group per original batch, each a disjoint,
+    complete set of drives (batched by the same `hash(drive_id)`
+    scheme). Reading it back via `ParquetFile.read_row_group(i)` is a
+    direct, targeted read of just that row group's bytes - no filter
+    evaluation, no re-reading rows that belong to a different batch - so
+    the WHOLE file is read exactly once in total, not once per batch.
+
+    `narrow` (typically one horizon's observed-label rows) is re-scanned
+    and filtered to each row group's own drive_ids via `.is_in(...)` -
+    the same "redundant rescan of a NARROW source, once per batch"
+    trade already made for Bronze in pipelines/build_silver.py's batch
+    stage, which is far cheaper here than the wide side's would have
+    been precisely because `narrow` is narrow.
+
+    Falls back to a single row group (the whole file) if `wide_path`
+    happens to have been written as one - a small dataset that never
+    needed batching in build_gold_features.py, or any other single-row-
+    group Parquet file, both handled correctly, just with no batching
+    benefit."""
+    narrow_lazy = narrow.lazy()
+    parquet_file = pq.ParquetFile(wide_path)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        batch_paths = []
+        for row_group_index in range(parquet_file.num_row_groups):
+            wide_batch = pl.from_arrow(parquet_file.read_row_group(row_group_index))
+            assert isinstance(wide_batch, pl.DataFrame)
+            batch_drive_ids = wide_batch["drive_id"].unique().to_list()
+            narrow_batch = narrow_lazy.filter(pl.col("drive_id").is_in(batch_drive_ids)).collect()
+            part = wide_batch.join(narrow_batch, on=on, how="inner")
+            if part.height:
+                path = Path(tmp_dir) / f"batch_{row_group_index}.parquet"
+                part.write_parquet(path, compression="zstd")
+                batch_paths.append(path)
+            del wide_batch, narrow_batch, part
+            gc.collect()
+
+        if not batch_paths:
+            empty_wide = pl.from_arrow(parquet_file.schema_arrow.empty_table())
+            assert isinstance(empty_wide, pl.DataFrame)
+            empty_narrow = narrow_lazy.filter(pl.lit(False)).collect()
+            return empty_wide.join(empty_narrow, on=on, how="inner")
+        return pl.concat([pl.scan_parquet(p) for p in batch_paths], how="vertical").collect()
+
+
 def assemble_training_frame(
     gold_features: pl.DataFrame | pl.LazyFrame,
     labels: pl.DataFrame | pl.LazyFrame,
@@ -223,6 +295,7 @@ def assemble_training_frame(
     horizon_days: int,
     label_columns: list[str] | None = None,
     chunk_rows: int | None = None,
+    gold_features_path: Path | None = None,
 ) -> pl.DataFrame:
     """Joins gold features to the label table for one horizon, keeping only
     rows with an observed (non-censored) label.
@@ -262,7 +335,20 @@ def assemble_training_frame(
     drive-day count (31.4M rows, ~5.6GB, for one month of real data)
     while only one horizon and a handful of its 12 columns are ever used
     downstream. Defaults to `None` (keep every label column) so existing
-    callers are unaffected."""
+    callers are unaffected.
+
+    Pass `gold_features_path` (the actual file `gold_features` was
+    scanned from) alongside `chunk_rows` to join via
+    `join_by_native_row_groups` instead of `drive_batched_inner_join` -
+    reads the wide gold feature table exactly once in total, by its own
+    existing per-batch row groups, rather than re-scanning it once per
+    batch with a fresh hash filter (see `join_by_native_row_groups`'s
+    docstring for why that rescan was the actual bottleneck even after
+    `drive_batched_inner_join` collected each side separately).
+    `drive_batched_inner_join` remains the fallback when no path is
+    given - e.g. for callers/tests using an in-memory or non-Parquet
+    `gold_features` - since it needs an actual file to read row groups
+    from."""
     horizon_labels = labels.lazy().filter(
         (pl.col("horizon_days") == horizon_days) & pl.col("label").is_not_null()
     )
@@ -273,6 +359,11 @@ def assemble_training_frame(
         return gold_features.lazy().join(
             horizon_labels, on=["drive_id", "date"], how="inner"
         ).collect()
+
+    if gold_features_path is not None:
+        return join_by_native_row_groups(
+            gold_features_path, horizon_labels, on=["drive_id", "date"]
+        )
 
     total_rows = gold_features.lazy().select(pl.len()).collect().item()
     n_batches = max(1, math.ceil(total_rows / chunk_rows))

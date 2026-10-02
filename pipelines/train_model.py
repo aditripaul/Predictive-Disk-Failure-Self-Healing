@@ -155,6 +155,14 @@ def _stage_assemble(frame_path: Path) -> None:
 
     horizon_days = model_config["primary_horizon_days"]
     t0 = time.perf_counter()
+    # gold_features_path lets assemble_training_frame join by gold
+    # features' own existing row groups (one per batch, already written
+    # by build_gold_features.py) instead of re-deriving batches with a
+    # fresh hash filter, which - even after being fixed to collect each
+    # side of the join separately - still meant rescanning the entire
+    # ~196-column, ~10GB (one real quarter) file once per batch just to
+    # evaluate an unprunable filter. See src/models/features.py's
+    # join_by_native_row_groups for the full explanation.
     frame = assemble_training_frame(
         gold_features,
         labels,
@@ -163,6 +171,7 @@ def _stage_assemble(frame_path: Path) -> None:
         chunk_rows=data_config.get("resource_limits", {}).get(
             "training_join_chunk_rows", DEFAULT_TRAINING_JOIN_CHUNK_ROWS
         ),
+        gold_features_path=features_path,
     )
     _log_stage(
         "training_frame_assembled", t0, row_count=frame.height, column_count=len(frame.columns)
