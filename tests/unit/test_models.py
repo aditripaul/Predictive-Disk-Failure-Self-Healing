@@ -2,6 +2,7 @@ import datetime as dt
 
 import numpy as np
 import polars as pl
+import pyarrow.parquet as pq
 
 from data_contracts.schemas import ActionTier, FeatureMaturity
 from src.models.action_tiers import determine_action_tier
@@ -13,7 +14,12 @@ from src.models.evaluation import (
     precision_at_k,
     precision_at_k_fractions,
 )
-from src.models.features import assemble_training_frame, select_feature_columns
+from src.models.features import (
+    assemble_training_frame,
+    drive_batched_inner_join,
+    join_by_native_row_groups,
+    select_feature_columns,
+)
 from src.models.threshold import tune_threshold_for_precision
 from src.models.training import predict_proba_positive, train_lightgbm
 
@@ -45,6 +51,143 @@ def test_assemble_training_frame_and_select_feature_columns():
     assert feature_columns == ["reallocated_sector_count_7d_mean"]
     assert "model_family" not in feature_columns
     assert "label" not in feature_columns
+
+
+def _wide_and_narrow_fixture(n_drives: int = 12, days: int = 10, seed: int = 0):
+    """A gold-features-like frame sorted by date (not grouped by drive_id,
+    matching src/features/pivot.py's real output ordering) plus a narrow
+    label-like frame with some rows deliberately missing (censored), for
+    exercising the batched-join functions against something closer to
+    the real training-join shape than a handful of hand-picked rows."""
+    rng = np.random.default_rng(seed)
+    rows = [
+        {
+            "drive_id": f"D{d}",
+            "date": dt.date(2024, 1, 1) + dt.timedelta(days=day),
+            "f0": float(rng.random()),
+        }
+        for d in range(n_drives)
+        for day in range(days)
+    ]
+    wide = pl.DataFrame(rows).sort("date")
+    keep = rng.random(wide.height) < 0.85
+    narrow = pl.DataFrame(
+        {
+            "drive_id": wide["drive_id"],
+            "date": wide["date"],
+            "label": (rng.random(wide.height) < 0.5).astype(np.int8),
+        }
+    ).filter(pl.Series(keep))
+    return wide, narrow
+
+
+def test_drive_batched_inner_join_matches_a_direct_join():
+    """Regression test for the bug two commits fixed: an earlier version
+    built left.filter(...).join(right.filter(...), ...) as one combined
+    lazy plan and it produced a request to allocate ~354 quintillion
+    bytes against real data - a query-shape bug, not a real memory need.
+    The fix collects each side separately before an eager join; this
+    pins that both the fix and the original row-offset chunking it
+    replaced give the same rows as an unbatched join."""
+    wide, narrow = _wide_and_narrow_fixture()
+    direct = wide.join(narrow, on=["drive_id", "date"], how="inner")
+    key = ["drive_id", "date"]
+    for n_batches in (1, 3, 7, 50):  # 50 > n_drives: exercises empty batches too
+        out = drive_batched_inner_join(
+            wide.lazy(), narrow.lazy(), on=["drive_id", "date"], n_batches=n_batches
+        )
+        assert out.sort(key).equals(direct.sort(key).select(out.columns)), n_batches
+
+
+def test_drive_batched_inner_join_empty_result_keeps_the_joined_schema():
+    wide = pl.DataFrame({"drive_id": ["X"], "date": [dt.date(2024, 1, 1)], "f0": [1.0]})
+    narrow = pl.DataFrame({"drive_id": ["Y"], "date": [dt.date(2024, 1, 1)], "label": [1]})
+    out = drive_batched_inner_join(wide.lazy(), narrow.lazy(), on=["drive_id", "date"], n_batches=4)
+    assert out.shape == (0, 4)
+    assert set(out.columns) == {"drive_id", "date", "f0", "label"}
+
+
+def test_join_by_native_row_groups_matches_a_direct_join_across_row_group_counts(tmp_path):
+    """Covers the two things build_gold_features.py's own writer can
+    produce: a single row group (small datasets never split) and
+    multiple row groups that do NOT align to drive boundaries (real
+    batches routinely exceeded pyarrow's un-configured 1,048,576-row
+    default before row_group_size was passed explicitly) - correctness
+    must hold either way, since Parquet row groups are always an
+    exhaustive, non-overlapping partition of a file's rows regardless of
+    where the split falls."""
+    wide, narrow = _wide_and_narrow_fixture(n_drives=15, days=12, seed=1)
+    direct = wide.join(narrow, on=["drive_id", "date"], how="inner")
+    key = ["drive_id", "date"]
+
+    for row_group_size in (wide.height, 25, 7):
+        path = tmp_path / f"wide_{row_group_size}.parquet"
+        writer = pq.ParquetWriter(path, wide.to_arrow().schema)
+        writer.write_table(wide.to_arrow(), row_group_size=row_group_size)
+        writer.close()
+        assert pq.ParquetFile(path).num_row_groups >= (wide.height // row_group_size)
+
+        out = join_by_native_row_groups(path, narrow.lazy(), on=["drive_id", "date"])
+        assert out.sort(key).equals(direct.sort(key).select(out.columns)), row_group_size
+
+
+def test_join_by_native_row_groups_max_rows_per_join_does_not_change_the_result(tmp_path):
+    """max_rows_per_join slices each already-in-memory row group before
+    joining, purely to bound peak memory - it must not change which rows
+    come out, at a sub-row-group granularity that doesn't evenly divide
+    the row group."""
+    wide, narrow = _wide_and_narrow_fixture(n_drives=15, days=12, seed=2)
+    direct = wide.join(narrow, on=["drive_id", "date"], how="inner")
+    key = ["drive_id", "date"]
+
+    path = tmp_path / "wide.parquet"
+    wide.write_parquet(path)
+    for max_rows_per_join in (None, 1, 37, 10_000):
+        out = join_by_native_row_groups(
+            path, narrow.lazy(), on=["drive_id", "date"], max_rows_per_join=max_rows_per_join
+        )
+        assert out.sort(key).equals(direct.sort(key).select(out.columns)), max_rows_per_join
+
+
+def test_join_by_native_row_groups_empty_result_keeps_the_joined_schema(tmp_path):
+    wide = pl.DataFrame({"drive_id": ["X"], "date": [dt.date(2024, 1, 1)], "f0": [1.0]})
+    narrow = pl.DataFrame({"drive_id": ["Y"], "date": [dt.date(2024, 1, 1)], "label": [1]})
+    path = tmp_path / "wide.parquet"
+    wide.write_parquet(path)
+    out = join_by_native_row_groups(path, narrow.lazy(), on=["drive_id", "date"])
+    assert out.shape == (0, 4)
+    assert set(out.columns) == {"drive_id", "date", "f0", "label"}
+
+
+def test_assemble_training_frame_gold_features_path_matches_the_in_memory_path(tmp_path):
+    """pipelines/train_model.py always passes gold_features_path now, so
+    this is the actual production code path - pins it against the
+    simpler in-memory join every other assemble_training_frame test
+    exercises, at a scale wide enough to span several row groups."""
+    wide, narrow = _wide_and_narrow_fixture(n_drives=20, days=10, seed=3)
+    wide = wide.with_columns(pl.lit("Seagate HDD").alias("model_family"))
+    labels = narrow.rename({"label": "label"}).with_columns(
+        pl.lit(14, dtype=pl.Int64).alias("horizon_days"),
+        pl.lit("train").alias("split"),
+    )
+
+    baseline = assemble_training_frame(wide, labels, horizon_days=14)
+
+    path = tmp_path / "gold.parquet"
+    writer = pq.ParquetWriter(path, wide.to_arrow().schema)
+    writer.write_table(wide.to_arrow(), row_group_size=40)  # force several row groups
+    writer.close()
+    assert pq.ParquetFile(path).num_row_groups > 1
+
+    via_path = assemble_training_frame(
+        wide.lazy(),
+        labels,
+        horizon_days=14,
+        chunk_rows=17,
+        gold_features_path=path,
+    )
+    key = ["drive_id", "date"]
+    assert baseline.sort(key).equals(via_path.sort(key).select(baseline.columns))
 
 
 def _toy_classification_data(n: int = 200, seed: int = 0):

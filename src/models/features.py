@@ -7,11 +7,16 @@ from __future__ import annotations
 import gc
 import math
 import tempfile
+import time
 from pathlib import Path
 
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
+
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 #: Dtypes a gold feature column may have to be usable as a model feature.
 NUMERIC_DTYPES = (
@@ -217,11 +222,25 @@ def drive_batched_inner_join(
         return pl.concat([pl.scan_parquet(p) for p in batch_paths], how="vertical").collect()
 
 
+def _as_dataframe(value: object, *, context: str) -> pl.DataFrame:
+    """`pl.from_arrow(...)` is typed to return a DataFrame or Series
+    depending on its input; a Parquet row group (or an Arrow Table more
+    generally) always converts to a DataFrame, but that's a runtime fact
+    about the input, not something the type checker can see. Raising
+    explicitly (rather than `assert`, which vanishes under `-O`/
+    `PYTHONOPTIMIZE=1`) turns a violated assumption into a clear error
+    here instead of a confusing AttributeError several lines later."""
+    if not isinstance(value, pl.DataFrame):
+        raise TypeError(f"{context}: expected a DataFrame from pl.from_arrow, got {type(value)}")
+    return value
+
+
 def join_by_native_row_groups(
     wide_path: Path,
     narrow: pl.DataFrame | pl.LazyFrame,
     *,
     on: list[str],
+    max_rows_per_join: int | None = None,
 ) -> pl.DataFrame:
     """Inner-joins the Parquet file at `wide_path` to `narrow`, reading
     `wide_path` by its OWN existing row groups rather than re-deriving
@@ -240,15 +259,25 @@ def join_by_native_row_groups(
     side separately, still failed against real Q1 data on a small but
     real allocation with zero progress logged.
 
-    `pipelines/build_gold_features.py`'s finalize stage already writes
-    the gold feature table with a `pyarrow.parquet.ParquetWriter`, one
-    `write_table()` call per batch of whole drives - so the file already
-    has exactly one row group per original batch, each a disjoint,
-    complete set of drives (batched by the same `hash(drive_id)`
-    scheme). Reading it back via `ParquetFile.read_row_group(i)` is a
-    direct, targeted read of just that row group's bytes - no filter
-    evaluation, no re-reading rows that belong to a different batch - so
-    the WHOLE file is read exactly once in total, not once per batch.
+    `pipelines/build_gold_features.py`'s finalize stage writes the gold
+    feature table with a `pyarrow.parquet.ParquetWriter`, one
+    `write_table(..., row_group_size=table.num_rows)` call per batch of
+    whole drives, so the file has exactly one row group per original
+    batch there. That is NOT relied on for correctness here, only for
+    how many times `narrow` gets re-scanned: Parquet row groups are
+    always an exhaustive, non-overlapping partition of a file's rows
+    regardless of how they were written, and the join is keyed on `on`
+    against each row group's own physical rows, so even a row group that
+    (against an older version of the writer, before it passed
+    `row_group_size` explicitly - real batches routinely exceeded
+    pyarrow's un-configured 1,048,576-row default cap and silently split
+    into more row groups than intended) happens to straddle a drive's
+    date range still produces a correct result - verified directly with
+    a table deliberately split at arbitrary, non-drive-aligned row
+    counts. Reading by row group is a direct, targeted read of just that
+    row group's bytes - no filter evaluation, no re-reading rows that
+    belong to a different one - so the WHOLE file is read exactly once
+    in total, not once per row group.
 
     `narrow` (typically one horizon's observed-label rows) is re-scanned
     and filtered to each row group's own drive_ids via `.is_in(...)` -
@@ -257,6 +286,17 @@ def join_by_native_row_groups(
     stage, which is far cheaper here than the wide side's would have
     been precisely because `narrow` is narrow.
 
+    `max_rows_per_join`, when given, further slices each row group's
+    already-in-memory DataFrame into row-count-bounded pieces before
+    joining - free to do (no re-read: the row group is already
+    resident), and it's what actually gives
+    `resource_limits.training_join_chunk_rows` an effect on peak memory
+    here. Without it, a caller who lowers that config expecting smaller
+    join batches would see no change at all, since row-group size is
+    governed entirely by `feature_batch_target_rows` (a different
+    config key, read by a different pipeline) - `pipelines/train_model.py`
+    passes both.
+
     Falls back to a single row group (the whole file) if `wide_path`
     happens to have been written as one - a small dataset that never
     needed batching in build_gold_features.py, or any other single-row-
@@ -264,25 +304,57 @@ def join_by_native_row_groups(
     benefit."""
     narrow_lazy = narrow.lazy()
     parquet_file = pq.ParquetFile(wide_path)
+    logger.info(
+        "join_by_native_row_groups_started",
+        wide_path=str(wide_path),
+        num_row_groups=parquet_file.num_row_groups,
+        max_rows_per_join=max_rows_per_join,
+    )
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         batch_paths = []
         for row_group_index in range(parquet_file.num_row_groups):
-            wide_batch = pl.from_arrow(parquet_file.read_row_group(row_group_index))
-            assert isinstance(wide_batch, pl.DataFrame)
-            batch_drive_ids = wide_batch["drive_id"].unique().to_list()
+            t0 = time.perf_counter()
+            wide_batch = _as_dataframe(
+                pl.from_arrow(parquet_file.read_row_group(row_group_index)),
+                context=f"row group {row_group_index} of {wide_path}",
+            )
+            # `.implode()`: passing a bare Series of the same dtype as the
+            # column being checked is deprecated as of Polars 1.44 (it's
+            # ambiguous whether it means "check membership against these
+            # values" or an element-wise comparison) - imploding it into
+            # a single list value makes "these are the values to check
+            # membership against" explicit, the same semantics a plain
+            # `list` (e.g. from `.to_list()`) already had, without paying
+            # for that list's per-value Python object boxing.
+            batch_drive_ids = wide_batch["drive_id"].unique().implode()
             narrow_batch = narrow_lazy.filter(pl.col("drive_id").is_in(batch_drive_ids)).collect()
-            part = wide_batch.join(narrow_batch, on=on, how="inner")
-            if part.height:
-                path = Path(tmp_dir) / f"batch_{row_group_index}.parquet"
-                part.write_parquet(path, compression="zstd")
-                batch_paths.append(path)
-            del wide_batch, narrow_batch, part
+
+            sub_size = max_rows_per_join or wide_batch.height
+            for offset in range(0, wide_batch.height, sub_size):
+                sub_wide = wide_batch.slice(offset, sub_size)
+                part = sub_wide.join(narrow_batch, on=on, how="inner")
+                if part.height:
+                    path = Path(tmp_dir) / f"batch_{row_group_index}_{offset}.parquet"
+                    part.write_parquet(path, compression="zstd")
+                    batch_paths.append(path)
+                del sub_wide, part
+            logger.info(
+                "join_by_native_row_groups_row_group_done",
+                row_group_index=row_group_index,
+                num_row_groups=parquet_file.num_row_groups,
+                elapsed_seconds=round(time.perf_counter() - t0, 2),
+                row_group_rows=wide_batch.height,
+                matched_row_count=narrow_batch.height,
+            )
+            del wide_batch, narrow_batch
             gc.collect()
 
         if not batch_paths:
-            empty_wide = pl.from_arrow(parquet_file.schema_arrow.empty_table())
-            assert isinstance(empty_wide, pl.DataFrame)
+            empty_wide = _as_dataframe(
+                pl.from_arrow(parquet_file.schema_arrow.empty_table()),
+                context=f"empty-schema fallback for {wide_path}",
+            )
             empty_narrow = narrow_lazy.filter(pl.lit(False)).collect()
             return empty_wide.join(empty_narrow, on=on, how="inner")
         return pl.concat([pl.scan_parquet(p) for p in batch_paths], how="vertical").collect()
@@ -345,10 +417,13 @@ def assemble_training_frame(
     batch with a fresh hash filter (see `join_by_native_row_groups`'s
     docstring for why that rescan was the actual bottleneck even after
     `drive_batched_inner_join` collected each side separately).
-    `drive_batched_inner_join` remains the fallback when no path is
-    given - e.g. for callers/tests using an in-memory or non-Parquet
-    `gold_features` - since it needs an actual file to read row groups
-    from."""
+    `chunk_rows` still bounds peak memory in this path too - passed
+    through as `max_rows_per_join`, it further slices each row group's
+    already-in-memory batch before joining, rather than being silently
+    ignored once a path is available. `drive_batched_inner_join` remains
+    the fallback when no path is given - e.g. for callers/tests using an
+    in-memory or non-Parquet `gold_features` - since it needs an actual
+    file to read row groups from."""
     horizon_labels = labels.lazy().filter(
         (pl.col("horizon_days") == horizon_days) & pl.col("label").is_not_null()
     )
@@ -362,7 +437,10 @@ def assemble_training_frame(
 
     if gold_features_path is not None:
         return join_by_native_row_groups(
-            gold_features_path, horizon_labels, on=["drive_id", "date"]
+            gold_features_path,
+            horizon_labels,
+            on=["drive_id", "date"],
+            max_rows_per_join=chunk_rows,
         )
 
     total_rows = gold_features.lazy().select(pl.len()).collect().item()

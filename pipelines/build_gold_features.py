@@ -320,6 +320,13 @@ def _stage_finalize(tmp_dir: Path, gold_batch_paths: list[Path], out_path: Path)
     needs it all at once."""
     configure_logging()
     apply_memory_limit_from_config()
+    if not gold_batch_paths:
+        # Unreachable via main()'s own orchestration today - n_batches is
+        # always >= 1, so at least one batch path is always produced and
+        # passed here - but a clear error beats gold_batch_paths[0]'s bare
+        # IndexError a few lines below if a future caller (or a test)
+        # ever calls this stage directly with an empty list.
+        raise ValueError("No gold feature batches to finalize.")
     _, features_config = _load_configs()
     attributes, windows_days, spike_thresholds = resolve_feature_plan(
         pl.scan_parquet(gold_batch_paths[0]).collect_schema().names(), features_config
@@ -362,7 +369,20 @@ def _stage_finalize(tmp_dir: Path, gold_batch_paths: list[Path], out_path: Path)
             table = batch.to_arrow()
             if writer is None:
                 writer = pq.ParquetWriter(out_path, table.schema, compression="zstd")
-            writer.write_table(table)
+            # row_group_size=table.num_rows: without it, pyarrow's default
+            # cap (1,048,576 rows) silently splits any batch bigger than
+            # that into multiple row groups - every real batch here
+            # (feature_batch_target_rows defaults to 2,000,000) would
+            # become ~2 row groups instead of the single one
+            # src/models/features.py::join_by_native_row_groups relies on
+            # for its "read the file exactly once, one row group per
+            # batch" efficiency. Splitting doesn't break its correctness
+            # (Parquet row groups always partition rows disjointly, and
+            # the join re-matches on drive_id+date regardless of which
+            # row group a row landed in - verified directly), but it
+            # silently doubles how many times that function re-scans the
+            # label table for no benefit.
+            writer.write_table(table, row_group_size=table.num_rows)
             del batch, table
             gc.collect()
     finally:
