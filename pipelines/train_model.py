@@ -583,7 +583,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             )
         )
         predicate = _train_sample_predicate(label_counts, max_rows=max_train_rows, seed=0)
-        select_columns = [*feature_columns, "label", "drive_id"]
+        select_columns = [*feature_columns, "label", "drive_id", "date"]
         # A subdirectory of work_dir, not tempfile's own default location
         # (typically /tmp): every scratch file this pipeline writes needs
         # to land on the same, deliberately chosen filesystem - see
@@ -602,7 +602,9 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
                 tmp_dir=part_tmp_dir,
             )
             x_train, y_train = _build_feature_arrays(part_paths, feature_columns)
-            _write_id_columns(part_paths, ["drive_id"], work_dir / "train_ids.parquet")
+            _write_id_columns(
+                part_paths, ["drive_id", "date"], work_dir / "train_ids.parquet"
+            )
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
         row_count = len(y_train)
@@ -610,7 +612,14 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
         del x_train
         np.save(work_dir / "y_train.npy", y_train)
     elif split_name == "validation":
-        select_columns = [*feature_columns, "label", "drive_id", "days_to_event"]
+        select_columns = [
+            *feature_columns,
+            "label",
+            "drive_id",
+            "date",
+            "event_type",
+            "days_to_event",
+        ]
         part_tmp_dir = work_dir / "_validation_parts"
         part_tmp_dir.mkdir()
         try:
@@ -624,7 +633,9 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             )
             x_val, y_val = _build_feature_arrays(part_paths, feature_columns)
             _write_id_columns(
-                part_paths, ["drive_id", "days_to_event"], work_dir / "validation_ids.parquet"
+                part_paths,
+                ["drive_id", "date", "event_type", "days_to_event"],
+                work_dir / "validation_ids.parquet",
             )
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
@@ -640,7 +651,14 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
         # directly via out_path - _collect_split_rows never forms a
         # combined DataFrame in this process either, for test's own
         # (uncapped, so potentially just as large as train's) size.
-        select_columns = [*feature_columns, "label", "drive_id", "event_type", "days_to_event"]
+        select_columns = [
+            *feature_columns,
+            "label",
+            "drive_id",
+            "date",
+            "event_type",
+            "days_to_event",
+        ]
         part_tmp_dir = work_dir / "_test_parts"
         part_tmp_dir.mkdir()
         try:

@@ -28,9 +28,11 @@ import yaml
 from sklearn.metrics import precision_recall_curve
 
 from src.logging_config import configure_logging, get_logger
+from src.models.alerting import SMOOTHERS, analyze_false_alarms, smooth_scores
 from src.models.evaluation import compute_auprc, drive_level_metrics, drive_level_table
 from src.models.features import feature_matrix
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
+from src.models.threshold import tune_drive_level_threshold
 from src.models.training import early_stopping_subset, predict_proba_positive
 from src.resource_limits import apply_memory_limit_from_config
 
@@ -203,6 +205,7 @@ def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
         )
         val_scores = predict_proba_positive(model, data["x_val"])
         test_scores = predict_proba_positive(model, data["x_test"])
+    data.setdefault("_scores", {})[name] = (val_scores, test_scores)
     importances = sorted(
         zip(data["feature_columns"], model.booster_.feature_importance("gain"), strict=True),
         key=lambda p: -p[1],
@@ -244,6 +247,103 @@ def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _operating_points(
+    data: dict[str, Any], val_scores: np.ndarray, test_scores: np.ndarray
+) -> dict:
+    """Thresholds chosen on validation, applied to test, at the drive level:
+    best precision at recall >= 35% (the goal's recall floor) and the
+    highest-recall point with precision >= 50%."""
+    floor = tune_drive_level_threshold(
+        data["val_drives"], data["y_val"], val_scores, target_precision=0.95
+    )
+    labels, drive_scores = drive_level_table(data["val_drives"], data["y_val"], val_scores)
+    half = threshold_for_precision(labels, drive_scores, 0.5)
+    out: dict[str, dict[str, Any] | None] = {}
+    for name, threshold in (("recall>=35%", floor["threshold"]), ("precision>=50%", half)):
+        if threshold is None:
+            out[name] = None
+            continue
+        out[name] = {
+            "threshold": threshold,
+            "val": drive_level_metrics(data["val_drives"], data["y_val"], val_scores, threshold),
+            "test": drive_level_metrics(
+                data["test_drives"], data["y_test"], test_scores, threshold
+            ),
+        }
+    return out
+
+
+def deep_dive(variant: str, data: dict[str, Any]) -> dict[str, Any]:
+    """(1) What are the false alarms? (2) Does requiring persistence cut them?"""
+    if variant not in data.get("_scores", {}):
+        run_variant(variant, data)
+    val_scores, test_scores = data["_scores"][variant]
+    report: dict[str, Any] = {"variant": variant, "persistence": {}, "false_alarms": {}}
+
+    raw_points = _operating_points(data, val_scores, test_scores)
+    raw_floor = raw_points["recall>=35%"]
+    val_ids = data["val_ids"]
+    for split, ids, y, scores in (
+        ("val", val_ids, data["y_val"], val_scores),
+        ("test", data["test_ids"], data["y_test"], test_scores),
+    ):
+        report["false_alarms"][split] = analyze_false_alarms(
+            ids["drive_id"].to_numpy(),
+            ids["date"].to_numpy(),
+            y,
+            scores,
+            raw_floor["threshold"],
+            ids["event_type"].to_numpy(),
+            ids["days_to_event"].to_numpy().astype(float),
+        )
+
+    for smoother in SMOOTHERS:
+        sv = smooth_scores(data["val_drives"], val_ids["date"].to_numpy(), val_scores, smoother)
+        st = smooth_scores(
+            data["test_drives"], data["test_ids"]["date"].to_numpy(), test_scores, smoother
+        )
+        report["persistence"][smoother] = _operating_points(data, sv, st)
+    return report
+
+
+def _print_deep_dive(report: dict[str, Any]) -> None:
+    print(f"\n#### FALSE ALARMS ({report['variant']}, raw score, threshold for recall>=35%)")
+    for split, fa in report["false_alarms"].items():
+        print(
+            f"  {split}: {fa['false_alarm_drives']} of {fa['healthy_drives']} 'healthy' drives "
+            f"alerted (thr={fa['threshold']:.4f})"
+        )
+        for event_type, count in fa["alerted_by_event_type"].items():
+            base = fa["base_rate_by_event_type"].get(event_type, 0)
+            lift = fa["lift_by_event_type"].get(event_type)
+            print(
+                f"     {event_type:34s} alerted={count:6d}  of all healthy={base:7d}  "
+                f"lift={'n/a' if lift is None else f'{lift:.2f}x'}"
+            )
+        if fa["failed_later_days_after_alert"]:
+            print(
+                f"     failed later, days after first alert: {fa['failed_later_days_after_alert']}"
+            )
+    print(
+        f"\n#### PERSISTENCE ({report['variant']}): TEST drive metrics, thresholds from validation"
+    )
+    print(f"  {'smoother':9s} | {'@ recall>=35% (val)':36s} | @ precision>=50% (val)")
+    for smoother, points in report["persistence"].items():
+        cells = []
+        for key in ("recall>=35%", "precision>=50%"):
+            point = points[key]
+            if point is None:
+                cells.append("unreachable")
+                continue
+            t = point["test"]
+            cells.append(
+                f"P={t['precision']:.3f} R={t['recall']:.3f} "
+                f"({t['caught_drive_count']}/{t['failing_drive_count']}, "
+                f"FA={t['false_alarm_drive_count']})"
+            )
+        print(f"  {smoother:9s} | {cells[0]:36s} | {cells[1]}")
+
+
 def _print(result: dict[str, Any]) -> None:
     print(
         f"\n== {result['variant']}: trees={result['trees']} excluded={result['excluded_features']} "
@@ -272,6 +372,14 @@ def main() -> None:
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--variants", nargs="*", default=list(VARIANTS), choices=list(VARIANTS))
     parser.add_argument("--skip-baseline", action="store_true")
+    parser.add_argument(
+        "--deep-dive",
+        nargs="?",
+        const="reg_spw",
+        choices=list(VARIANTS),
+        help="After the variants, analyze this variant's false alarms and test persistence "
+        "rules (rolling mean/min/median over each drive's last n days). Default reg_spw.",
+    )
     args = parser.parse_args()
 
     configure_logging()
@@ -286,12 +394,14 @@ def main() -> None:
         "x_train": np.load(work_dir / "x_train.npy"),
         "y_train": np.load(work_dir / "y_train.npy"),
         "train_drives": pl.read_parquet(work_dir / "train_ids.parquet")["drive_id"].to_numpy(),
+        "val_ids": pl.read_parquet(work_dir / "validation_ids.parquet"),
         "x_val": np.load(work_dir / "x_val.npy"),
         "y_val": np.load(work_dir / "y_val.npy"),
         "val_drives": pl.read_parquet(work_dir / "validation_ids.parquet")["drive_id"].to_numpy(),
         "x_test": feature_matrix(test_df, feature_columns),
         "y_test": test_df["label"].to_numpy(),
         "test_drives": test_df["drive_id"].to_numpy(),
+        "test_ids": test_df.select("drive_id", "date", "event_type", "days_to_event"),
     }
     del test_df
     data["es_idx"] = early_stopping_subset(data["y_val"])
@@ -320,6 +430,12 @@ def main() -> None:
         _print(result)
         (work_dir / "experiment_results.json").write_text(
             json.dumps(results, indent=2, default=str)
+        )
+    if args.deep_dive:
+        report = deep_dive(args.deep_dive, data)
+        _print_deep_dive(report)
+        (work_dir / "experiment_deep_dive.json").write_text(
+            json.dumps(report, indent=2, default=str)
         )
     print(f"\nResults saved to {work_dir / 'experiment_results.json'}")
 

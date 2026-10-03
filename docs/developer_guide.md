@@ -962,6 +962,24 @@ make train TRAIN_ARGS=--keep-work-dir   # once; keeps x_*.npy, *_ids.parquet, te
 make experiment-model                   # compares variants (pipelines/experiment_model.py)
 ```
 
+For the precision gap specifically, add `--deep-dive`:
+
+```bash
+make experiment-model EXPERIMENT_ARGS="--variants reg_spw --deep-dive reg_spw"
+```
+
+It prints (1) what the "false alarm" drives actually are, via
+`src/models/alerting.py::analyze_false_alarms` (failures just beyond the
+14-day horizon, drives pulled without failing, or still-active ones, each
+with a lift over its base rate - separates model error from label and
+evaluation artifacts), and (2) whether a *persistence rule* helps:
+`smooth_scores` replaces each drive-day's score with a causal rolling
+mean / min / median over the drive's last 3-7 observations ("alert only if
+it stayed high"), with thresholds chosen on validation and applied to
+test. The persistence rule is not in the shipped pipeline yet; scoring
+(`pipelines/score_fleet.py`) would need each drive's recent history, not
+just its latest row, if it proves worthwhile.
+
 Each variant is early-stopped on a validation subsample and scored at row
 and drive level; thresholds are chosen on validation and applied to test.
 Excluded features are zeroed in place and restored, so a variant costs no
