@@ -35,6 +35,7 @@ def build_model_card(
     logistic_regression_baseline: dict[str, Any] | None = None,
     smote_comparison: dict[str, Any] | None = None,
     drive_level_metrics: dict[str, Any] | None = None,
+    action_tiers: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "generated_at": dt.datetime.now(dt.UTC).isoformat(),
@@ -74,6 +75,10 @@ def build_model_card(
             # Per-drive precision/recall/AUPRC (src/models/evaluation.py::
             # drive_level_metrics) - the level the model goal is stated at.
             "drive_level_metrics": drive_level_metrics,
+            # Per agent action: score threshold chosen on validation for a
+            # drive-level precision target, with validation/test precision
+            # and recall (src/models/threshold.py::tune_action_tiers).
+            "action_tiers": action_tiers,
         },
         # `shap_top_features=None` means SHAP was skipped for this run
         # (configs/model.yaml diagnostics.shap_enabled: false).
@@ -94,6 +99,28 @@ def build_model_card(
             "are the more honest read of generalization.",
         ],
     }
+
+
+def _action_tier_lines(action_tiers: dict[str, Any] | None) -> list[str]:
+    if not action_tiers:
+        return []
+    lines = [
+        "- Action tiers (drive level; threshold chosen on validation for the precision target):"
+    ]
+    for tier, info in action_tiers.items():
+        if info is None:
+            lines.append(f"  - {tier}: precision target unreachable on validation - never fires")
+            continue
+        val, test = info["validation"], info["test"]
+        lines.append(
+            f"  - {tier}: score >= {info['threshold']:.4f} (target precision "
+            f"{info['target_precision']:.0%}) -> validation precision {val['precision']:.1%} "
+            f"recall {val['recall']:.1%}; test precision {test['precision']:.1%} "
+            f"recall {test['recall']:.1%} ({test['caught_drive_count']}/"
+            f"{test['failing_drive_count']} failing drives, "
+            f"{test['false_alarm_drive_count']} false alarms)"
+        )
+    return lines
 
 
 def render_model_card_markdown(card: dict[str, Any]) -> str:
@@ -126,6 +153,7 @@ def render_model_card_markdown(card: dict[str, Any]) -> str:
         f"- Validation metrics: {evaluation['validation_metrics']}",
         f"- Test metrics: {evaluation['test_metrics']}",
         f"- Drive-level metrics: {evaluation.get('drive_level_metrics')}",
+        *_action_tier_lines(evaluation.get("action_tiers")),
         f"- Test warning lead time: {evaluation['test_warning_lead_time']}",
         f"- Logistic Regression sanity baseline: {evaluation['logistic_regression_baseline']}",
         f"- SMOTE comparison: {evaluation['smote_comparison']}",

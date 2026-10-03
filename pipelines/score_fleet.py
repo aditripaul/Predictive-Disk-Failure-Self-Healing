@@ -27,6 +27,7 @@ from src.models.serving import (
     propose_actions,
     score_latest_drive_day,
 )
+from src.models.threshold import resolve_action_thresholds
 from src.resource_limits import apply_memory_limit_from_config
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
@@ -94,6 +95,18 @@ def main() -> None:
         else mlflow.lightgbm.load_model(f"runs:/{run_id}/model")
     )
 
+    # Per-tier thresholds tied to drive-level precision, recorded by
+    # `make train` with the model; older runs without them fall back to the
+    # hand-picked cutoffs in configs/agent.yaml.
+    try:
+        tier_thresholds = mlflow.artifacts.load_dict(f"runs:/{run_id}/action_tiers.json")
+    except Exception:
+        tier_thresholds = None
+        logger.warning("action_tiers_missing_using_agent_config", run_id=run_id)
+    action_thresholds = resolve_action_thresholds(
+        tier_thresholds, agent_config["action_thresholds"]
+    )
+
     feature_columns = select_feature_columns(latest_features)
     as_of = dt.datetime.now(dt.UTC)
     predictions = score_latest_drive_day(
@@ -107,7 +120,7 @@ def main() -> None:
     )
     proposals = propose_actions(
         predictions,
-        action_thresholds=agent_config["action_thresholds"],
+        action_thresholds=action_thresholds,
         min_confidence_for_destructive_action=agent_config["feature_confidence"][
             "min_confidence_for_destructive_action"
         ],

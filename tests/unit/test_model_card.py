@@ -56,9 +56,7 @@ def test_build_model_card_includes_warning_lead_time_when_provided():
 
 
 def test_build_model_card_includes_logistic_regression_baseline_when_provided():
-    card = _sample_card(
-        logistic_regression_baseline={"validation_auprc": 0.3, "test_auprc": 0.28}
-    )
+    card = _sample_card(logistic_regression_baseline={"validation_auprc": 0.3, "test_auprc": 0.28})
     assert card["evaluation"]["logistic_regression_baseline"]["test_auprc"] == 0.28
 
 
@@ -113,3 +111,27 @@ def test_build_model_card_includes_drive_level_metrics_when_provided():
 
 def test_build_model_card_drive_level_metrics_default_to_none():
     assert _sample_card()["evaluation"]["drive_level_metrics"] is None
+
+
+def test_model_card_renders_action_tiers_including_unreachable_ones():
+    metrics = {
+        "precision": 0.3,
+        "recall": 0.2,
+        "caught_drive_count": 6,
+        "failing_drive_count": 30,
+        "false_alarm_drive_count": 14,
+    }
+    card = _sample_card(
+        action_tiers={
+            "warn": {
+                "threshold": 0.4,
+                "target_precision": 0.15,
+                "validation": metrics,
+                "test": metrics,
+            },
+            "drain": None,
+        }
+    )
+    markdown = render_model_card_markdown(card)
+    assert "warn: score >= 0.4000" in markdown
+    assert "drain: precision target unreachable" in markdown

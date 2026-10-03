@@ -157,7 +157,7 @@ from src.models.hyperparameter_tuning import tune_lightgbm_hyperparameters
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
 from src.models.model_card import build_model_card, render_model_card_markdown
 from src.models.smote import apply_smote
-from src.models.threshold import tune_drive_level_threshold
+from src.models.threshold import tune_action_tiers, tune_drive_level_threshold
 from src.models.training import (
     early_stopping_subset,
     predict_proba_positive,
@@ -952,6 +952,13 @@ def main() -> None:
             results["test_metrics"] = evaluate_at_threshold(
                 y_test, test_scores, threshold_result["threshold"]
             )
+            # One threshold per agent action tier, each tied to the drive-level
+            # precision that action can tolerate (configs/model.yaml
+            # threshold.action_tier_precision). Evaluated on test below.
+            tier_targets = model_config["threshold"]["action_tier_precision"]
+            tier_thresholds = tune_action_tiers(
+                val_drive_ids, y_val, val_scores, precision_targets=tier_targets
+            )
             # The model goal (precision >= 95%, recall 35-50%) is judged per
             # DRIVE, not per drive-day: a failing drive contributes ~horizon
             # near-identical positive rows, so the row-level numbers above
@@ -968,6 +975,23 @@ def main() -> None:
                 test_scores,
                 threshold_result["threshold"],
             )
+            results["action_tiers"] = {
+                tier: (
+                    None
+                    if threshold is None
+                    else {
+                        "threshold": threshold,
+                        "target_precision": tier_targets[tier],
+                        "validation": drive_level_metrics(
+                            val_drive_ids, y_val, val_scores, threshold
+                        ),
+                        "test": drive_level_metrics(
+                            test_df["drive_id"].to_numpy(), y_test, test_scores, threshold
+                        ),
+                    }
+                )
+                for tier, threshold in tier_thresholds.items()
+            }
 
             # Logistic Regression sanity baseline (docs/project_plan.md Phase 6
             # Model Candidates: "Interpretable sanity baseline") - confirms the
@@ -1117,6 +1141,11 @@ def main() -> None:
             report_path = audit_dir / "model_evaluation_report.json"
             report_path.write_text(json.dumps(results, indent=2, default=str))
 
+            # Read back by `make score-fleet` from this run's artifacts.
+            action_tiers_path = audit_dir / "action_tiers.json"
+            action_tiers_path.write_text(json.dumps(tier_thresholds, indent=2))
+            mlflow.log_artifact(str(action_tiers_path))
+
             shap_report_path = audit_dir / "shap_feature_importance.json"
             if feature_importance is not None:
                 shap_report_path.write_text(json.dumps(feature_importance, indent=2, default=str))
@@ -1145,6 +1174,7 @@ def main() -> None:
                     "validation": results["validation_drive_level"],
                     "test": results["test_drive_level"],
                 },
+                action_tiers=results["action_tiers"],
                 shap_top_features=(
                     feature_importance[:20] if feature_importance is not None else None
                 ),
@@ -1171,6 +1201,20 @@ def main() -> None:
             logger.info("test_metrics", **results["test_metrics"])
             logger.info("validation_drive_level", **results["validation_drive_level"])
             logger.info("test_drive_level", **results["test_drive_level"])
+            for tier, info in results["action_tiers"].items():
+                if info is None:
+                    logger.info("action_tier", tier=tier, reachable=False)
+                    continue
+                logger.info(
+                    "action_tier",
+                    tier=tier,
+                    threshold=info["threshold"],
+                    target_precision=info["target_precision"],
+                    validation_precision=info["validation"]["precision"],
+                    validation_recall=info["validation"]["recall"],
+                    test_precision=info["test"]["precision"],
+                    test_recall=info["test"]["recall"],
+                )
             logger.info("logistic_regression_baseline", **results["logistic_regression_baseline"])
             logger.info("test_warning_lead_time", **results["test_warning_lead_time"])
             logger.info("evaluation_report_written", path=str(report_path))

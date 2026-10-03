@@ -1030,6 +1030,28 @@ becomes the production model by accident. Metrics at different horizons are
 not comparable (a longer horizon labels more rows positive); judge them by
 what the agent can do with the warning.
 
+**Trial result: 30-day horizon (not yet trustworthy).** The first real run
+(`--horizon-days 30`) showed validation drive AUPRC 0.37 and 53% precision
+at 35% recall (vs 0.23 and ~29% at 14 days) - but the test split is
+meaningless: only 2,862 rows, all positive (precision/AUPRC 1.0). The data
+ends 2026-03-31 and the configured splits (test ends 03-17) were sized for a
+14-day horizon; with 30 days, every healthy drive-day after 03-01 has an
+unobservable label and is dropped while failing drives' rows are kept. That
+also biases the last week of validation toward positives. A fair 30-day
+comparison needs split dates at least 30 days before the data end
+(`splits` in `configs/model.yaml`, then `make build-labels`), which shrinks
+the training window.
+
+**Action tiers.** Instead of one 95% target, `make train` derives a score
+threshold per agent action (warn / cordon / migrate / drain) from the
+drive-level precision each can tolerate (`threshold.action_tier_precision`
+in `configs/model.yaml`; placeholders: 15 / 25 / 40 / 60%). It reports
+validation and test precision and recall per tier (model card, log), writes
+`action_tiers.json` to the MLflow run, and `make score-fleet` uses those
+thresholds; a tier whose target is unreachable never fires, and older runs
+fall back to the cutoffs in `configs/agent.yaml`. The live agent loop still
+uses `agent.yaml` directly.
+
 **Goal status: not met, and not reachable by tuning.** Shipped model, test,
 drive level: 23% precision at 30% recall (92 of 309 failures caught, 309
 healthy drives alerting out of 345k; validation chose the threshold at

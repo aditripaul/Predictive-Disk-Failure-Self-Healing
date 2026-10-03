@@ -15,6 +15,13 @@ human_review:
   non_critical_sla_hours: 24
   timeout_fallback_action: cordon
 
+# Hand-picked probability cutoffs used by the live agent loop. The model's
+# probabilities are class-weighted, so these do NOT correspond to a fixed
+# false-alarm rate. `make score-fleet` instead uses per-tier thresholds that
+# `make train` derives from precision targets (configs/model.yaml
+# threshold.action_tier_precision) and records with the model; these values
+# are the fallback for models trained before that existed. Wiring the live
+# agent loop (src/agent/nodes.py) to the same thresholds is not done yet.
 action_thresholds:
   warn: 0.30
   cordon: 0.60

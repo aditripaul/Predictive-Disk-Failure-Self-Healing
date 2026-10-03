@@ -99,3 +99,68 @@ def tune_drive_level_threshold(
         "recall_floor_met": bool(recall[best] >= recall_low),
         "precision_gap_to_target": max(0.0, target_precision - float(precision[best])),
     }
+
+
+ACTION_TIERS = ("warn", "cordon", "migrate", "drain")
+
+#: Sentinel threshold for a tier whose precision target is unreachable on
+#: validation: probabilities never reach it, so the tier never fires.
+UNREACHABLE_THRESHOLD = 1.01
+
+
+def tune_action_tiers(
+    drive_ids: np.ndarray,
+    y_true: np.ndarray,
+    y_scores: np.ndarray,
+    *,
+    precision_targets: dict[str, float],
+) -> dict[str, float | None]:
+    """One score threshold per agent action tier (warn < cordon < migrate <
+    drain), each chosen on the validation DRIVE-level curve as the
+    highest-recall threshold whose drive precision is >= that tier's target.
+    This replaces hand-picked probability cutoffs (configs/agent.yaml): the
+    model's scores are class-weighted, so a score of 0.9 does not mean 90%
+    of such drives fail - each tier's threshold is instead tied to the
+    precision (the false-alarm cost) that tier's action can tolerate.
+
+    `precision_targets` must be non-decreasing from warn to drain (a more
+    drastic action needs at least as much precision); thresholds are
+    forced non-decreasing too, whatever the noise in the curve. A tier
+    whose target is unreachable gets `None` and should never fire."""
+    targets = [precision_targets[tier] for tier in ACTION_TIERS]
+    if any(b < a for a, b in zip(targets, targets[1:], strict=False)):
+        raise ValueError(
+            f"action tier precision targets must not decrease from warn to drain: "
+            f"{dict(zip(ACTION_TIERS, targets, strict=True))}"
+        )
+    labels, scores = drive_level_table(drive_ids, y_true, y_scores)
+    precision, recall, thresholds = precision_recall_curve(labels, scores)
+    precision, recall = precision[:-1], recall[:-1]
+
+    result: dict[str, float | None] = {}
+    floor = float("-inf")
+    for tier, target in zip(ACTION_TIERS, targets, strict=True):
+        ok = np.flatnonzero(precision >= target)
+        if not len(ok):
+            result[tier] = None
+            continue
+        best = ok[np.argmax(recall[ok])]
+        floor = max(floor, float(thresholds[best]))
+        result[tier] = floor
+    return result
+
+
+def resolve_action_thresholds(
+    tier_thresholds: dict[str, float | None] | None, fallback: dict[str, float]
+) -> dict[str, float]:
+    """The `action_thresholds` dict `determine_action_tier` expects: the
+    trained model's per-tier thresholds, with an unreachable tier mapped to
+    a threshold no probability reaches. `None` (no tiers recorded for the
+    model) falls back to the configured thresholds."""
+    if tier_thresholds is None:
+        return dict(fallback)
+    resolved: dict[str, float] = {}
+    for tier in ACTION_TIERS:
+        threshold = tier_thresholds.get(tier)
+        resolved[tier] = UNREACHABLE_THRESHOLD if threshold is None else threshold
+    return resolved

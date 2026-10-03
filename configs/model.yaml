@@ -52,6 +52,20 @@ threshold:
   target_precision: 0.95
   target_recall_range: [0.35, 0.50]
   search_metric: auprc
+  # Per-agent-action precision requirements (drive level, ascending: a more
+  # drastic action tolerates fewer false alarms). `make train` turns each into
+  # a score threshold on the validation split (src/models/threshold.py::
+  # tune_action_tiers), reports validation/test precision and recall per tier,
+  # and `make score-fleet` uses those thresholds instead of the hand-picked
+  # probability cutoffs in configs/agent.yaml. A tier whose target is
+  # unreachable never fires. These are placeholders to be set from the real
+  # cost of a false alarm per action - on Q1 2026 data the shipped model
+  # reaches ~17% precision at ~38% recall, ~40% at ~13%, ~95% only at ~1%.
+  action_tier_precision:
+    warn: 0.15
+    cordon: 0.25
+    migrate: 0.40
+    drain: 0.60
 
 # Optuna-based hyperparameter search (docs/project_plan.md Phase 6
 # "Threshold tuning: Use Optuna. Subsample for search. Retrain best

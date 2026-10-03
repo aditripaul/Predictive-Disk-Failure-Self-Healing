@@ -106,3 +106,70 @@ def test_drive_level_threshold_never_returns_a_zero_recall_point_when_unreachabl
         drives, y, scores, target_precision=0.999, target_recall_range=(0.5, 0.75)
     )
     assert result["recall"] >= 0.5
+
+
+def _tier_fixture():
+    # 10 failing drives scoring .95 .9 .85 .8 .7 .6 .5 .4 .3 .2; 90 healthy drives:
+    # 1 at .92, 2 at .75, 7 at .55, 30 at .35, 50 at .05
+    drives = np.array([f"F{i}" for i in range(10)] + [f"H{i}" for i in range(90)])
+    y = np.array([1] * 10 + [0] * 90)
+    healthy = [0.92] + [0.75] * 2 + [0.55] * 7 + [0.35] * 30 + [0.05] * 50
+    scores = np.array([0.95, 0.9, 0.85, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2] + healthy)
+    return drives, y, scores
+
+
+def test_action_tiers_pick_the_highest_recall_threshold_meeting_each_precision():
+    from src.models.threshold import tune_action_tiers
+
+    drives, y, scores = _tier_fixture()
+    tiers = tune_action_tiers(
+        drives,
+        y,
+        scores,
+        precision_targets={"warn": 0.3, "cordon": 0.5, "migrate": 0.75, "drain": 0.95},
+    )
+    # thr .5 : 7 caught / 7+10 false -> .41 ; thr .6: 6/(6+3)=.67 ; thr .7: 5/(5+3)=.62;
+    # thr .8: 4/(4+3)=.57; .85: 3/3+1 = .75 ; .9: 2/2+1=.67 ; .95: 1/1+0 = 1.0
+    assert tiers["warn"] <= tiers["cordon"] <= tiers["migrate"] <= tiers["drain"]
+    assert tiers["warn"] == pytest.approx(0.4)  # lowest threshold with precision >= .3
+    assert tiers["drain"] == pytest.approx(0.95)  # only the top drive is precise enough
+
+
+def test_action_tier_with_an_unreachable_target_is_none_and_never_fires():
+    from src.models.threshold import (
+        UNREACHABLE_THRESHOLD,
+        resolve_action_thresholds,
+        tune_action_tiers,
+    )
+
+    drives, y, scores = _tier_fixture()
+    tiers = tune_action_tiers(
+        drives,
+        y,
+        scores,
+        precision_targets={"warn": 0.3, "cordon": 0.5, "migrate": 0.75, "drain": 1.1},
+    )
+    assert tiers["drain"] is None
+    resolved = resolve_action_thresholds(tiers, fallback={"warn": 0.3})
+    assert resolved["drain"] == UNREACHABLE_THRESHOLD
+    assert resolved["warn"] == tiers["warn"]
+
+
+def test_action_tier_targets_must_not_decrease():
+    from src.models.threshold import tune_action_tiers
+
+    drives, y, scores = _tier_fixture()
+    with pytest.raises(ValueError, match="must not decrease"):
+        tune_action_tiers(
+            drives,
+            y,
+            scores,
+            precision_targets={"warn": 0.5, "cordon": 0.2, "migrate": 0.6, "drain": 0.9},
+        )
+
+
+def test_resolve_action_thresholds_falls_back_to_config_without_recorded_tiers():
+    from src.models.threshold import resolve_action_thresholds
+
+    fallback = {"warn": 0.3, "cordon": 0.6, "migrate": 0.8, "drain": 0.9}
+    assert resolve_action_thresholds(None, fallback) == fallback
