@@ -15,12 +15,13 @@ model:
   # reproducible. Set to null to train on every row instead (only
   # advisable with a much higher memory cap or a smaller dataset).
   max_train_rows: 5000000
-  # Positive-class weight = (n_negative / n_positive) ** positive_weight_power
-  # (LightGBM scale_pos_weight). 1.0 is the full ratio (the old
-  # is_unbalance); 0.5 (sqrt) is what works. On real Q1 data the full ratio
-  # collapsed training to ONE tree with leaf values ~1e7 (validation drive
-  # AUPRC 0.04); sqrt gave 434 normal trees and drive AUPRC 0.23 (val) /
-  # 0.16 (test), ~4x the logistic baseline. null = old is_unbalance.
+  # Positive-class weight = (n_negative / n_positive) ** positive_weight_power,
+  # applied as per-row sample weights. 1.0 is the full ratio (like
+  # is_unbalance); null = plain is_unbalance. On real Q1 data 0.25 / 0.5 /
+  # 0.75 / is_unbalance all scored within noise (test drive AUPRC
+  # 0.15-0.16) once regularized and early-stopped on average precision -
+  # the regularization below is what prevents the collapse (one tree,
+  # leaf values ~1e7) the first unregularized run showed.
   positive_weight_power: 0.5
   # Stop adding trees when average precision on a validation subsample
   # (every positive row + at most early_stopping_max_negatives negatives)

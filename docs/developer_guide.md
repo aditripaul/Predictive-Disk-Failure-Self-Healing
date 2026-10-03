@@ -986,45 +986,50 @@ Excluded features are zeroed in place and restored, so a variant costs no
 extra copy of the matrices. Delete the kept `data/tmp/train_model_frame_*`
 directory when finished (it holds multi-GB arrays).
 
-**Real-data findings (Q1 2026, 14-day horizon, 345k drives, ~309 failing in test).**
-The first real `make train` produced a useless LightGBM (validation drive
-AUPRC 0.04, one tree, leaf values ~1e7, `is_unbalance` = full class
-ratio). `make experiment-model` isolated the cause and the fix:
+**Real-data findings (Q1 2026, 14-day horizon, 345k drives, 337 failing in
+validation, 309 in test).** All rows below use early stopping on average
+precision only (see `train_lightgbm`); test thresholds are chosen on
+validation.
 
-| variant | trees | test drive AUPRC | test drive precision @ recall |
+| variant | trees | drive AUPRC val / test | test drive precision @ recall |
 |---|---|---|---|
-| logistic baseline | - | 0.070 | - |
-| old: `is_unbalance` | 1 | 0.028 | 25% @ 0.3% |
-| + regularization only | 1 | 0.001 | none reachable |
-| **sqrt positive weight + regularization + early stopping (shipped)** | 434 | **0.158** | 40% @ 12.6%; 17% @ 38% |
-| same, minus identity features (age, capacity) | 329 | 0.146 | 39% @ 11.7% |
-| same, windowed features only | 200 | 0.141 | 43% @ 8.7% |
-| per-drive sample weights | 351 | 0.145 | 36% @ 12.6% |
+| logistic baseline | - | 0.056 / 0.070 | - |
+| first real run: `is_unbalance`, no regularization, no early stopping | 1 | ~0.04 / 0.03 | 25% @ 0.3% |
+| `is_unbalance` + regularization | 549 | 0.256 / 0.154 | 33% @ 16%; 16% @ 39% |
+| **sqrt weight + regularization (shipped)** | 434 | 0.230 / 0.158 | 40% @ 13%; 17% @ 38% |
+| weight power 0.25 | 453 | 0.241 / 0.161 | 35% @ 17%; 16% @ 39% |
+| weight power 0.75 | 507 | 0.209 / 0.148 | 36% @ 9%; 17% @ 36% |
+| 63 leaves | 303 | 0.240 / 0.158 | 38% @ 14%; 16% @ 37% |
+| stronger regularization | 361 | 0.223 / 0.165 | 32% @ 10%; 18% @ 41% |
 
-> **Caveat (found later the same day).** These runs, and the first shipped
-> pipeline version, early-stopped on *every* LightGBM metric including the
-> unweighted `binary_logloss`, which class weighting worsens. That stopped
-> the pipeline's `scale_pos_weight` model after ~13 trees (validation AUPRC
-> 0.0005 on real data) and also cut the experiment's tree counts and made
-> its `current`/`regularized` rows unreliable. Fixed by monitoring only
-> average precision and applying the weight as per-row sample weights
-> (`train_lightgbm`); the table below predates that fix, so re-run
-> `make experiment-model` for clean numbers. The very first real run (no
-> early stopping, unregularized, full-ratio weight) was genuinely broken,
-> so the full-ratio weight is still a suspect, just not proven by this table.
+Takeaways:
+- **Regularization + proper early stopping is what fixed the collapse.**
+  The class-weight choice is second order: `is_unbalance` works fine once
+  regularized. (An earlier table here blamed the full-ratio weight; that was
+  an artifact of early stopping on unweighted logloss.)
+- **Tuning has plateaued.** Every variant lands within ~0.15-0.17 test drive
+  AUPRC, inside run-to-run noise at ~300 failing drives. Dropping identity
+  features (age, capacity) or per-drive weighting did not help either.
+- **False alarms are mostly real, persistently "sick-looking" drives.**
+  `--deep-dive` at the 35%-recall operating point (validation, 296 alerting
+  "healthy" drives): 239 are still running (lift 0.8x, i.e. ordinary
+  drives), 36 were removed without a recorded failure (lift 21x) and 21
+  failed later, 15-60 days after the first alert (lift 200x). So ~19% of
+  "false alarms" are arguably early warnings, but most are not label
+  artifacts.
+- **Persistence rules do not help.** Rolling mean/min/median over 3-7 days
+  lowered precision at every recall level; the false alarms are drives whose
+  SMART signals stay elevated, not one-day spikes.
 
-Takeaways: the full-ratio class weight was the culprit (regularization alone
-did not help); identity features are *not* what hurts (dropping them lowers
-AUPRC on validation and test alike); per-drive weighting adds nothing.
-
-**Goal status: not met.** Precision >= 95% is only reachable at ~1% drive
-recall. At the goal's recall floor (35%) the best test precision is ~17%
-(about 590 healthy drives alerting per 345k over the test window, catching
-~117 of 309 failures). `tune_drive_level_threshold` therefore reports the
-best achievable point inside the recall range with `target_met: false`
-and the gap in the model card; the 95% target stays in `configs/model.yaml`.
-Closing the remaining gap needs better signal (features, labels, horizon),
-not just tuning.
+**Goal status: not met, and not reachable by tuning.** Shipped model, test,
+drive level: 23% precision at 30% recall (92 of 309 failures caught, 309
+healthy drives alerting out of 345k; validation chose the threshold at
+29% / 36%), 40% at 13%, and >= 95% only at ~1% recall. The 95% target stays
+in `configs/model.yaml` and the model card records the gap
+(`target_met: false`). The remaining levers change the data or the
+objective: more history (more failing drives to learn from), a longer
+horizon (the 21 late failures above become hits at 30 days), and tiered
+operating points per agent action instead of one 95% target.
 
 ---
 
