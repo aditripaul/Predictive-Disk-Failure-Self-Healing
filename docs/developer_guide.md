@@ -1030,6 +1030,24 @@ becomes the production model by accident. Metrics at different horizons are
 not comparable (a longer horizon labels more rows positive); judge them by
 what the agent can do with the warning.
 
+**Model-family check (XGBoost, same weights/regularization/early stopping).**
+Re-run on a slightly different data build (test: 297 failing drives):
+
+| model | trees | drive AUPRC val / test | test precision @ recall |
+|---|---|---|---|
+| LightGBM (shipped) | 387 | 0.233 / 0.121 | 32% @ 11%; 14% @ 34% |
+| XGBoost depth 6 | 433 | 0.226 / 0.109 | 31% @ 13%; 16% @ 30% |
+| XGBoost depth 8 | 278 | 0.252 / 0.096 | 27% @ 9%; 15% @ 27% |
+
+XGBoost is no better, so the precision ceiling is in the data (one quarter,
+a few hundred failing drives, SMART signals only), not in the model family.
+The same LightGBM configuration scored 0.158 test drive AUPRC on the previous
+data build and 0.121 here, so differences below ~0.05 are noise at this
+sample size. Per-action tiers also transfer imperfectly: thresholds tuned on
+validation for 15/25/40/60% precision gave 12/17/26/29% on test (the drain
+tier at 60% reaches only ~5% recall), so set tier targets with that
+shrinkage in mind.
+
 **Trial result: 30-day horizon (not yet trustworthy).** The first real run
 (`--horizon-days 30`) showed validation drive AUPRC 0.37 and 53% precision
 at 35% recall (vs 0.23 and ~29% at 14 days) - but the test split is
