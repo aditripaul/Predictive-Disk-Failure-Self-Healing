@@ -22,9 +22,7 @@ def early_stopping_subset(
     positives = np.flatnonzero(y == 1)
     negatives = np.flatnonzero(y == 0)
     if max_negatives is not None and len(negatives) > max_negatives:
-        negatives = np.random.default_rng(seed).choice(
-            negatives, size=max_negatives, replace=False
-        )
+        negatives = np.random.default_rng(seed).choice(negatives, size=max_negatives, replace=False)
     return np.sort(np.concatenate([positives, negatives]))
 
 
@@ -39,18 +37,25 @@ def train_lightgbm(
     early_stopping_rounds: int | None = None,
 ) -> lgb.LGBMClassifier:
     """`positive_weight_power`: weight positives by `(n_neg / n_pos) **
-    power` (`scale_pos_weight`) instead of LightGBM's `is_unbalance`
-    (power 1.0, the full ratio). On real fleet data (~0.1% positives, each
-    failing drive contributing ~14 near-identical rows) the full ratio
-    makes every tree chase a handful of drives - the model collapsed to a
-    single tree with leaf values ~1e7 - while the square root (0.5) trained
-    normally and ranked failures ~50-100x better by AUPRC. `None` keeps
-    the old `is_unbalance` behavior. An explicit `scale_pos_weight` or
+    power` instead of LightGBM's `is_unbalance` (power 1.0, the full
+    ratio). On real fleet data (~0.1% positives, each failing drive
+    contributing ~14 near-identical rows) the full ratio makes every tree
+    chase a handful of drives - the model collapsed to a single tree with
+    leaf values ~1e7 - while the square root (0.5) trained normally and
+    ranked failures ~50-100x better by AUPRC. Applied as per-row sample
+    weights (not the `scale_pos_weight` parameter): with sample weights
+    LightGBM's boost-from-average starts from the *weighted* prior, which
+    is what the measured results were obtained with. `None` keeps the old
+    `is_unbalance` behavior. An explicit `scale_pos_weight` or
     `is_unbalance` in `params` always wins.
 
     `eval_x`/`eval_y` + `early_stopping_rounds`: stop adding trees once
     average precision on that held-out set stops improving, and keep the
-    best iteration."""
+    best iteration. ONLY average precision is monitored
+    (`first_metric_only`): by default LightGBM also tracks the unweighted
+    `binary_logloss`, which class weighting deliberately worsens (scores
+    are pushed above the true base rate), so it ended training after a
+    handful of trees on real data (validation AUPRC 0.0005 vs 0.15)."""
     default_params: dict[str, Any] = {
         "objective": "binary",
         "is_unbalance": True,
@@ -59,27 +64,33 @@ def train_lightgbm(
         "n_estimators": 500,
         "verbosity": -1,
     }
+    sample_weight: np.ndarray | None = None
     if positive_weight_power is not None:
         default_params.pop("is_unbalance")
         n_pos = int((y_train == 1).sum())
         n_neg = int((y_train == 0).sum())
         if n_pos > 0:
-            default_params["scale_pos_weight"] = (n_neg / n_pos) ** positive_weight_power
+            sample_weight = np.ones(len(y_train), dtype=np.float32)
+            sample_weight[y_train == 1] = (n_neg / n_pos) ** positive_weight_power
     if params:
         default_params.update(params)
 
     model = lgb.LGBMClassifier(**default_params)
     if eval_x is not None and eval_y is not None and early_stopping_rounds:
+        model.set_params(metric="average_precision")
         model.fit(
             x_train,
             y_train,
+            sample_weight=sample_weight,
             eval_X=eval_x,
             eval_y=eval_y,
             eval_metric="average_precision",
-            callbacks=[lgb.early_stopping(early_stopping_rounds, verbose=False)],
+            callbacks=[
+                lgb.early_stopping(early_stopping_rounds, first_metric_only=True, verbose=False)
+            ],
         )
     else:
-        model.fit(x_train, y_train)
+        model.fit(x_train, y_train, sample_weight=sample_weight)
     return model
 
 

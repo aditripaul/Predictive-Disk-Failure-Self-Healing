@@ -3,7 +3,6 @@ import datetime as dt
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
-import pytest
 
 from data_contracts.schemas import ActionTier, FeatureMaturity
 from src.models.action_tiers import determine_action_tier
@@ -447,9 +446,54 @@ def test_train_lightgbm_positive_weight_power_replaces_is_unbalance():
 
     x, y = _imbalanced_xy()
     model = train_lightgbm(x, y, positive_weight_power=0.5, params={"n_estimators": 5})
-    expected = ((y == 0).sum() / (y == 1).sum()) ** 0.5
-    assert model.get_params()["scale_pos_weight"] == pytest.approx(expected)
     assert not model.get_params().get("is_unbalance")
+    # Weighted boost-from-average: positives weigh sqrt(neg/pos), so the model's
+    # mean score sits well above the raw base rate (an unweighted fit would not).
+    unweighted = (
+        train_lightgbm(x, y, params={"n_estimators": 5, "is_unbalance": False})
+        .predict_proba(x)[:, 1]
+        .mean()
+    )
+    assert model.predict_proba(x)[:, 1].mean() > 3 * unweighted
+
+
+def test_early_stopping_with_class_weights_does_not_stop_on_logloss():
+    """Regression: early stopping used to also watch the unweighted
+    binary_logloss, which class weighting worsens, so real-data training
+    stopped after a handful of trees (validation AUPRC 0.0005)."""
+    from sklearn.metrics import average_precision_score
+
+    from src.models.training import train_lightgbm
+
+    def make(n, seed):
+        rng = np.random.default_rng(seed)
+        x = rng.normal(size=(n, 20)).astype(np.float32)
+        y = (rng.random(n) < 0.002).astype(int)
+        x[y == 1, :3] += 1.5
+        return x, y
+
+    x, y = make(600_000, 1)
+    x_val, y_val = make(300_000, 2)
+    model = train_lightgbm(  # the shipped configs/model.yaml regularization
+        x,
+        y,
+        positive_weight_power=0.5,
+        params={
+            "n_estimators": 1000,
+            "min_child_samples": 200,
+            "reg_lambda": 10.0,
+            "max_delta_step": 1.0,
+            "feature_fraction": 0.7,
+            "bagging_fraction": 0.8,
+            "bagging_freq": 1,
+        },
+        eval_x=x_val,
+        eval_y=y_val,
+        early_stopping_rounds=50,
+    )
+    # Before the fix: stopped at ~13 trees with validation AP ~0.004.
+    assert model.best_iteration_ > 80
+    assert average_precision_score(y_val, model.predict_proba(x_val)[:, 1]) > 0.15
 
 
 def test_train_lightgbm_defaults_to_is_unbalance_without_a_power():

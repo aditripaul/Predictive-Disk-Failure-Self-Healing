@@ -192,7 +192,11 @@ def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
     arrays = [data["x_train"], data["x_val"], data["x_test"]]
     with _Zeroed(arrays, idx):
         weights = _sample_weights(data["y_train"], data["train_drives"], weighting)
-        model = lgb.LGBMClassifier(**params)
+        # Monitor ONLY average precision: the default also tracks unweighted
+        # binary_logloss, which class weighting worsens, and stopped
+        # weighted/is_unbalance variants after a handful of trees (see
+        # src/models/training.py::train_lightgbm).
+        model = lgb.LGBMClassifier(**params, metric="average_precision")
         sub = data["es_idx"]
         model.fit(
             data["x_train"],
@@ -201,7 +205,7 @@ def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
             eval_X=data["x_val"][sub],
             eval_y=data["y_val"][sub],
             eval_metric="average_precision",
-            callbacks=[lgb.early_stopping(50, verbose=False)],
+            callbacks=[lgb.early_stopping(50, first_metric_only=True, verbose=False)],
         )
         val_scores = predict_proba_positive(model, data["x_val"])
         test_scores = predict_proba_positive(model, data["x_test"])

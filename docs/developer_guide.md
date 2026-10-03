@@ -1001,6 +1001,18 @@ ratio). `make experiment-model` isolated the cause and the fix:
 | same, windowed features only | 200 | 0.141 | 43% @ 8.7% |
 | per-drive sample weights | 351 | 0.145 | 36% @ 12.6% |
 
+> **Caveat (found later the same day).** These runs, and the first shipped
+> pipeline version, early-stopped on *every* LightGBM metric including the
+> unweighted `binary_logloss`, which class weighting worsens. That stopped
+> the pipeline's `scale_pos_weight` model after ~13 trees (validation AUPRC
+> 0.0005 on real data) and also cut the experiment's tree counts and made
+> its `current`/`regularized` rows unreliable. Fixed by monitoring only
+> average precision and applying the weight as per-row sample weights
+> (`train_lightgbm`); the table below predates that fix, so re-run
+> `make experiment-model` for clean numbers. The very first real run (no
+> early stopping, unregularized, full-ratio weight) was genuinely broken,
+> so the full-ratio weight is still a suspect, just not proven by this table.
+
 Takeaways: the full-ratio class weight was the culprit (regularization alone
 did not help); identity features are *not* what hurts (dropping them lowers
 AUPRC on validation and test alike); per-drive weighting adds nothing.
