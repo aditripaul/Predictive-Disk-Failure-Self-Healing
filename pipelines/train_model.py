@@ -271,7 +271,7 @@ def _write_id_columns(part_paths: list[Path], columns: list[str], out_path: Path
     )
 
 
-def _stage_assemble(work_dir: Path) -> None:
+def _stage_assemble(work_dir: Path, horizon_days: int | None = None) -> None:
     """Subprocess stage: joins gold features to the label table for the
     primary horizon and writes the result to `work_dir / "frame.parquet"`.
 
@@ -306,7 +306,8 @@ def _stage_assemble(work_dir: Path) -> None:
     # alive alongside the join's own output.
     labels = pl.scan_parquet(labels_path)
 
-    horizon_days = model_config["primary_horizon_days"]
+    if horizon_days is None:
+        horizon_days = model_config["primary_horizon_days"]
     work_dir.mkdir(parents=True, exist_ok=True)
     frame_path = work_dir / "frame.parquet"
     t0 = time.perf_counter()
@@ -382,7 +383,13 @@ def _stage_assemble(work_dir: Path) -> None:
     # either way, but this keeps it computed in exactly one place).
     feature_columns = select_feature_columns(pl.scan_parquet(frame_path).limit(0).collect())
     (work_dir / "frame_meta.json").write_text(
-        json.dumps({"feature_columns": feature_columns, "split_counts": split_counts})
+        json.dumps(
+            {
+                "feature_columns": feature_columns,
+                "split_counts": split_counts,
+                "horizon_days": horizon_days,
+            }
+        )
     )
 
 
@@ -602,9 +609,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
                 tmp_dir=part_tmp_dir,
             )
             x_train, y_train = _build_feature_arrays(part_paths, feature_columns)
-            _write_id_columns(
-                part_paths, ["drive_id", "date"], work_dir / "train_ids.parquet"
-            )
+            _write_id_columns(part_paths, ["drive_id", "date"], work_dir / "train_ids.parquet")
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
         row_count = len(y_train)
@@ -672,9 +677,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             )
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
-        row_count = (
-            pl.scan_parquet(work_dir / "test_df.parquet").select(pl.len()).collect().item()
-        )
+        row_count = pl.scan_parquet(work_dir / "test_df.parquet").select(pl.len()).collect().item()
 
     (work_dir / f"{split_name}_meta.json").write_text(json.dumps({"row_count": row_count}))
     _log_stage(f"{split_name}_split_extracted", t0, row_count=row_count)
@@ -745,6 +748,14 @@ def main() -> None:
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--split", choices=["train", "validation", "test"])
     parser.add_argument(
+        "--horizon-days",
+        type=int,
+        help="Train for this label horizon instead of configs/model.yaml primary_horizon_days "
+        "(must be one of horizons_days, which build-labels already computed). The run is "
+        "logged with this horizon_days param; score_fleet only uses runs whose horizon "
+        "matches primary_horizon_days.",
+    )
+    parser.add_argument(
         "--keep-work-dir",
         action="store_true",
         help="Keep the scratch work dir (x_*/y_*.npy, *_ids.parquet, test_df.parquet) after "
@@ -753,7 +764,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.stage == "assemble":
-        _stage_assemble(args.work_dir)
+        _stage_assemble(args.work_dir, args.horizon_days)
         return
     if args.stage == "extract-split":
         _stage_extract_split(args.work_dir, args.split)
@@ -772,7 +783,12 @@ def main() -> None:
     features_config = yaml.safe_load(FEATURES_CONFIG_PATH.read_text())
     _require_gold_inputs(data_config)
 
-    horizon_days = model_config["primary_horizon_days"]
+    horizon_days = args.horizon_days or model_config["primary_horizon_days"]
+    if horizon_days not in model_config["horizons_days"]:
+        raise SystemExit(
+            f"--horizon-days {horizon_days} has no labels: build-labels computes "
+            f"horizons_days={model_config['horizons_days']} (configs/model.yaml)."
+        )
     work_dir = Path(tempfile.mkdtemp(prefix="train_model_frame_", dir=_scratch_base(data_config)))
     try:
         t0 = time.perf_counter()
@@ -787,7 +803,14 @@ def main() -> None:
         # subprocess here gets a fully clean address space, guaranteed by
         # starting a new process rather than by anything any stage does
         # internally.
-        _run_stage("--stage", "assemble", "--work-dir", str(work_dir))
+        _run_stage(
+            "--stage",
+            "assemble",
+            "--work-dir",
+            str(work_dir),
+            "--horizon-days",
+            str(horizon_days),
+        )
         for split_name in ("train", "validation", "test"):
             _run_stage(
                 "--stage", "extract-split", "--work-dir", str(work_dir), "--split", split_name
@@ -893,9 +916,7 @@ def main() -> None:
                 raise ValueError(
                     f"Unknown model.type: {model_type!r} (expected lightgbm or xgboost)"
                 )
-            _log_stage(
-                "model_trained", t0, model_type=model_type, train_row_count=x_train.shape[0]
-            )
+            _log_stage("model_trained", t0, model_type=model_type, train_row_count=x_train.shape[0])
 
             val_scores = predict_proba_positive(model, x_val)
             # Chosen on the DRIVE-level precision/recall curve, honoring both
@@ -1150,9 +1171,7 @@ def main() -> None:
             logger.info("test_metrics", **results["test_metrics"])
             logger.info("validation_drive_level", **results["validation_drive_level"])
             logger.info("test_drive_level", **results["test_drive_level"])
-            logger.info(
-                "logistic_regression_baseline", **results["logistic_regression_baseline"]
-            )
+            logger.info("logistic_regression_baseline", **results["logistic_regression_baseline"])
             logger.info("test_warning_lead_time", **results["test_warning_lead_time"])
             logger.info("evaluation_report_written", path=str(report_path))
             if feature_importance is not None:

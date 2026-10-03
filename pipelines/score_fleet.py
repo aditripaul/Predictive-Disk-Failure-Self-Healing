@@ -70,12 +70,20 @@ def main() -> None:
 
     mlflow.set_tracking_uri(model_config["mlflow"]["tracking_uri"])
     experiment_name = model_config["mlflow"]["experiment_name"]
+    horizon_days = model_config["primary_horizon_days"]
+    # Only runs trained for the configured horizon: a trial run with
+    # `make train TRAIN_ARGS="--horizon-days 30"` must not silently become the
+    # model behind 14-day predictions.
     runs = mlflow.search_runs(
-        experiment_names=[experiment_name], order_by=["start_time DESC"], max_results=1
+        experiment_names=[experiment_name],
+        filter_string=f"params.horizon_days = '{horizon_days}'",
+        order_by=["start_time DESC"],
+        max_results=1,
     )
     if runs.empty:
         raise RuntimeError(
-            f"No MLflow runs found for experiment {experiment_name!r}; run `make train` first."
+            f"No MLflow runs with horizon_days={horizon_days} found for experiment "
+            f"{experiment_name!r}; run `make train` first."
         )
     run_id = runs.iloc[0]["run_id"]
 
@@ -94,7 +102,7 @@ def main() -> None:
         feature_columns,
         model_name=model_type,
         model_version=str(model_config["version"]),
-        horizon_days=model_config["primary_horizon_days"],
+        horizon_days=horizon_days,
         as_of=as_of,
     )
     proposals = propose_actions(

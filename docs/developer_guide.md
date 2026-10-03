@@ -1021,6 +1021,15 @@ Takeaways:
   lowered precision at every recall level; the false alarms are drives whose
   SMART signals stay elevated, not one-day spikes.
 
+**Trying another horizon.** `make train TRAIN_ARGS="--horizon-days 30"`
+trains for any horizon in `horizons_days` (labels for 7/14/30 already exist,
+no `build-labels` re-run). The run is logged with its `horizon_days` and
+the model card is named `v<version>_h<horizon>d`; `make score-fleet` only
+loads runs whose horizon equals `primary_horizon_days`, so a trial run never
+becomes the production model by accident. Metrics at different horizons are
+not comparable (a longer horizon labels more rows positive); judge them by
+what the agent can do with the warning.
+
 **Goal status: not met, and not reachable by tuning.** Shipped model, test,
 drive level: 23% precision at 30% recall (92 of 309 failures caught, 309
 healthy drives alerting out of 345k; validation chose the threshold at
