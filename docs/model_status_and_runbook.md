@@ -110,6 +110,44 @@ validation, 2.1 GB for test; training and evaluation completed under the cap.
 (default `<gold_dir>/../tmp`), because `/tmp` was too small on the reference
 machine.
 
+### 3.1 DuckDB spike (not in the pipeline)
+
+`pipelines/spike_duckdb_extract.py` reimplements the train-split extraction
+in DuckDB to test whether it needs less memory than the Polars version. It
+does the filter, the negative-row sample, the casts and the null handling in
+SQL, spills to a temp directory under a memory limit, and then reads the
+result into a preallocated float32 matrix.
+
+**Status:** tested on a small synthetic table only. The uncapped output
+matches the pipeline's `feature_matrix` exactly, including nulls and labels.
+Nothing has been measured on real data yet.
+
+**To measure on real data:**
+
+```bash
+make train TRAIN_ARGS=--keep-work-dir
+uv run python pipelines/spike_duckdb_extract.py --work-dir data/tmp/train_model_frame_XXXX --memory-limit 8GB
+```
+
+The script prints JSON with `peak_rss_mb`, `total_seconds` and `row_count`.
+Compare `peak_rss_mb` with the Polars extraction's peak of about 6.0 GB
+(Section 3). Add `--compare` only on data small enough to hold twice in
+memory.
+
+**Caveats:**
+
+- The negative-row sample uses DuckDB's hash, so the kept rows differ from
+  the Polars sample. Both are deterministic, but a DuckDB run is not
+  comparable row for row with a Polars run.
+- It writes `x_train.duckdb.npy` and `y_train.duckdb.npy`, so the existing
+  arrays are not overwritten. Delete them after the measurement.
+- Delete the kept work directory when finished.
+
+**Decision rule:** if DuckDB's peak is clearly lower at a similar runtime,
+move the other heavy steps (join, validation and test extraction, silver and
+gold) to DuckDB one at a time, each checked for exact equality first. If it
+is not clearly lower, keep the Polars pipeline and the RSS watchdog.
+
 ## 4. Model results (Q1 2026, 14-day horizon)
 
 All drive-level numbers use the per-drive rule in Section 5.1. The validation
