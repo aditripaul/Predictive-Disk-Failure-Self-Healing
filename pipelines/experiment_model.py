@@ -393,6 +393,136 @@ def _print_deep_dive(report: dict[str, Any]) -> None:
         print(f"  {smoother:9s} | {cells[0]:36s} | {cells[1]}")
 
 
+def per_model_experiment(data: dict[str, Any], *, top_n: int) -> list[dict[str, Any]]:
+    """Trains one LightGBM per drive family (the `top_n` families with the most
+    failing validation drives) and compares it with the POOLED model on exactly
+    the same test drives. Each family's threshold is chosen on that family's
+    own validation drives (drive-level precision >= 50%, then the highest
+    recall), so the comparison is what a per-family deployment would get.
+    Families with too few failures are reported but not scored: with a
+    handful of failing drives, any precision figure is noise."""
+    pooled_val, pooled_test = data["_scores"]["reg_spw"]  # (validation, test) scores
+    val_labels = data["y_val"]
+    failing_by_model = (
+        pl.DataFrame({"m": data["val_models"], "d": data["val_drives"], "y": val_labels})
+        .filter(pl.col("y") == 1)
+        .group_by("m")
+        .agg(pl.col("d").n_unique().alias("failing"))
+        .sort("failing", descending=True)
+    )
+    families = failing_by_model["m"].to_list()[:top_n]
+    base = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["model"]["params"]
+    params = {**base, **{k: v for k, v in REGULARIZED.items()}, "verbosity": -1}
+    results = []
+    for family in families:
+        tr = data["train_models"] == family
+        va = data["val_models"] == family
+        te = data["test_models"] == family
+        n_fail_val = int(failing_by_model.filter(pl.col("m") == family)["failing"][0])
+        n_fail_test = int(((data["test_models"] == family) & (data["y_test"] == 1)).sum())
+        row: dict[str, Any] = {
+            "family": family,
+            "train_rows": int(tr.sum()),
+            "failing_val_drives": n_fail_val,
+            "failing_test_drives": n_fail_test,
+        }
+        if int((data["y_train"][tr] == 1).sum()) < 20 or n_fail_val < 10:
+            row["scored"] = False
+            results.append(row)
+            continue
+        row["scored"] = True
+        weights = _sample_weights(data["y_train"][tr], data["train_drives"][tr], "spw")
+        model = lgb.LGBMClassifier(**params, metric="average_precision")
+        xv = data["x_val"][va]
+        yv = data["y_val"][va]
+        model.fit(
+            data["x_train"][tr],
+            data["y_train"][tr],
+            sample_weight=weights,
+            eval_X=xv,
+            eval_y=yv,
+            eval_metric="average_precision",
+            callbacks=[lgb.early_stopping(50, first_metric_only=True, verbose=False)],
+        )
+        fam_val_scores = predict_proba_positive(model, xv)
+        fam_test_scores = predict_proba_positive(model, data["x_test"][te])
+        labels, drive_scores = drive_level_table(data["val_drives"][va], yv, fam_val_scores)
+        threshold = threshold_for_precision(labels, drive_scores, 0.5)
+        row["trees"] = int(model.best_iteration_ or model.n_estimators)
+        row["val_drive_auprc"] = compute_auprc(labels, drive_scores) if labels.sum() else None
+        if threshold is None:
+            row["threshold"] = None
+            results.append(row)
+            continue
+        row["threshold"] = threshold
+        own = drive_level_metrics(
+            data["test_drives"][te], data["y_test"][te], fam_test_scores, threshold
+        )
+        # Same test drives, pooled model at the pooled threshold chosen on the
+        # pooled validation set at the same 50% precision target.
+        pooled_thr = threshold_for_precision(
+            *drive_level_table(data["val_drives"], data["y_val"], pooled_val), 0.5
+        )
+        if pooled_thr is None:
+            row["pooled_on_same_drives"] = None
+            results.append(row)
+            continue
+        pooled = drive_level_metrics(
+            data["test_drives"][te], data["y_test"][te], pooled_test[te], pooled_thr
+        )
+        row["own_test"] = {
+            k: own[k]
+            for k in (
+                "precision",
+                "recall",
+                "caught_drive_count",
+                "failing_drive_count",
+                "false_alarm_drive_count",
+                "auprc",
+            )
+        }
+        row["pooled_on_same_drives"] = {
+            k: pooled[k]
+            for k in (
+                "precision",
+                "recall",
+                "caught_drive_count",
+                "failing_drive_count",
+                "false_alarm_drive_count",
+                "auprc",
+            )
+        }
+        results.append(row)
+    return results
+
+
+def _print_per_model(results: list[dict[str, Any]]) -> None:
+    print("\n#### PER DRIVE FAMILY (test drives; own model vs pooled model on the same drives)")
+    for r in results:
+        head = (
+            f"  {r['family']}: train rows={r['train_rows']} failing val={r['failing_val_drives']} "
+            f"test={r['failing_test_drives']}"
+        )
+        if not r["scored"]:
+            print(head + "  -> too few failures to score")
+            continue
+        if r.get("threshold") is None:
+            print(head + f"  trees={r['trees']}  -> 50% drive precision unreachable on validation")
+            continue
+        own, pooled = r["own_test"], r["pooled_on_same_drives"]
+        if pooled is None:
+            pooled = {k: float("nan") for k in own}
+        print(
+            head + f"  trees={r['trees']}\n"
+            f"      own model:    P={own['precision']:.3f} R={own['recall']:.3f} "
+            f"caught={own['caught_drive_count']}/{own['failing_drive_count']} "
+            f"false_alarms={own['false_alarm_drive_count']} AUPRC={own['auprc']:.3f}\n"
+            f"      pooled model: P={pooled['precision']:.3f} R={pooled['recall']:.3f} "
+            f"caught={pooled['caught_drive_count']}/{pooled['failing_drive_count']} "
+            f"false_alarms={pooled['false_alarm_drive_count']} AUPRC={pooled['auprc']:.3f}"
+        )
+
+
 def _print(result: dict[str, Any]) -> None:
     print(
         f"\n== {result['variant']}: trees={result['trees']} excluded={result['excluded_features']} "
@@ -422,6 +552,16 @@ def main() -> None:
     parser.add_argument("--variants", nargs="*", default=list(VARIANTS), choices=list(VARIANTS))
     parser.add_argument("--skip-baseline", action="store_true")
     parser.add_argument(
+        "--per-model",
+        type=int,
+        nargs="?",
+        const=3,
+        metavar="N",
+        help="Also train one model per drive family for the N families with the most "
+        "failing validation drives (default 3), compared with the pooled model on the "
+        "same test drives. Runs after the variants; needs reg_spw to have been run.",
+    )
+    parser.add_argument(
         "--deep-dive",
         nargs="?",
         const="reg_spw",
@@ -450,7 +590,14 @@ def main() -> None:
         "x_test": feature_matrix(test_df, feature_columns),
         "y_test": test_df["label"].to_numpy(),
         "test_drives": test_df["drive_id"].to_numpy(),
-        "test_ids": test_df.select("drive_id", "date", "event_type", "days_to_event"),
+        "test_ids": test_df.select(
+            "drive_id", "date", "drive_model", "event_type", "days_to_event"
+        ),
+        "train_models": pl.read_parquet(work_dir / "train_ids.parquet")["drive_model"].to_numpy(),
+        "val_models": pl.read_parquet(work_dir / "validation_ids.parquet")[
+            "drive_model"
+        ].to_numpy(),
+        "test_models": test_df["drive_model"].to_numpy(),
     }
     del test_df
     data["es_idx"] = early_stopping_subset(data["y_val"])
@@ -479,6 +626,14 @@ def main() -> None:
         _print(result)
         (work_dir / "experiment_results.json").write_text(
             json.dumps(results, indent=2, default=str)
+        )
+    if args.per_model:
+        if "reg_spw" not in data.get("_scores", {}):
+            run_variant("reg_spw", data)
+        per_model = per_model_experiment(data, top_n=args.per_model)
+        _print_per_model(per_model)
+        (work_dir / "experiment_per_model.json").write_text(
+            json.dumps(per_model, indent=2, default=str)
         )
     if args.deep_dive:
         report = deep_dive(args.deep_dive, data)

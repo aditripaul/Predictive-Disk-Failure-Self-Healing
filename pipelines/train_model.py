@@ -590,7 +590,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             )
         )
         predicate = _train_sample_predicate(label_counts, max_rows=max_train_rows, seed=0)
-        select_columns = [*feature_columns, "label", "drive_id", "date"]
+        select_columns = [*feature_columns, "label", "drive_id", "date", "drive_model"]
         # A subdirectory of work_dir, not tempfile's own default location
         # (typically /tmp): every scratch file this pipeline writes needs
         # to land on the same, deliberately chosen filesystem - see
@@ -604,12 +604,14 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
                 frame_path,
                 split_name="train",
                 select_columns=select_columns,
-                read_columns=sorted({*select_columns, "split", "drive_id", "date"}),
+                read_columns=sorted({*select_columns, "split"}),
                 extra_predicate=predicate,
                 tmp_dir=part_tmp_dir,
             )
             x_train, y_train = _build_feature_arrays(part_paths, feature_columns)
-            _write_id_columns(part_paths, ["drive_id", "date"], work_dir / "train_ids.parquet")
+            _write_id_columns(
+                part_paths, ["drive_id", "date", "drive_model"], work_dir / "train_ids.parquet"
+            )
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
         row_count = len(y_train)
@@ -622,6 +624,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             "label",
             "drive_id",
             "date",
+            "drive_model",
             "event_type",
             "days_to_event",
         ]
@@ -639,7 +642,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             x_val, y_val = _build_feature_arrays(part_paths, feature_columns)
             _write_id_columns(
                 part_paths,
-                ["drive_id", "date", "event_type", "days_to_event"],
+                ["drive_id", "date", "drive_model", "event_type", "days_to_event"],
                 work_dir / "validation_ids.parquet",
             )
         finally:
@@ -661,6 +664,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             "label",
             "drive_id",
             "date",
+            "drive_model",
             "event_type",
             "days_to_event",
         ]
