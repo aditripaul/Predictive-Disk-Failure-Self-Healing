@@ -24,6 +24,7 @@ from typing import Any
 import lightgbm as lgb
 import numpy as np
 import polars as pl
+import xgboost as xgb
 import yaml
 from sklearn.metrics import precision_recall_curve
 
@@ -63,6 +64,21 @@ REGULARIZED = {
     "n_estimators": 1000,
 }
 
+#: XGBoost counterpart of REGULARIZED (hist tree method, same regularization
+#: strength in XGBoost's names). "_engine" routes run_variant to XGBoost.
+XGBOOST_PARAMS = {
+    "_engine": "xgboost",
+    "max_depth": 6,
+    "learning_rate": 0.05,
+    "n_estimators": 1000,
+    "min_child_weight": 20,
+    "reg_lambda": 10.0,
+    "max_delta_step": 1.0,
+    "colsample_bytree": 0.7,
+    "subsample": 0.8,
+    "tree_method": "hist",
+}
+
 #: name -> (extra LightGBM params, features to exclude, weighting)
 #: exclude: none | identity | non_windowed; weighting: is_unbalance | spw[:power] | drive
 VARIANTS: dict[str, tuple[dict[str, Any], str, str]] = {
@@ -79,6 +95,10 @@ VARIANTS: dict[str, tuple[dict[str, Any], str, str]] = {
     "leaves_15": ({**REGULARIZED, "num_leaves": 15}, "none", "spw"),
     "leaves_63": ({**REGULARIZED, "num_leaves": 63}, "none", "spw"),
     "min_child_1000": ({**REGULARIZED, "min_child_samples": 1000}, "none", "spw"),
+    # Same data, weights and early stopping (average precision) with XGBoost,
+    # to check the precision ceiling is not specific to LightGBM.
+    "xgboost": (XGBOOST_PARAMS, "none", "spw"),
+    "xgboost_deep": ({**XGBOOST_PARAMS, "max_depth": 8, "min_child_weight": 5}, "none", "spw"),
     "strong_reg": (
         {**REGULARIZED, "min_child_samples": 500, "reg_lambda": 50.0},
         "none",
@@ -184,7 +204,7 @@ def threshold_for_precision(labels: np.ndarray, scores: np.ndarray, target: floa
 def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
     extra, exclude, weighting = VARIANTS[name]
     base = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["model"]["params"]
-    params = {**base, **extra, "verbosity": -1}
+    params = {**base, **{k: v for k, v in extra.items() if k != "_engine"}, "verbosity": -1}
     if weighting != "is_unbalance":
         params.pop("is_unbalance", None)
     idx = _excluded_indices(data["feature_columns"], exclude)
@@ -192,36 +212,61 @@ def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
     arrays = [data["x_train"], data["x_val"], data["x_test"]]
     with _Zeroed(arrays, idx):
         weights = _sample_weights(data["y_train"], data["train_drives"], weighting)
-        # Monitor ONLY average precision: the default also tracks unweighted
-        # binary_logloss, which class weighting worsens, and stopped
-        # weighted/is_unbalance variants after a handful of trees (see
-        # src/models/training.py::train_lightgbm).
-        model = lgb.LGBMClassifier(**params, metric="average_precision")
         sub = data["es_idx"]
-        model.fit(
-            data["x_train"],
-            data["y_train"],
-            sample_weight=weights,
-            eval_X=data["x_val"][sub],
-            eval_y=data["y_val"][sub],
-            eval_metric="average_precision",
-            callbacks=[lgb.early_stopping(50, first_metric_only=True, verbose=False)],
-        )
+        if extra.get("_engine") == "xgboost":
+            xgb_params = {k: v for k, v in extra.items() if k != "_engine"}
+            model = xgb.XGBClassifier(
+                objective="binary:logistic",
+                eval_metric="aucpr",  # average precision, like the LightGBM variants
+                early_stopping_rounds=50,
+                n_jobs=-1,
+                verbosity=0,
+                **xgb_params,
+            )
+            model.fit(
+                data["x_train"],
+                data["y_train"],
+                sample_weight=weights,
+                eval_set=[(data["x_val"][sub], data["y_val"][sub])],
+                verbose=False,
+            )
+        else:
+            # Monitor ONLY average precision: the default also tracks unweighted
+            # binary_logloss, which class weighting worsens, and stopped
+            # weighted/is_unbalance variants after a handful of trees (see
+            # src/models/training.py::train_lightgbm).
+            model = lgb.LGBMClassifier(**params, metric="average_precision")
+            model.fit(
+                data["x_train"],
+                data["y_train"],
+                sample_weight=weights,
+                eval_X=data["x_val"][sub],
+                eval_y=data["y_val"][sub],
+                eval_metric="average_precision",
+                callbacks=[lgb.early_stopping(50, first_metric_only=True, verbose=False)],
+            )
         val_scores = predict_proba_positive(model, data["x_val"])
         test_scores = predict_proba_positive(model, data["x_test"])
     data.setdefault("_scores", {})[name] = (val_scores, test_scores)
-    importances = sorted(
-        zip(data["feature_columns"], model.booster_.feature_importance("gain"), strict=True),
-        key=lambda p: -p[1],
-    )
+    if isinstance(model, xgb.XGBClassifier):
+        gains = model.feature_importances_  # normalized gain
+    else:
+        gains = model.booster_.feature_importance("gain")
+    importances = sorted(zip(data["feature_columns"], gains, strict=True), key=lambda p: -p[1])
     total_gain = float(sum(g for _, g in importances)) or 1.0
 
     val_labels, val_drive_scores = drive_level_table(data["val_drives"], data["y_val"], val_scores)
     result: dict[str, Any] = {
         "variant": name,
         "excluded_features": len(idx),
-        "trees": int(model.best_iteration_ or model.n_estimators),
-        "max_abs_leaf": round(_max_abs_leaf(model), 2),
+        "trees": (
+            int(model.best_iteration) + 1
+            if isinstance(model, xgb.XGBClassifier)
+            else int(model.best_iteration_ or model.n_estimators)
+        ),
+        "max_abs_leaf": (
+            None if isinstance(model, xgb.XGBClassifier) else round(_max_abs_leaf(model), 2)
+        ),
         "val_row_auprc": compute_auprc(data["y_val"], val_scores),
         "test_row_auprc": compute_auprc(data["y_test"], test_scores),
         "operating_points": {},
