@@ -419,7 +419,8 @@ def per_model_experiment(data: dict[str, Any], *, top_n: int) -> list[dict[str, 
         va = data["val_models"] == family
         te = data["test_models"] == family
         n_fail_val = int(failing_by_model.filter(pl.col("m") == family)["failing"][0])
-        n_fail_test = int(((data["test_models"] == family) & (data["y_test"] == 1)).sum())
+        # Drives, not rows: a failing drive has many positive rows.
+        n_fail_test = int(np.unique(data["test_drives"][te & (data["y_test"] == 1)]).size)
         row: dict[str, Any] = {
             "family": family,
             "train_rows": int(tr.sum()),
