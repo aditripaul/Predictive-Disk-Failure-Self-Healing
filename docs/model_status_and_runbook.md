@@ -68,7 +68,7 @@ The two-quarter run has not been done yet.
   Lower `model.max_train_rows`, `diagnostics.baseline_max_rows` or
   `diagnostics.shap_max_rows`, or raise `resource_limits.max_memory_gb`.
 - **Scratch files:** the kept work directory `data/tmp/train_model_frame_*`
-  holds several GB. Delete it when you are done.
+  holds several GB. Delete it with `make clean-kept` when you are done.
 - **Stale results after a code change:** re-run `make train` before judging
   any experiment. Runs made on older code are not comparable.
 
@@ -141,7 +141,7 @@ memory.
   comparable row for row with a Polars run.
 - It writes `x_train.duckdb.npy` and `y_train.duckdb.npy`, so the existing
   arrays are not overwritten. Delete them after the measurement.
-- Delete the kept work directory when finished.
+- Delete the kept work directory with `make clean-kept` when finished.
 
 **Decision rule:** if DuckDB's peak is clearly lower at a similar runtime,
 move the other heavy steps (join, validation and test extraction, silver and

@@ -88,7 +88,8 @@ make train TRAIN_ARGS="--horizon-days 30"
 make experiment-model EXPERIMENT_ARGS="--variants reg_spw xgboost --skip-baseline --deep-dive reg_spw --per-model 3"
 ```
 
-Delete the kept work directory afterwards: `rm -rf data/tmp/train_model_frame_*`.
+Delete the kept work directories afterwards with `make clean-kept`
+(it removes `data/tmp/train_model_frame_*` and nothing else).
 
 ### 2.4 Where the outputs go
 
@@ -177,8 +178,7 @@ is not.
 Afterwards, delete the spike's output and the kept work directory:
 
 ```bash
-rm -f data/tmp/train_model_frame_XXXX/x_train.duckdb.npy data/tmp/train_model_frame_XXXX/y_train.duckdb.npy
-rm -rf data/tmp/train_model_frame_XXXX
+make clean-kept
 ```
 
 ## 4. Choosing between them

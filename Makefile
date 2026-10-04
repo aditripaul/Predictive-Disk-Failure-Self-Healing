@@ -1,7 +1,7 @@
 .PHONY: install lint format test test-unit test-integration test-chaos test-golden test-property \
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
-	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model \
+	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept \
 	build-sequences train-lstm score-fleet plots \
 	agent-demo dashboard api final-report
 
@@ -67,6 +67,12 @@ clean:
 clean-data:
 	find data/bronze data/silver data/gold data/audit -type f -not -name ".gitkeep" -delete
 	find data/bronze data/silver data/gold data/audit -mindepth 1 -type d -empty -delete
+
+# Removes the kept training work directories left by
+# `make train TRAIN_ARGS=--keep-work-dir` (several GB each). Only these
+# scratch directories are touched; data/tmp/ otherwise is left alone.
+clean-kept:
+	rm -rf data/tmp/train_model_frame_*
 
 # --- data download ---------------------------------------------------------
 # Configurable time period, no default quarter is hardcoded: set
