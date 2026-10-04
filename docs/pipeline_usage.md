@@ -144,6 +144,96 @@ process that exceeds it logs `memory_limit_exceeded` and exits with code 86.
 Scratch files go to `resource_limits.scratch_dir` (default
 `<gold_dir>/../tmp`).
 
+## 2A. Make command reference
+
+Every command below is run from the repository root. Variables after the
+target name change its behavior; the others take no arguments.
+
+### Setup and checks
+
+| Command | What it does |
+|---|---|
+| `make install` | Installs the Python environment (`uv sync --extra dev`). |
+| `make lint` / `make format` | Runs ruff (check, or format). |
+| `make test` | Runs the full test suite. |
+| `make test-unit` | Runs only the unit tests. |
+| `make ci` | Lint and tests, as the continuous-integration job runs them. |
+| `make clean` | Removes Python caches and tool caches. Keeps data. |
+| `make clean-data` | Deletes regenerated outputs in `data/bronze`, `silver`, `gold` and `audit`. Never touches `data/raw`. |
+
+### Data pipeline (in order)
+
+| Command | Reads | Writes |
+|---|---|---|
+| `make download-backblaze` | quarters in `configs/data.yaml` | `data/raw/backblaze/` |
+| `make ingest-backblaze` | raw CSVs inside `sources.backblaze.start_date`/`end_date` | `data/bronze/` |
+| `make build-silver` | bronze | `data/silver/` |
+| `make build-features` | silver | `data/gold/features/` |
+| `make build-labels` | gold features | `data/gold/labels/` (horizons 7, 14, 30; splits) |
+| `make train` | gold and labels | MLflow run, model card, evaluation and action-tier reports |
+| `make score-fleet` | latest row per drive, latest 14-day MLflow run | `data/audit/predictions/<date>.json` |
+| `make plots` | audit reports | `data/audit/plots/` |
+
+Each step needs the ones before it.
+
+### Training options
+
+`make train` takes its options through `TRAIN_ARGS`:
+
+| Option | Effect |
+|---|---|
+| `TRAIN_ARGS=--keep-work-dir` | Keeps the training arrays in `data/tmp/train_model_frame_*` for the experiment tool. Delete them with `make clean-kept`. |
+| `TRAIN_ARGS="--horizon-days 30"` | Trains for a horizon in `horizons_days`. The run is logged with that horizon; `score-fleet` only uses 14-day runs. |
+
+Examples:
+```bash
+make train
+make train TRAIN_ARGS=--keep-work-dir
+make train TRAIN_ARGS="--horizon-days 30"
+```
+
+### Model comparison
+
+| Command | What it does |
+|---|---|
+| `make experiment-model` | Runs the comparison on kept arrays from an earlier `make train TRAIN_ARGS=--keep-work-dir`. Options go in `EXPERIMENT_ARGS`. |
+| `make experiment-full` | Clears old kept arrays, trains with `--keep-work-dir`, then runs the comparison with `EXPERIMENT_FULL_ARGS` (default: `--variants reg_spw --skip-baseline --per-model 3 --deep-dive reg_spw`). |
+| `make clean-kept` | Removes `data/tmp/train_model_frame_*` and nothing else. |
+
+Options for `EXPERIMENT_ARGS` and `EXPERIMENT_FULL_ARGS`:
+
+| Option | Effect |
+|---|---|
+| `--variants NAME ...` | The named configurations to compare (see `pipelines/experiment_model.py`). |
+| `--skip-baseline` | Skips the logistic-regression reference, which takes about two minutes. |
+| `--deep-dive [NAME]` | Prints the false-alarm breakdown and persistence rules for one variant (default `reg_spw`). |
+| `--per-model [N]` | Trains one model per drive family for the N families with the most failing validation drives (default 3), each compared with the pooled model on the same test drives. |
+
+Examples:
+```bash
+make experiment-model EXPERIMENT_ARGS="--variants reg_spw xgboost --skip-baseline"
+make experiment-full
+make experiment-full EXPERIMENT_FULL_ARGS="--variants reg_spw xgboost --per-model 5"
+```
+
+### Whole pipeline
+
+| Command | What it does |
+|---|---|
+| `make full-pipeline` | Runs ingest, silver, features, labels, `experiment-full`, `score-fleet` and `plots`, in that order, stopping at the first failure. Does not download data or remove kept arrays at the end. |
+
+Expect it to take well over an hour on Q1 alone.
+
+### Other targets
+
+| Command | What it does |
+|---|---|
+| `make experiment-model` | See above. |
+| `make build-sequences`, `make train-lstm` | Optional LSTM branch. Needs `uv sync --extra torch` first. |
+| `make final-report` | Runs the final report generation. |
+| `make agent-demo` | Runs the decision-agent demo once. |
+| `make api` / `make dashboard` | Starts the FastAPI service / the Streamlit dashboard. |
+
 ## 3. The DuckDB spike
 
 ### 3.1 What it does
