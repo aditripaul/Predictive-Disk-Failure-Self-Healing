@@ -79,6 +79,20 @@ it says which earlier step to run.
 
 ### 2.3 Trial runs and the experiment tool
 
+One command runs the whole comparison (clears old kept directories, trains
+with the arrays kept, then runs the per-family, false-alarm and persistence
+analyses):
+
+```bash
+make experiment-full
+```
+
+Change the experiment with `EXPERIMENT_FULL_ARGS`, for example
+`make experiment-full EXPERIMENT_FULL_ARGS="--variants reg_spw xgboost --per-model 5"`.
+Afterwards run `make clean-kept` when you are finished with the arrays.
+
+The individual steps are still available:
+
 ```bash
 # A different horizon (must be one of horizons_days in configs/model.yaml).
 # The run is logged with its horizon; score-fleet only uses 14-day runs.
