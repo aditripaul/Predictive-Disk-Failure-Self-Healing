@@ -160,11 +160,15 @@ split chooses thresholds; the test split reports them.
 | `is_unbalance` + regularization (early stopping on logloss, bug) | – | – | stopped at ~13 trees |
 | Shipped: sqrt weight + regularization + early stopping on average precision | 0.230 | 0.158 | 23% at 30% (92/309 failing) |
 | Same config, later data build (297 failing test drives) | 0.233 | 0.121 | 22% at 26% (78/297) |
+| Same config, rebuilt data (2026-10-06, 309 failing test drives) | 0.212 | 0.165 | 22% at 36% (111/309) |
 
-The change between the last two rows is a data-build change (the test split
-lost 12 failing drives and about 800 rows) plus run-to-run variation; it is
-not an effect of a code change. Differences under about 0.05 test AUPRC are
-within noise at roughly 300 failing drives.
+**Run-to-run spread is larger than first assumed.** The last two rows used
+the same code but different gold and label builds, and the test drive AUPRC
+moved from 0.121 to 0.165. The data changes between builds (the test split
+row count moved between runs, for example 3,767,355 and 3,768,140), so this
+is not pure sampling noise. Treat any single run's AUPRC as approximate to
+about ±0.04 until the data build is frozen and the same build is rerun.
+Compare variants only within one build.
 
 **Action tiers** (same run as the last row): thresholds chosen on validation
 for each tier's precision target:
@@ -257,6 +261,23 @@ but its test split had only 2,862 rows, all positive. The data ends
 after 2026-03-01 lost its label. Treat 30 days as promising but unproven until
 the splits end at least 30 days before the data does.
 
+### 4.1 Per drive family (2026-10-06 build, top 3 families)
+
+Each family's own model was compared with the pooled model on the same test
+drives. AUPRC does not depend on the threshold, so it is the fair comparison.
+
+| Family | Train rows | Failing test drives | Own model AUPRC | Pooled model AUPRC |
+|---|---|---|---|---|
+| ST12000NM0008 | 274,779 | 32 | 0.267 | 0.303 |
+| HGST HUH721212ALN604 | 143,574 | 34 | 0.128 | 0.217 |
+| TOSHIBA MG08ACA16TA | 581,298 | 30 | 0.123 | 0.207 |
+
+**Conclusion:** a separate model per family did worse than the pooled model
+for all three families. The pooled model learns from more failures than any
+one family has, and that outweighs whatever the family-specific signal adds.
+Per-family models are not the route to the goal. The per-family report had a
+bug (it counted positive rows instead of drives), fixed in `e854b63`.
+
 ## 6. The experiment tool
 
 ```bash
@@ -271,8 +292,7 @@ make experiment-model EXPERIMENT_ARGS="--variants reg_spw xgboost --skip-baselin
 - `--deep-dive`: false-alarm breakdown and persistence rules.
 - `--per-model N`: one model per drive family, for the N families with the most
   failing validation drives, each compared with the pooled model on the same
-  test drives. **This branch has not yet run on real data**, because the local
-  data has one drive family. Expect to see its first output on your machine.
+  test drives. Ran on real data for the first time on 2026-10-06 (Section 4.1).
 - Results go to `experiment_results.json`, `experiment_deep_dive.json` and
   `experiment_per_model.json` in the kept work directory.
 
@@ -294,8 +314,8 @@ does not support a 95% target either.
 What could change the picture, in order of expected effect:
 
 1. **More failing drives:** a second quarter (in progress) and possibly more.
-2. **Per-drive-family models**, if a family turns out to be much cleaner than
-   the pool (Section 6, `--per-model`).
+2. ~~Per-drive-family models~~: tested on 2026-10-06 and worse than the pooled
+   model for the three largest families (Section 4.1).
 3. **A longer horizon** (30 days), once the split is valid.
 4. **Richer SMART features** (Section 8).
 5. **Tiered goals:** keep the destructive action at a high precision target
@@ -327,7 +347,8 @@ What could change the picture, in order of expected effect:
 - **The split fix.** The 10% holdout drives' history is moved into validation,
   and there is no purge gap before validation. This is a known distortion, and
   fixing it needs a `make build-labels` re-run.
-- **Per-drive-family results** on real data (Section 6).
+- **Per-drive-family results** are in Section 4.1. The top three families were
+  tested; the other families were not scored (too few failures).
 - **Tier targets** are placeholders (15 / 25 / 40 / 60%).
 - **The live agent loop** (`src/agent/nodes.py`) still uses the hand-picked
   cutoffs in `configs/agent.yaml`, not the trained tier thresholds.
