@@ -66,11 +66,30 @@ def current_rss_bytes() -> int | None:
     return resident_pages * os.sysconf("SC_PAGE_SIZE")
 
 
+def current_rss_breakdown_gb() -> dict[str, float]:
+    """RSS split by kind, from /proc/self/status: anonymous memory (what the
+    process allocated: numpy arrays, Polars buffers) versus file-backed
+    pages (memory-mapped files such as Parquet, which the kernel can drop
+    under pressure). The watchdog's limit counts both; this says which one
+    is growing, so a file-cache effect is not mistaken for allocations."""
+    breakdown: dict[str, float] = {}
+    try:
+        with open("/proc/self/status") as status:
+            for line in status:
+                for key in ("RssAnon", "RssFile", "RssShmem"):
+                    if line.startswith(key + ":"):
+                        breakdown[key] = round(int(line.split()[1]) / 1024**2, 2)
+    except (OSError, ValueError, IndexError):
+        pass
+    return breakdown
+
+
 def _abort_over_limit(rss_bytes: int, max_bytes: int) -> None:
     logger.error(
         "memory_limit_exceeded",
         rss_gb=round(rss_bytes / 1024**3, 2),
         max_memory_gb=round(max_bytes / 1024**3, 2),
+        **current_rss_breakdown_gb(),
         hint="lower the data volume / batch sizes, or raise "
         "configs/data.yaml resource_limits.max_memory_gb",
     )
