@@ -1,7 +1,7 @@
 .PHONY: install lint format test test-unit test-integration test-chaos test-golden test-property \
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
-	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept experiment-full full-pipeline \
+	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
 	build-sequences train-lstm score-fleet plots \
 	agent-demo dashboard api final-report
 
@@ -77,10 +77,10 @@ clean-kept:
 # The whole comparison in one command: clear old kept work directories, train
 # once keeping the arrays, then run the variant, false-alarm and per-family
 # comparison on them. Override the experiment with EXPERIMENT_ARGS=... .
-EXPERIMENT_FULL_ARGS ?= --variants reg_spw --skip-baseline --per-model 3 --deep-dive reg_spw
-experiment-full: clean-kept
+FULL_EXPERIMENT_ARGS ?= --variants reg_spw --skip-baseline --per-model 3 --deep-dive reg_spw
+full-experiment: clean-kept
 	$(MAKE) train TRAIN_ARGS=--keep-work-dir
-	$(MAKE) experiment-model EXPERIMENT_ARGS="$(EXPERIMENT_FULL_ARGS)"
+	$(MAKE) experiment-model EXPERIMENT_ARGS="$(FULL_EXPERIMENT_ARGS)"
 
 # The complete run, raw bronze CSVs to fleet scores and plots, with the model
 # comparison included. Assumes the raw files are already downloaded (run
@@ -90,7 +90,7 @@ full-pipeline:
 	$(MAKE) build-silver
 	$(MAKE) build-features
 	$(MAKE) build-labels
-	$(MAKE) experiment-full
+	$(MAKE) full-experiment
 	$(MAKE) score-fleet
 	$(MAKE) plots
 

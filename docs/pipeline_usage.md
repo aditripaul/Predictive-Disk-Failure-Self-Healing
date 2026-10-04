@@ -86,7 +86,7 @@ make full-pipeline
 ```
 
 It runs, in order: `ingest-backblaze`, `build-silver`, `build-features`,
-`build-labels`, `experiment-full` (which clears old kept arrays, trains with
+`build-labels`, `full-experiment` (which clears old kept arrays, trains with
 them kept, and runs the per-family, false-alarm and persistence comparison),
 `score-fleet` and `plots`. It stops at the first failing step. It does not
 download data and does not run `clean-kept` at the end, so run `make clean-kept`
@@ -101,11 +101,11 @@ with the arrays kept, then runs the per-family, false-alarm and persistence
 analyses):
 
 ```bash
-make experiment-full
+make full-experiment
 ```
 
-Change the experiment with `EXPERIMENT_FULL_ARGS`, for example
-`make experiment-full EXPERIMENT_FULL_ARGS="--variants reg_spw xgboost --per-model 5"`.
+Change the experiment with `FULL_EXPERIMENT_ARGS`, for example
+`make full-experiment FULL_EXPERIMENT_ARGS="--variants reg_spw xgboost --per-model 5"`.
 Afterwards run `make clean-kept` when you are finished with the arrays.
 
 The individual steps are still available:
@@ -197,10 +197,10 @@ make train TRAIN_ARGS="--horizon-days 30"
 | Command | What it does |
 |---|---|
 | `make experiment-model` | Runs the comparison on kept arrays from an earlier `make train TRAIN_ARGS=--keep-work-dir`. Options go in `EXPERIMENT_ARGS`. |
-| `make experiment-full` | Clears old kept arrays, trains with `--keep-work-dir`, then runs the comparison with `EXPERIMENT_FULL_ARGS` (default: `--variants reg_spw --skip-baseline --per-model 3 --deep-dive reg_spw`). |
+| `make full-experiment` | Clears old kept arrays, trains with `--keep-work-dir`, then runs the comparison with `FULL_EXPERIMENT_ARGS` (default: `--variants reg_spw --skip-baseline --per-model 3 --deep-dive reg_spw`). |
 | `make clean-kept` | Removes `data/tmp/train_model_frame_*` and nothing else. |
 
-Options for `EXPERIMENT_ARGS` and `EXPERIMENT_FULL_ARGS`:
+Options for `EXPERIMENT_ARGS` and `FULL_EXPERIMENT_ARGS`:
 
 | Option | Effect |
 |---|---|
@@ -212,15 +212,15 @@ Options for `EXPERIMENT_ARGS` and `EXPERIMENT_FULL_ARGS`:
 Examples:
 ```bash
 make experiment-model EXPERIMENT_ARGS="--variants reg_spw xgboost --skip-baseline"
-make experiment-full
-make experiment-full EXPERIMENT_FULL_ARGS="--variants reg_spw xgboost --per-model 5"
+make full-experiment
+make full-experiment FULL_EXPERIMENT_ARGS="--variants reg_spw xgboost --per-model 5"
 ```
 
 ### Whole pipeline
 
 | Command | What it does |
 |---|---|
-| `make full-pipeline` | Runs ingest, silver, features, labels, `experiment-full`, `score-fleet` and `plots`, in that order, stopping at the first failure. Does not download data or remove kept arrays at the end. |
+| `make full-pipeline` | Runs ingest, silver, features, labels, `full-experiment`, `score-fleet` and `plots`, in that order, stopping at the first failure. Does not download data or remove kept arrays at the end. |
 
 Expect it to take well over an hour on Q1 alone.
 
