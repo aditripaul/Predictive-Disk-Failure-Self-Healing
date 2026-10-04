@@ -77,6 +77,23 @@ tool, which needs the kept arrays.
 Each step needs the one before it. If a step fails because an input is missing,
 it says which earlier step to run.
 
+### 2.3 Run everything in one command
+
+Once the period is set (section 2.1) and the raw files are downloaded:
+
+```bash
+make full-pipeline
+```
+
+It runs, in order: `ingest-backblaze`, `build-silver`, `build-features`,
+`build-labels`, `experiment-full` (which clears old kept arrays, trains with
+them kept, and runs the per-family, false-alarm and persistence comparison),
+`score-fleet` and `plots`. It stops at the first failing step. It does not
+download data and does not run `clean-kept` at the end, so run `make clean-kept`
+when you are done with the arrays.
+
+Expect it to take well over an hour on the Q1 data, and longer for Q1 and Q2.
+
 ### 2.3 Trial runs and the experiment tool
 
 One command runs the whole comparison (clears old kept directories, trains

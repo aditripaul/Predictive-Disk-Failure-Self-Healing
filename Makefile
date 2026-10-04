@@ -1,7 +1,7 @@
 .PHONY: install lint format test test-unit test-integration test-chaos test-golden test-property \
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
-	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept experiment-full \
+	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept experiment-full full-pipeline \
 	build-sequences train-lstm score-fleet plots \
 	agent-demo dashboard api final-report
 
@@ -81,6 +81,18 @@ EXPERIMENT_FULL_ARGS ?= --variants reg_spw --skip-baseline --per-model 3 --deep-
 experiment-full: clean-kept
 	$(MAKE) train TRAIN_ARGS=--keep-work-dir
 	$(MAKE) experiment-model EXPERIMENT_ARGS="$(EXPERIMENT_FULL_ARGS)"
+
+# The complete run, raw bronze CSVs to fleet scores and plots, with the model
+# comparison included. Assumes the raw files are already downloaded (run
+# `make download-backblaze` first). Stops at the first failing step.
+full-pipeline:
+	$(MAKE) ingest-backblaze
+	$(MAKE) build-silver
+	$(MAKE) build-features
+	$(MAKE) build-labels
+	$(MAKE) experiment-full
+	$(MAKE) score-fleet
+	$(MAKE) plots
 
 # --- data download ---------------------------------------------------------
 # Configurable time period, no default quarter is hardcoded: set
