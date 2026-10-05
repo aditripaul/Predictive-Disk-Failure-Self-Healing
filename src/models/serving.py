@@ -86,10 +86,16 @@ def latest_row_per_drive(
         return gold_features.sort("date").group_by("drive_id", maintain_order=True).last()
 
     scan = gold_features.lazy()
+    # Collected, not kept lazy: one row per drive (~341k rows of two columns
+    # on real data), so it is small. Left lazy, Polars treats the two sides
+    # as the same scan and caches the whole table with every column (~200
+    # columns, ~20 GB) for the join - measured as an out-of-memory exit at
+    # the first chunk on real data. An eager right side has no shared cache.
     latest_dates = (
         scan.select(["drive_id", "date"])
         .group_by("drive_id")
         .agg(pl.col("date").max().alias("date"))
+        .collect()
     )
     # No out_path is passed, so chunked_inner_join always returns a
     # DataFrame here at runtime - _as_dataframe narrows the type instead
