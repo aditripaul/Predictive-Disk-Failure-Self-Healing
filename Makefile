@@ -149,7 +149,7 @@ score-fleet:
 plots:
 	uv run python pipelines/generate_performance_plots.py
 
-final-report:
+final-report: plots
 	uv run python pipelines/generate_final_report.py
 
 # --- services --------------------------------------------------------------

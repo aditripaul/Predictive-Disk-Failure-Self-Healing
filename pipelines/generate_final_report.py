@@ -82,6 +82,30 @@ def _data_period(data_config: dict, model_config: dict) -> dict:
     }
 
 
+#: The figures `make plots` renders (pipelines/generate_performance_plots.py),
+#: with why each may be absent. The SHAP plot needs diagnostics.shap_enabled.
+PLOT_FILES = {
+    "calibration_validation.png": "calibration of validation predictions",
+    "calibration_test.png": "calibration of test predictions",
+    "metric_comparison.png": "validation vs test metrics",
+    "precision_at_k_test.png": "precision at top-K on test",
+    "class_imbalance.png": "label imbalance by horizon and split",
+    "shap_feature_importance.png": "SHAP feature importance (needs diagnostics.shap_enabled)",
+}
+
+
+def _plots_section(audit_dir: Path) -> dict:
+    plots_dir = audit_dir / "plots"
+    return {
+        name: {
+            "description": description,
+            "path": str(plots_dir / name),
+            "present": (plots_dir / name).exists(),
+        }
+        for name, description in PLOT_FILES.items()
+    }
+
+
 def build_report() -> dict:
     audit_dir = Path("data/audit/data_quality_reports")
 
@@ -99,6 +123,7 @@ def build_report() -> dict:
     )
 
     report = {
+        "plots": _plots_section(Path("data/audit")),
         "data_period": _data_period(data_config, model_config),
         "goal_status": _goal_status(model_report, model_config),
         "prediction_precision_recall": model_report
