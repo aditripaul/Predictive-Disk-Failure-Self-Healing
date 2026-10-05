@@ -39,6 +39,7 @@ STANDARD_SMART_ID_TO_CANONICAL: dict[int, str] = {
     9: "power_on_hours",
     10: "spin_retry_count",
     199: "udma_crc_error_count",
+    194: "temperature_celsius",
 }
 
 #: Per-source column-naming template for "the raw value of SMART attribute

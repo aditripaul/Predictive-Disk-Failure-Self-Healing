@@ -13,14 +13,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import polars as pl
 import yaml
 
 from src.logging_config import configure_logging, get_logger
+from src.reporting.figure_data import failure_counts_by_family
 from src.reporting.plots import (
     plot_calibration_curve,
     plot_class_imbalance,
+    plot_failures_by_family,
+    plot_feature_importance,
     plot_metric_comparison,
     plot_precision_at_k,
+    plot_roc_curves,
     plot_shap_feature_importance,
     save_figure,
 )
@@ -89,6 +94,54 @@ def main() -> None:
             "model_evaluation_report_missing",
             path=str(model_report_path),
             hint="run `make train` first",
+        )
+
+    # Figures from the paper that apply to this pipeline (see
+    # src/reporting/figure_data.py). Each is skipped with a warning if its
+    # source is missing, as above.
+    if model_report_path.exists():
+        model_report = json.loads(model_report_path.read_text())
+        if "roc_curves" in model_report:
+            curve_labels = {
+                "lightgbm_test_row": "LightGBM, row level",
+                "logistic_test_row": "Logistic baseline, row level",
+                "lightgbm_test_drive": "LightGBM, drive level",
+                "logistic_test_drive": "Logistic baseline, drive level",
+            }
+            curves = {
+                label: model_report["roc_curves"][key]
+                for key, label in curve_labels.items()
+                if key in model_report["roc_curves"]
+            }
+            written.append(
+                save_figure(
+                    plot_roc_curves(curves, title="ROC curves on the test split"),
+                    plots_dir / "roc_curves.png",
+                )
+            )
+        if "feature_importance" in model_report:
+            written.append(
+                save_figure(
+                    plot_feature_importance(
+                        model_report["feature_importance"],
+                        title="Variable importance (share of total gain)",
+                    ),
+                    plots_dir / "variable_importance.png",
+                )
+            )
+
+    metadata_path = Path(data_config["silver_dir"]) / "drive_metadata" / "part.parquet"
+    if metadata_path.exists():
+        metadata = pl.read_parquet(metadata_path, columns=["model_family", "failure_date"])
+        written.append(
+            save_figure(
+                plot_failures_by_family(failure_counts_by_family(metadata)),
+                plots_dir / "failures_by_family.png",
+            )
+        )
+    else:
+        logger.warning(
+            "drive_metadata_missing", path=str(metadata_path), hint="run `make build-silver` first"
         )
 
     imbalance_path = reports_dir / "label_imbalance_report.json"

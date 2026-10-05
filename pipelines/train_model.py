@@ -139,6 +139,7 @@ from src.models.evaluation import (
     compute_auprc,
     compute_warning_lead_time_days,
     drive_level_metrics,
+    drive_level_table,
     evaluate_at_threshold,
 )
 from src.models.explainability import (
@@ -164,6 +165,7 @@ from src.models.training import (
     train_lightgbm,
 )
 from src.models.xgboost_training import train_xgboost
+from src.reporting.figure_data import gain_importance, roc_points
 from src.resource_limits import apply_memory_limit_from_config
 
 SHAP_BACKGROUND_SAMPLE_SIZE = 100
@@ -1016,6 +1018,25 @@ def main() -> None:
             baseline_model = train_logistic_regression_baseline(x_baseline, y_baseline)
             baseline_val_scores = predict_proba_positive(baseline_model, x_val)
             baseline_test_scores = predict_proba_positive(baseline_model, x_test)
+            # Figure data for `make plots` (the paper's ROC and variable-importance
+            # figures): ROC curves of the primary model and the baseline on test,
+            # row level and drive level, and the primary model's gain importance.
+            test_drive_ids = test_df["drive_id"].to_numpy()
+            results["roc_curves"] = {
+                "lightgbm_test_row": roc_points(y_test, test_scores),
+                "logistic_test_row": roc_points(y_test, baseline_test_scores),
+                "lightgbm_test_drive": roc_points(
+                    *drive_level_table(test_drive_ids, y_test, test_scores)
+                ),
+                "logistic_test_drive": roc_points(
+                    *drive_level_table(test_drive_ids, y_test, baseline_test_scores)
+                ),
+            }
+            if model_type == "lightgbm":
+                importance_gains = model.booster_.feature_importance("gain")
+            else:
+                importance_gains = np.asarray(model.feature_importances_)
+            results["feature_importance"] = gain_importance(feature_columns, importance_gains)
             results["logistic_regression_baseline"] = {
                 "validation_auprc": compute_auprc(y_val, baseline_val_scores),
                 "test_auprc": compute_auprc(y_test, baseline_test_scores),

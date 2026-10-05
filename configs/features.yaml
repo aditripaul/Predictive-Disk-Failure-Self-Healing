@@ -11,6 +11,8 @@ priority_smart_attributes:
   - command_timeout
   - power_on_hours
   - smart_overall_health_normalized
+  - udma_crc_error_count
+  - temperature_celsius
 
 windows_days: [7, 14, 30]
 

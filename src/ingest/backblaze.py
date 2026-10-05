@@ -32,6 +32,16 @@ REQUIRED_COLUMNS = [
 ]
 
 
+#: Extra SMART attributes ingested when present: 7 seek error rate, 9 power-on
+#: hours, 194 temperature, 199 UDMA CRC errors.
+OPTIONAL_SMART_COLUMNS = [
+    "smart_7_raw",
+    "smart_9_raw",
+    "smart_194_raw",
+    "smart_199_raw",
+]
+
+
 def filter_files_by_date_range(
     files: list[Path],
     *,
@@ -70,7 +80,13 @@ def ingest_backblaze_file(csv_path: Path, bronze_root: Path) -> list[Path]:
     Parquet, partitioned by year/month. Never materializes the full file."""
     lf = pl.scan_csv(csv_path, infer_schema_length=10_000, try_parse_dates=True)
 
-    available = [c for c in REQUIRED_COLUMNS if c in lf.collect_schema().names()]
+    names = lf.collect_schema().names()
+    # Optional attributes are kept when the file has them. Backblaze has not
+    # always published every attribute for every model, so requiring them
+    # would reject whole days of data.
+    available = [c for c in REQUIRED_COLUMNS if c in names] + [
+        c for c in OPTIONAL_SMART_COLUMNS if c in names
+    ]
     missing = set(REQUIRED_COLUMNS) - set(available)
     if missing:
         raise ValueError(f"{csv_path}: missing required Backblaze columns {sorted(missing)}")

@@ -148,3 +148,56 @@ def plot_precision_at_k(metrics: dict[str, Any], *, title: str) -> plt.Figure:
     ax.set_title(f"Precision at top-K ({title})")
     fig.tight_layout()
     return fig
+
+
+def plot_feature_importance(
+    importance: list[dict[str, Any]], *, title: str, top_n: int = 20
+) -> plt.Figure:
+    """Horizontal bars of the top-N features by share of gain (the paper's
+    variable-importance figures). `importance` is `figure_data.gain_importance`'s
+    output."""
+    top = list(importance[:top_n])
+    features = [e["feature"] for e in top][::-1]
+    values = [e["importance"] for e in top][::-1]
+    fig, ax = plt.subplots(figsize=(8, max(4, len(top) * 0.3)))
+    ax.barh(features, values)
+    ax.set_xlabel("Share of total gain")
+    ax.set_title(title)
+    fig.tight_layout()
+    return fig
+
+
+def plot_roc_curves(curves: dict[str, dict[str, Any]], *, title: str) -> plt.Figure:
+    """One ROC curve per named model (the paper's Figure 11). `curves` maps a
+    label to `figure_data.roc_points`' output; the AUC goes in the legend."""
+    fig, ax = plt.subplots(figsize=(6, 6))
+    for label, curve in curves.items():
+        if not curve["fpr"]:
+            continue
+        auc = curve.get("auc")
+        name = f"{label} (AUC {auc:.3f})" if auc is not None else label
+        ax.plot(curve["fpr"], curve["tpr"], label=name)
+    ax.plot([0, 1], [0, 1], linestyle="--", color="grey", label="chance")
+    ax.set_xlabel("False positive rate")
+    ax.set_ylabel("True positive rate")
+    ax.set_title(title)
+    ax.legend(loc="lower right")
+    fig.tight_layout()
+    return fig
+
+
+def plot_failures_by_family(rows: list[dict[str, Any]], *, top_n: int = 15) -> plt.Figure:
+    """Failed drives per drive family, with each family's failure share in the
+    label (the paper's Figure 2, failures per drive model)."""
+    top = list(rows[:top_n])
+    families = [r["model_family"] for r in top][::-1]
+    failed = [r["failed_drives"] for r in top][::-1]
+    shares = [r["failure_share"] for r in top][::-1]
+    fig, ax = plt.subplots(figsize=(8, max(4, len(top) * 0.35)))
+    bars = ax.barh(families, failed)
+    for bar, share in zip(bars, shares, strict=True):
+        ax.text(bar.get_width(), bar.get_y() + bar.get_height() / 2, f" {share:.2%}", va="center")
+    ax.set_xlabel("Failed drives (label: failure share of that family's drives)")
+    ax.set_title(f"Failed drives by drive family (top {len(top)})")
+    fig.tight_layout()
+    return fig

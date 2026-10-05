@@ -74,6 +74,7 @@ from src.features.events import add_positive_day_counts, add_spike_counts, add_z
 from src.features.lifecycle import add_lifecycle_features
 from src.features.pivot import pivot_badness_wide
 from src.features.registry import build_registry
+from src.features.velocity import add_defect_velocity
 from src.features.windows import add_rolling_aggregates
 from src.logging_config import configure_logging, get_logger
 from src.resource_limits import apply_memory_limit_from_config
@@ -152,6 +153,10 @@ def build_gold_features(wide: pl.DataFrame, features_config: dict) -> pl.DataFra
         long_window_days=windows_days[-1],
     )
     _log_stage("acceleration_added", t0)
+
+    t0 = time.perf_counter()
+    gold = add_defect_velocity(gold, windows_days=windows_days)
+    _log_stage("defect_velocity_added", t0)
 
     t0 = time.perf_counter()
     gold = add_positive_day_counts(gold, available_attributes, windows_days=windows_days)

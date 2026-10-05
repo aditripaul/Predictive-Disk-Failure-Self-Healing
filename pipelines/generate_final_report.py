@@ -91,6 +91,9 @@ PLOT_FILES = {
     "precision_at_k_test.png": "precision at top-K on test",
     "class_imbalance.png": "label imbalance by horizon and split",
     "shap_feature_importance.png": "SHAP feature importance (needs diagnostics.shap_enabled)",
+    "roc_curves.png": "ROC curves: LightGBM vs logistic baseline, row and drive level (test)",
+    "variable_importance.png": "variable importance by share of gain (LightGBM)",
+    "failures_by_family.png": "failed drives per drive family",
 }
 
 
