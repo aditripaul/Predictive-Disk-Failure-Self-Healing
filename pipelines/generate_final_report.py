@@ -14,10 +14,13 @@ import json
 import subprocess
 from pathlib import Path
 
+import yaml
+
 from src.logging_config import configure_logging, get_logger
 from src.resource_limits import apply_memory_limit_from_config
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
+MODEL_CONFIG_PATH = Path("configs/model.yaml")
 
 logger = get_logger(__name__)
 
@@ -39,19 +42,65 @@ def _load_json_if_exists(path: Path) -> dict | None:
     return json.loads(path.read_text())
 
 
+def _goal_status(model_report: dict | None, model_config: dict) -> dict:
+    """The model goal from configs/model.yaml, set against what the trained
+    model actually reached (drive level). Says plainly when the goal is not
+    met, so the report cannot read as success by omission."""
+    threshold_cfg = model_config["threshold"]
+    goal = {
+        "target_precision": threshold_cfg["target_precision"],
+        "target_recall_range": threshold_cfg["target_recall_range"],
+    }
+    if model_report is None or "threshold" not in model_report:
+        return {**goal, "status": "not_yet_available", "reason": "No trained model evaluation."}
+    chosen = model_report["threshold"]
+    test = model_report.get("test_drive_level", {})
+    return {
+        **goal,
+        "target_met": bool(chosen.get("target_met", False)),
+        "validation_precision_at_chosen_threshold": chosen.get("precision"),
+        "validation_recall_at_chosen_threshold": chosen.get("recall"),
+        "test_drive_precision": test.get("precision"),
+        "test_drive_recall": test.get("recall"),
+        "precision_gap_to_target": chosen.get("precision_gap_to_target"),
+        "summary": (
+            "Goal met on validation."
+            if chosen.get("target_met")
+            else "Goal not met: the target precision is not reachable at the required recall "
+            "with this data. Action tiers (model_report.action_tiers) give the reachable "
+            "operating points."
+        ),
+    }
+
+
+def _data_period(data_config: dict, model_config: dict) -> dict:
+    return {
+        "ingested_from": data_config.get("sources", {}).get("backblaze", {}).get("start_date"),
+        "ingested_to": data_config.get("sources", {}).get("backblaze", {}).get("end_date"),
+        "splits": model_config.get("splits"),
+        "primary_horizon_days": model_config.get("primary_horizon_days"),
+    }
+
+
 def build_report() -> dict:
     audit_dir = Path("data/audit/data_quality_reports")
 
     model_report = _load_json_if_exists(audit_dir / "model_evaluation_report.json")
     label_report = _load_json_if_exists(audit_dir / "label_imbalance_report.json")
+    data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
+    model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
 
     chaos_results = _run_pytest(["tests/chaos/test_chaos_scenarios.py"])
     latency_results = _run_pytest(["tests/chaos/test_guardrail_latency.py"])
     replay_results = _run_pytest(
-        ["tests/integration/test_agent_graph.py::test_crash_recovery_replay_does_not_duplicate_execution"]
+        [
+            "tests/integration/test_agent_graph.py::test_crash_recovery_replay_does_not_duplicate_execution"
+        ]
     )
 
     report = {
+        "data_period": _data_period(data_config, model_config),
+        "goal_status": _goal_status(model_report, model_config),
         "prediction_precision_recall": model_report
         or {
             "status": "not_yet_available",

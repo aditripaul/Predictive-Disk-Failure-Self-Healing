@@ -230,7 +230,7 @@ Expect it to take well over an hour on Q1 alone.
 |---|---|
 | `make experiment-model` | See above. |
 | `make build-sequences`, `make train-lstm` | Optional LSTM branch. Needs `uv sync --extra torch` first. |
-| `make final-report` | Runs the final report generation. |
+| `make final-report` | Writes `data/audit/data_quality_reports/final_evaluation_report.json`: the model's drive-level results and action tiers, a goal-status section (target met or not, and the gap), the data period, and the chaos, latency and crash-recovery test results. Runs those tests, so it takes a few minutes. |
 | `make agent-demo` | Runs the decision-agent demo once. |
 | `make api` / `make dashboard` | Starts the FastAPI service / the Streamlit dashboard. |
 
