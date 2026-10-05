@@ -36,9 +36,8 @@ def add_defect_velocity(
     if not attributes or len(windows_days) == 0:
         return df
 
-    df = df.with_columns(
-        pl.sum_horizontal([pl.col(a).fill_null(0) for a in attributes]).cast(pl.Float32).alias(_TOTAL)
-    )
+    total = pl.sum_horizontal([pl.col(a).fill_null(0) for a in attributes])
+    df = df.with_columns(total.cast(pl.Float32).alias(_TOTAL))
     velocity_exprs = []
     for window in windows_days:
         lagged = pl.col(_TOTAL).shift(window).over("drive_id")
