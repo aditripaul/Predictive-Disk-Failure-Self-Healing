@@ -64,6 +64,12 @@ def _goal_status(model_report: dict | None, model_config: dict) -> dict:
         "validation_recall_at_chosen_threshold": chosen.get("recall"),
         "test_drive_precision": test.get("precision"),
         "test_drive_recall": test.get("recall"),
+        "test_fleet_failure_rate": test.get("fleet_failure_rate"),
+        "test_lift": test.get("lift"),
+        # The same alerts restated for test sets with more failing drives, as
+        # most published results use. Not a separate measurement; the target
+        # above is judged on the fleet figure.
+        "test_drive_precision_at_failure_rate": test.get("precision_at_failure_rate"),
         "precision_gap_to_target": chosen.get("precision_gap_to_target"),
         "summary": (
             "Goal met on validation."

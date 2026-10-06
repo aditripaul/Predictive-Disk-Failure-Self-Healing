@@ -146,10 +146,11 @@ service when the data ended.
   healthy node" and "keep quorum" are implemented and tested, but in the
   default demonstration wiring nothing supplies them with node and
   replication state, so they cannot fire there.
-- **Validation is optimistic compared with test** (72.5% against 46.3%
-  precision at the primary threshold). The split is being corrected so
-  validation is strictly later than training; figures in section 4 are
-  from before that correction.
+- **Validation was optimistic compared with test** (72.5% against 46.3%
+  precision at the primary threshold). The split has since been corrected
+  (training stops a full label window before validation starts, and
+  validation holds only later dates). The figures in section 4 are from
+  before that correction and have not been re-measured.
 - **Simulation only.** No action touches real hardware. The API has no
   authentication, and the audit store does not survive a restart.
 - **One data source.** All results are Backblaze drives; the second data set

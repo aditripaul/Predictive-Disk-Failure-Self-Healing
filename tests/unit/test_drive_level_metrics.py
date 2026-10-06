@@ -214,3 +214,27 @@ def test_precision_at_recall_without_failing_validation_drives_reports_no_thresh
         recalls=(0.1,),
     )
     assert rows == [{"target_recall": 0.1, "threshold": None}]
+
+
+def test_precision_at_failure_rate_reproduces_the_measured_precision_at_the_fleet_rate():
+    from src.models.evaluation import drive_level_metrics, precision_at_failure_rate
+
+    drives = np.array([f"d{i}" for i in range(1000)])
+    y = np.zeros(1000, dtype=int)
+    y[:10] = 1  # 10 failing drives of 1000
+    scores = np.zeros(1000)
+    scores[:4] = 0.9  # 4 failing drives caught
+    scores[10:16] = 0.9  # 6 healthy drives alerted
+    m = drive_level_metrics(drives, y, scores, 0.5)
+
+    assert m["precision"] == pytest.approx(0.4)
+    assert m["fleet_failure_rate"] == pytest.approx(0.01)
+    assert m["lift"] == pytest.approx(40.0)
+    at_fleet = precision_at_failure_rate(m["recall"], m["false_alarm_rate"], 0.01)
+    assert at_fleet == pytest.approx(m["precision"])
+    # recall 0.4, false-alarm rate 6/990: at 50% failing, 0.4 / (0.4 + 6/990)
+    assert m["precision_at_failure_rate"]["0.5"] == pytest.approx(0.4 / (0.4 + 6 / 990))
+    assert m["precision_at_failure_rate"]["0.15"] == pytest.approx(
+        0.4 * 0.15 / (0.4 * 0.15 + (6 / 990) * 0.85)
+    )
+    assert precision_at_failure_rate(0.0, 0.0, 0.15) == 0.0

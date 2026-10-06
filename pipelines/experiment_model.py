@@ -843,10 +843,13 @@ def _recall_cell(row: dict[str, Any]) -> str:
     if row.get("threshold") is None:
         return "unreachable"
     t = row["test"]
+    # P@15% = the same alerts on a test set where 15% of drives fail.
+    at_15 = t.get("precision_at_failure_rate", {}).get("0.15")
+    reference = f" P@15%={at_15:.3f}" if at_15 is not None else ""
     return (
         f"P={t['precision']:.3f} R={t['recall']:.3f} "
         f"({t['caught_drive_count']}/{t['failing_drive_count']}, "
-        f"FA={t['false_alarm_drive_count']})"
+        f"FA={t['false_alarm_drive_count']}){reference}"
     )
 
 

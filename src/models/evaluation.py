@@ -170,6 +170,29 @@ def drive_level_table(
     )
 
 
+#: Failure rates at which precision is also reported, next to the real
+#: fleet's own (about 0.2% of drives). Published results are usually measured
+#: on test sets with far more failures than a fleet has: about 15% positives
+#: in Amram et al. (2021), 50% in balanced evaluations.
+REFERENCE_FAILURE_RATES = (0.15, 0.5)
+
+
+def precision_at_failure_rate(recall: float, false_alarm_rate: float, failure_rate: float) -> float:
+    """The precision the same alerts would show on a population in which
+    `failure_rate` of the drives fail.
+
+    `recall` (share of failing drives caught) and `false_alarm_rate` (share
+    of healthy drives alerted) do not depend on how common failures are;
+    precision does. With r, f and p for the three arguments:
+    precision = r*p / (r*p + f*(1 - p)). At the measured fleet's own failure
+    rate this reproduces the measured precision. It is a restatement of the
+    measured rates, not a new measurement, and must be reported with its
+    failure rate."""
+    caught = recall * failure_rate
+    false_alarms = false_alarm_rate * (1.0 - failure_rate)
+    return caught / (caught + false_alarms) if caught + false_alarms else 0.0
+
+
 def drive_level_metrics(
     drive_ids: np.ndarray, y_true: np.ndarray, y_scores: np.ndarray, threshold: float
 ) -> dict[str, Any]:
@@ -187,14 +210,28 @@ def drive_level_metrics(
     false_alarms = int((flagged & ~failing).sum())
     failing_count = int(failing.sum())
     healthy_count = int((~failing).sum())
+    precision = caught / (caught + false_alarms) if caught + false_alarms else 0.0
+    recall = caught / failing_count if failing_count else 0.0
+    false_alarm_rate = false_alarms / healthy_count if healthy_count else 0.0
+    fleet_failure_rate = failing_count / len(labels) if len(labels) else 0.0
     return {
         "failing_drive_count": failing_count,
         "healthy_drive_count": healthy_count,
         "caught_drive_count": caught,
         "false_alarm_drive_count": false_alarms,
-        "precision": caught / (caught + false_alarms) if caught + false_alarms else 0.0,
-        "recall": caught / failing_count if failing_count else 0.0,
-        "false_alarm_rate": false_alarms / healthy_count if healthy_count else 0.0,
+        "precision": precision,
+        "recall": recall,
+        "false_alarm_rate": false_alarm_rate,
+        # Share of drives that fail in this split: the rate `precision` is at.
+        "fleet_failure_rate": fleet_failure_rate,
+        # How many times likelier an alerted drive is to fail than a random one.
+        "lift": precision / fleet_failure_rate if fleet_failure_rate else 0.0,
+        # The same alerts judged on populations with more failures (see
+        # `precision_at_failure_rate`); keyed by the failure rate.
+        "precision_at_failure_rate": {
+            str(rate): precision_at_failure_rate(recall, false_alarm_rate, rate)
+            for rate in REFERENCE_FAILURE_RATES
+        },
         "auprc": compute_auprc(labels, scores) if failing_count else 0.0,
     }
 

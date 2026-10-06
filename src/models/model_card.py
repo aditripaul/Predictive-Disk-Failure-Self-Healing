@@ -105,10 +105,26 @@ def build_model_card(
     }
 
 
+def _reference_rate_text(metrics: dict[str, Any]) -> str:
+    """'; 98.9% at 15% failing, 99.8% at 50% failing' - the same alerts on
+    populations with more failures (evaluation.precision_at_failure_rate)."""
+    by_rate = metrics.get("precision_at_failure_rate")
+    if not by_rate:
+        return ""
+    return "; " + ", ".join(
+        f"{value:.1%} at {float(rate):.0%} failing" for rate, value in by_rate.items()
+    )
+
+
 def _precision_at_recall_lines(rows: list[dict[str, Any]] | None) -> list[str]:
     if not rows:
         return []
-    lines = ["- Drive-level precision at recall (threshold from validation, measured on test):"]
+    lines = [
+        "- Drive-level precision at recall (threshold from validation, measured on test). "
+        "The first precision is at the fleet's own failure rate; the figures after the "
+        "semicolon restate the same alerts for test sets with more failures, as most "
+        "published results use:"
+    ]
     for row in rows:
         if row.get("threshold") is None:
             lines.append(f"  - recall >= {row['target_recall']:.0%}: not reachable on validation")
@@ -118,7 +134,7 @@ def _precision_at_recall_lines(rows: list[dict[str, Any]] | None) -> list[str]:
             f"  - recall >= {row['target_recall']:.0%}: test precision {test['precision']:.1%} "
             f"at recall {test['recall']:.1%} ({test['caught_drive_count']}/"
             f"{test['failing_drive_count']} failing drives, "
-            f"{test['false_alarm_drive_count']} false alarms)"
+            f"{test['false_alarm_drive_count']} false alarms{_reference_rate_text(test)})"
         )
     return lines
 

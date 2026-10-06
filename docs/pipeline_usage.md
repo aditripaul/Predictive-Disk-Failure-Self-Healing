@@ -112,7 +112,8 @@ The individual steps are still available:
 
 ```bash
 # A different horizon (must be one of horizons_days in configs/model.yaml).
-# The run is logged with its horizon; score-fleet only uses 14-day runs.
+# The run is logged with its horizon; score-fleet only uses runs for the
+# primary horizon (primary_horizon_days in configs/model.yaml, now 30).
 make train TRAIN_ARGS="--horizon-days 30"
 
 # Compare model variants on the kept arrays (run make train with --keep-work-dir first).
@@ -171,7 +172,7 @@ target name change its behavior; the others take no arguments.
 | `make build-features` | silver | `data/gold/features/` |
 | `make build-labels` | gold features | `data/gold/labels/` (horizons 7, 14, 30; splits) |
 | `make train` | gold and labels | MLflow run, model card, evaluation and action-tier reports |
-| `make score-fleet` | latest row per drive, latest 14-day MLflow run | `data/audit/predictions/<date>.json` |
+| `make score-fleet` | latest row per drive, latest MLflow run for the primary horizon (30 days) | `data/audit/predictions/<date>.json` |
 | `make plots` | audit reports | `data/audit/plots/` |
 
 Each step needs the ones before it.
@@ -183,7 +184,7 @@ Each step needs the ones before it.
 | Option | Effect |
 |---|---|
 | `TRAIN_ARGS=--keep-work-dir` | Keeps the training arrays in `data/tmp/train_model_frame_*` for the experiment tool. Delete them with `make clean-kept`. |
-| `TRAIN_ARGS="--horizon-days 30"` | Trains for a horizon in `horizons_days`. The run is logged with that horizon; `score-fleet` only uses 14-day runs. |
+| `TRAIN_ARGS="--horizon-days 30"` | Trains for a horizon in `horizons_days`. The run is logged with that horizon; `score-fleet` only uses runs for the primary horizon (`primary_horizon_days`, now 30). |
 
 Examples:
 ```bash

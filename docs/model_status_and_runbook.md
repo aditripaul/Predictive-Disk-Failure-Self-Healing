@@ -441,6 +441,46 @@ Drive level, test, thresholds chosen on validation.
   failure, 2 failed 31-60 days later. On validation 41 of 345 failed later.
 - **Persistence rules** again lowered precision at every setting.
 
+### 4.4 Changes after the 30-day run (2026-10-06, not yet re-measured)
+
+Decisions taken after Section 4.3, all in `configs/model.yaml` and
+`pipelines/train_model.py`. **No result in this document was produced with
+them yet**; the next `make train` will be the first.
+
+- **30 days is the primary horizon** (`primary_horizon_days: 30`). `make
+  train`, `make score-fleet` and the agent's decision records now use it.
+- **Split dates are enforced when each split is extracted**
+  (`_split_period_predicate`):
+  - *Train* keeps only rows dated at least 30 days before `train_end`
+    (to 2026-03-16). A later row's label depends on what happens after
+    `train_end`, inside the validation period. `purge_label_window: false`
+    turns this off.
+  - *Validation* keeps only dates after `train_end` (2026-04-16 to
+    2026-05-10). It no longer includes the held-out drives' rows from the
+    training period. `validation_after_train_only: false` turns this off.
+  - *Test* stops at `test_end` (already in Section 4.3's run).
+  The aim is that thresholds chosen on validation carry over to test. Expect
+  validation figures to fall towards the test figures; test precision may
+  move either way, since training loses its last 30 days.
+- **Precision is also reported at stated failure rates.** Every drive-level
+  result now carries `fleet_failure_rate`, `lift`, and
+  `precision_at_failure_rate` for 15% and 50% failing drives
+  (`src/models/evaluation.py::precision_at_failure_rate`). These restate the
+  measured catch rate and false-alarm rate for a test set with more failures,
+  which is how most published results are reported; they are not a separate
+  measurement, and the configured target is still judged on the fleet figure.
+  They appear in the training log (`precision_at_recall` lines), the
+  evaluation report, the model card, the final report (`goal_status`) and
+  the experiment tables (`P@15%`).
+
+No rebuild of features or labels is needed:
+
+```bash
+make full-experiment FULL_EXPERIMENT_ARGS="--variants reg_spw --skip-baseline --two-stage --deep-dive reg_spw" 2>&1 | tee full-experiment.log
+make score-fleet
+make final-report
+```
+
 ## 6. The experiment tool
 
 ```bash

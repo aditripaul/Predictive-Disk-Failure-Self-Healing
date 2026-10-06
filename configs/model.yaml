@@ -1,6 +1,6 @@
 version: 1
 
-primary_horizon_days: 14
+primary_horizon_days: 30
 horizons_days: [7, 14, 30]
 
 model:
@@ -129,6 +129,16 @@ splits:
   train_end: "2026-04-15"
   validation_end: "2026-05-10"
   test_end: "2026-05-31"
+  # Applied when `make train` extracts each split
+  # (pipelines/train_model.py::_split_period_predicate):
+  # - purge_label_window: train only on rows dated at least the label horizon
+  #   before train_end, so no training label is decided by what happens in
+  #   the validation period.
+  # - validation_after_train_only: validation holds only dates after
+  #   train_end (not the held-out drives' rows from the training period).
+  # test_end is always applied: test stops there.
+  purge_label_window: true
+  validation_after_train_only: true
 
 mlflow:
   tracking_uri: sqlite:///mlflow/mlflow.db

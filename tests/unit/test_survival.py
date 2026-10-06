@@ -162,42 +162,145 @@ def test_survival_variant_explains_a_work_dir_without_time_to_event_columns():
         _train_survival_bounds(data)
 
 
-def test_test_split_stops_at_the_configured_test_end(tmp_path):
-    """After test_end only failing drive-days still carry a label, so those
-    dates must not be evaluated."""
+def test_each_split_is_limited_to_its_own_dates(tmp_path):
+    """Train stops a horizon before train_end, validation starts after
+    train_end, test stops at test_end."""
     import datetime as dt
 
     import polars as pl
 
-    from pipelines.train_model import _evaluation_period_predicate, _row_group_parts
+    from pipelines.train_model import _row_group_parts, _split_period_predicate
 
-    config = {"splits": {"test_end": "2026-05-31"}}
-    assert _evaluation_period_predicate("train", config) is None
-    assert _evaluation_period_predicate("validation", config) is None
-    assert _evaluation_period_predicate("test", {"splits": {}}) is None
+    config = {"splits": {"train_end": "2026-04-15", "test_end": "2026-05-31"}}
+    assert _split_period_predicate("test", {"splits": {}}, 30) is None
+    assert _split_period_predicate("train", {"splits": {}}, 30) is None
+    off = {
+        "splits": {
+            **config["splits"],
+            "purge_label_window": False,
+            "validation_after_train_only": False,
+        }
+    }
+    assert _split_period_predicate("train", off, 30) is None
+    assert _split_period_predicate("validation", off, 30) is None
+    assert _split_period_predicate("test", off, 30) is not None
 
+    d = dt.date
     frame = pl.DataFrame(
         {
-            "drive_id": ["a", "b", "c", "d"],
+            "drive_id": ["t1", "t2", "t3", "v1", "v2", "v3", "s1", "s2", "s3"],
             "date": [
-                dt.date(2026, 5, 20),
-                dt.date(2026, 5, 31),
-                dt.date(2026, 6, 1),
-                dt.date(2026, 5, 1),
+                d(2026, 3, 16),
+                d(2026, 3, 17),
+                d(2026, 4, 15),  # train
+                d(2026, 2, 1),
+                d(2026, 4, 15),
+                d(2026, 4, 16),  # validation (v1, v2: held-out drives)
+                d(2026, 5, 20),
+                d(2026, 5, 31),
+                d(2026, 6, 1),  # test
             ],
-            "split": ["test", "test", "test", "validation"],
-            "label": [0, 0, 1, 0],
+            "split": ["train"] * 3 + ["validation"] * 3 + ["test"] * 3,
+            "label": [0, 0, 0, 0, 0, 0, 0, 0, 1],
         }
     )
     frame_path = tmp_path / "frame.parquet"
     frame.write_parquet(frame_path)
-    parts = _row_group_parts(
-        frame_path,
-        split_name="test",
-        select_columns=["drive_id", "date", "label"],
-        read_columns=["drive_id", "date", "label", "split"],
-        extra_predicate=_evaluation_period_predicate("test", config),
-        tmp_dir=tmp_path,
+
+    def kept(split_name, horizon_days):
+        out = tmp_path / f"{split_name}_{horizon_days}"
+        out.mkdir()
+        parts = _row_group_parts(
+            frame_path,
+            split_name=split_name,
+            select_columns=["drive_id", "date", "label"],
+            read_columns=["drive_id", "date", "label", "split"],
+            extra_predicate=_split_period_predicate(split_name, config, horizon_days),
+            tmp_dir=out,
+        )
+        return pl.concat([pl.read_parquet(p) for p in parts])["drive_id"].to_list()
+
+    assert kept("train", 30) == ["t1"]  # 2026-03-16 + 30 days = train_end
+    assert kept("train", 14) == ["t1", "t2"]
+    assert kept("validation", 30) == ["v3"]
+    assert kept("test", 30) == ["s1", "s2"]
+
+
+def test_extract_stage_applies_the_split_dates_end_to_end(tmp_path, monkeypatch):
+    """The real extract stage on a tiny frame: train is purged of the last
+    horizon before train_end, validation drops the held-out drives'
+    training-period rows, test stops at test_end, and the ids keep the
+    time-to-event columns the survival variants need."""
+    import datetime as dt
+    import json
+
+    import polars as pl
+    import yaml
+
+    import pipelines.train_model as train_model
+
+    config = {
+        "model": {"max_train_rows": 1000},
+        "splits": {
+            "train_end": "2026-04-15",
+            "validation_end": "2026-05-10",
+            "test_end": "2026-05-31",
+        },
+    }
+    config_path = tmp_path / "model.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    monkeypatch.setattr(train_model, "MODEL_CONFIG_PATH", config_path)
+    monkeypatch.setattr(train_model, "apply_memory_limit_from_config", lambda: None)
+
+    d = dt.date
+    rows = [
+        # (drive, date, split, label)
+        ("a", d(2026, 3, 1), "train", 0),
+        ("a", d(2026, 3, 16), "train", 1),
+        ("a", d(2026, 3, 17), "train", 1),  # label window runs past train_end
+        ("a", d(2026, 4, 15), "train", 0),  # same
+        ("h", d(2026, 3, 1), "validation", 0),  # held-out drive, training period
+        ("a", d(2026, 4, 16), "validation", 0),
+        ("h", d(2026, 5, 10), "validation", 1),
+        ("a", d(2026, 5, 11), "test", 0),
+        ("a", d(2026, 5, 31), "test", 1),
+        ("a", d(2026, 6, 1), "test", 1),  # after test_end
+    ]
+    frame = pl.DataFrame(
+        {
+            "drive_id": [r[0] for r in rows],
+            "date": [r[1] for r in rows],
+            "split": [r[2] for r in rows],
+            "label": pl.Series([r[3] for r in rows], dtype=pl.Int8),
+            "drive_model": ["M"] * len(rows),
+            "event_type": ["confirmed_failure"] * len(rows),
+            "days_to_event": [20] * len(rows),
+            "f1": [float(i) for i in range(len(rows))],
+        }
     )
-    kept = pl.concat([pl.read_parquet(p) for p in parts])
-    assert kept["drive_id"].to_list() == ["a", "b"]
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    frame.write_parquet(work_dir / "frame.parquet")
+    (work_dir / "frame_meta.json").write_text(
+        json.dumps({"feature_columns": ["f1"], "split_counts": {}, "horizon_days": 30})
+    )
+
+    for split in ("train", "validation", "test"):
+        train_model._stage_extract_split(work_dir, split)
+
+    def dates(name):
+        return pl.read_parquet(work_dir / f"{name}_ids.parquet")["date"].to_list()
+
+    assert dates("train") == [d(2026, 3, 1), d(2026, 3, 16)]
+    assert dates("validation") == [d(2026, 4, 16), d(2026, 5, 10)]
+    assert dates("test") == [d(2026, 5, 11), d(2026, 5, 31)]
+    assert np.load(work_dir / "x_train.npy").ravel().tolist() == [0.0, 1.0]
+    assert np.load(work_dir / "y_train.npy").tolist() == [0, 1]
+    assert np.load(work_dir / "y_val.npy").tolist() == [0, 1]
+    assert json.loads((work_dir / "train_meta.json").read_text()) == {
+        "row_count": 2,
+        "row_count_before_cap": 2,
+    }
+    assert {"event_type", "days_to_event"} <= set(
+        pl.read_parquet(work_dir / "train_ids.parquet").columns
+    )

@@ -398,21 +398,43 @@ def _stage_assemble(work_dir: Path, horizon_days: int | None = None) -> None:
     )
 
 
-def _evaluation_period_predicate(split_name: str, model_config: dict) -> pl.Expr | None:
-    """Keeps test rows up to `splits.test_end` (configs/model.yaml).
+def _split_period_predicate(
+    split_name: str, model_config: dict, horizon_days: int
+) -> pl.Expr | None:
+    """The dates each split may use, beyond the label table's own `split`
+    column. All three default on; `splits.purge_label_window: false` or
+    `splits.validation_after_train_only: false` in configs/model.yaml
+    restore the earlier behaviour.
 
-    The label table calls every date after `validation_end` "test". Close
-    to the end of the data a healthy drive-day has no label (its horizon
-    runs past the last observation) and is dropped, but a failing
-    drive-day keeps its positive label. Without this cut-off the last
-    `horizon_days` of the data would add failing drives to the test set
-    with no healthy rows beside them, which no deployed model ever sees.
-    `test_end` must therefore be at least the longest evaluated horizon
-    before the last date in the data."""
-    test_end = model_config.get("splits", {}).get("test_end")
-    if split_name != "test" or not test_end:
-        return None
-    return pl.col("date") <= dt.date.fromisoformat(str(test_end))
+    - **train:** only rows dated at least `horizon_days` before `train_end`.
+      A later row's label is decided by what happens after `train_end`,
+      inside the validation period, which a model trained on `train_end`
+      could not know. It also made validation look easier than the future:
+      the same drive's rows a few days apart sat in train and validation
+      with nearly the same features and the same outcome.
+    - **validation:** only rows after `train_end`. The label table also
+      puts the held-out drives' rows from the training period here; those
+      share their dates with the training rows, so thresholds and early
+      stopping chosen on them did not carry over to test.
+    - **test:** only rows up to `test_end`. Later, a healthy drive-day has
+      no label (its horizon runs past the data) and is dropped, but a
+      failing one keeps its positive label, so those dates would add
+      failing drives with no healthy rows beside them. `test_end` must be
+      at least the horizon before the last date in the data."""
+    splits = model_config.get("splits", {})
+
+    def boundary(name: str) -> dt.date | None:
+        value = splits.get(name)
+        return dt.date.fromisoformat(str(value)) if value else None
+
+    train_end, test_end = boundary("train_end"), boundary("test_end")
+    if split_name == "train" and train_end and splits.get("purge_label_window", True):
+        return pl.col("date") <= train_end - dt.timedelta(days=horizon_days)
+    if split_name == "validation" and train_end and splits.get("validation_after_train_only", True):
+        return pl.col("date") > train_end
+    if split_name == "test" and test_end:
+        return pl.col("date") <= test_end
+    return None
 
 
 def _row_group_parts(
@@ -617,13 +639,11 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
         # (just split+label), unlike the wide per-row-group read below,
         # so it doesn't need the same row-group discipline.
         max_train_rows = model_config["model"].get("max_train_rows", DEFAULT_MAX_TRAIN_ROWS)
-        label_counts_df = (
-            pl.scan_parquet(frame_path)
-            .filter(pl.col("split") == "train")
-            .group_by("label")
-            .agg(pl.len().alias("count"))
-            .collect()
-        )
+        period = _split_period_predicate("train", model_config, frame_meta["horizon_days"])
+        train_rows = pl.scan_parquet(frame_path).filter(pl.col("split") == "train")
+        if period is not None:
+            train_rows = train_rows.filter(period)
+        label_counts_df = train_rows.group_by("label").agg(pl.len().alias("count")).collect()
         label_counts = dict(
             zip(
                 label_counts_df["label"].to_list(),
@@ -631,7 +651,15 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
                 strict=True,
             )
         )
-        predicate = _train_sample_predicate(label_counts, max_rows=max_train_rows, seed=0)
+        rows_before_cap = int(sum(label_counts.values()))
+        if rows_before_cap == 0:
+            raise ValueError(
+                "No train rows are left after dropping those whose label window runs past "
+                f"train_end (horizon={frame_meta['horizon_days']}d). Move splits.train_end "
+                "later, or set splits.purge_label_window: false in configs/model.yaml."
+            )
+        sample = _train_sample_predicate(label_counts, max_rows=max_train_rows, seed=0)
+        predicate = period if sample is None else sample if period is None else (period & sample)
         # event_type/days_to_event are not model inputs: they give each train
         # row its time to failure, for the survival variants in
         # pipelines/experiment_model.py.
@@ -662,6 +690,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
         row_count = len(y_train)
         np.save(work_dir / "y_train.npy", y_train)
+        meta = {"row_count": row_count, "row_count_before_cap": rows_before_cap}
     else:
         # Validation and test are extracted the same way: the feature matrix
         # goes straight to `x_<name>.npy` through a memory map, the labels to
@@ -679,7 +708,9 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
                 split_name=split_name,
                 select_columns=select_columns,
                 read_columns=sorted({*select_columns, "split"}),
-                extra_predicate=_evaluation_period_predicate(split_name, model_config),
+                extra_predicate=_split_period_predicate(
+                    split_name, model_config, frame_meta["horizon_days"]
+                ),
                 tmp_dir=part_tmp_dir,
             )
             _, y_split = _build_feature_arrays(
@@ -689,9 +720,16 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
         row_count = len(y_split)
+        if row_count == 0:
+            raise ValueError(
+                f"The {split_name} split has no rows inside its date range "
+                f"(horizon={frame_meta['horizon_days']}d). Check splits.train_end / "
+                "validation_end / test_end in configs/model.yaml against the data's dates."
+            )
         np.save(work_dir / f"y_{short_name}.npy", y_split)
+        meta = {"row_count": row_count}
 
-    (work_dir / f"{split_name}_meta.json").write_text(json.dumps({"row_count": row_count}))
+    (work_dir / f"{split_name}_meta.json").write_text(json.dumps(meta))
     _log_stage(f"{split_name}_split_extracted", t0, row_count=row_count)
 
 
@@ -854,7 +892,9 @@ def main() -> None:
             "splits_loaded",
             t0,
             train=train_meta["row_count"],
-            train_before_cap=frame_meta["split_counts"]["train"],
+            train_before_cap=train_meta.get(
+                "row_count_before_cap", frame_meta["split_counts"]["train"]
+            ),
             validation=validation_meta["row_count"],
             test=test_meta["row_count"],
         )
@@ -1002,7 +1042,9 @@ def main() -> None:
                 ),
                 "rows": {
                     "train": train_meta["row_count"],
-                    "train_before_cap": frame_meta["split_counts"]["train"],
+                    "train_before_cap": train_meta.get(
+                        "row_count_before_cap", frame_meta["split_counts"]["train"]
+                    ),
                     "validation": validation_meta["row_count"],
                     "test": test_meta["row_count"],
                 },
@@ -1270,6 +1312,9 @@ def main() -> None:
                     test_recall=row["test"]["recall"],
                     test_caught=row["test"]["caught_drive_count"],
                     test_false_alarms=row["test"]["false_alarm_drive_count"],
+                    test_lift=row["test"]["lift"],
+                    # Same alerts on test sets with more failing drives.
+                    test_precision_at_failure_rate=row["test"]["precision_at_failure_rate"],
                 )
             logger.info("data_build", **results["data_build"])
             for tier, info in results["action_tiers"].items():
