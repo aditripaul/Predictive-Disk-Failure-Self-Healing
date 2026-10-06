@@ -362,7 +362,7 @@ drives were still running when the data ended.
 35% recall (raw 30.2%; best smoother 29.1%), and the best gain at the
 high-precision point was median5 at 37.6% precision for 9.5% recall.
 
-### 4.3 30-day horizon and survival model (implemented, not yet run)
+### 4.3 30-day horizon, survival model and anomaly detection (run 2026-10-06)
 
 Two changes test whether the 14-day window is what costs precision:
 
@@ -393,7 +393,53 @@ model with the anomaly score as an extra feature.
 
 `reg_spw` and `xgboost` give the 30-day classifier baseline on the same rows;
 the two-stage table prints precision at 5/10/20/35% recall for `reg_spw`.
-Verified with unit tests only (`tests/unit/test_survival.py`).
+
+**Results.** Branch `adi_dev`, 30-day label, test set 2026-05-11 to 2026-05-31
+(`test_end` enforced): 7,381,381 test rows, 621 failing and 353,328 healthy
+test drives; 1,055 failing validation drives; 213 features; train capped at
+4,998,190 of 32,139,507 rows. The run finished with the 20 GB cap in place.
+Drive level, test, thresholds chosen on validation.
+
+| Validation recall target | Pooled `reg_spw` | Two stage | Pooled + anomaly feature | Anomaly cascade (keep 5%) | Anomaly score alone |
+|---|---|---|---|---|---|
+| 5% | P 52.4%, R 5.3% (33 caught, 30 FA) | P 54.5%, R 5.8% (36, 30) | P 46.5%, R 3.2% (20, 23) | P 56.8%, R 3.4% (21, 16) | P 33.0%, R 4.7% (29, 59) |
+| 10% | P 46.3%, R 9.2% (57, 66) | P 52.1%, R 9.8% (61, 56) | P 50.5%, R 7.9% (49, 48) | P 52.8%, R 6.1% (38, 34) | P 24.1%, R 8.4% (52, 164) |
+| 20% | P 44.8%, R 12.6% (78, 96) | P 44.5%, R 15.8% (98, 122) | P 48.4%, R 14.7% (91, 97) | P 45.4%, R 11.9% (74, 89) | P 14.3%, R 16.1% (100, 599) |
+| 35% | P 35.2%, R 27.7% (172, 317) | P 36.3%, R 26.9% (167, 293) | P 36.4%, R 27.7% (172, 301) | P 35.1%, R 22.9% (142, 262) | P 9.0%, R 28.5% (177, 1,786) |
+
+| Variant | Trees | Drive AUPRC val | Drive AUPRC test | Test at val "precision >= 50%" |
+|---|---|---|---|---|
+| `reg_spw` (LightGBM) | 786 | 0.375 | 0.213 | P 33.3%, R 29.0% (180, 361) |
+| `xgboost` | 586 | 0.369 | 0.208 | P 34.1%, R 28.3% (176, 340) |
+| `xgboost_aft` (survival) | 600 | 0.367 | 0.216 | P 33.0%, R 30.8% (191, 388) |
+| `xgboost_aft_spw` (survival, weighted) | 90 | 0.284 | 0.197 | P 38.7%, R 22.2% (138, 219) |
+
+- **The target is still not met.** The pooled 30-day model gives 46.3%
+  precision at 9.2% recall. The best single figure near 10% recall is the
+  two-stage model at 52.1%.
+- **The 30-day label helps a little.** The 14-day run gave 39.6% at 10.5%
+  recall, but on a test window that ran past `test_end` (Section 4.2 caveat),
+  so the two are not an exact like-for-like comparison.
+- **The survival model is no better than the classifier** (test drive AUPRC
+  0.216 against 0.213). Unweighted, it put 62% of its gain on drive age.
+- **Anomaly detection does not beat the pooled model.** The anomaly score
+  alone is much worse. The cascade is not better at matched recall, and its
+  filter removes failing drives before the second model sees them: keeping
+  the most anomalous 5% of rows keeps 443 of 621 failing test drives, and 1%
+  keeps 295. As an extra feature the score takes 25% of the gain and changes
+  the counts by a handful of drives.
+- **Differences between the columns are small.** At the 10% row the columns
+  differ by about 10 false alarms out of 50-65, at slightly different recall.
+  None of these is a clear improvement over the pooled model.
+- **Validation thresholds do not transfer to test.** Validation shows 72.5%
+  precision at 13.7% recall where test shows 46.3% at 9.2%, and the "20%
+  recall" threshold reaches 12.6% recall on test. Validation contains the
+  held-out drives' rows from the training period (Section 8), which is the
+  likely cause; not yet isolated.
+- **False alarms** (35% recall threshold, test): 317 healthy drives alerted;
+  284 still running at the end of the data, 31 removed without a recorded
+  failure, 2 failed 31-60 days later. On validation 41 of 345 failed later.
+- **Persistence rules** again lowered precision at every setting.
 
 ## 6. The experiment tool
 
