@@ -17,11 +17,11 @@ measured on real data, it says so.
 - **The pipeline runs end to end on real Q1 + Q2 2026 data** (62.6 million
   drive-days, 363,548 drives) within the 20 GB memory cap: ingest, silver,
   features, labels, training, fleet scoring, plots and the final report.
-- **Current result** (Section 4.4; per drive, test, 30-day horizon): 41.4%
-  precision at 8.5% recall at the primary threshold, 48.9% at 3.7%, 28.5% at
-  34.1%. An alerted drive is about 236 times likelier to fail than a random
-  one. The same alerts show 98.6% precision on a test set where 15% of
-  drives fail, the kind most published results use.
+- **Current result** (Section 4.5; per drive, test, 30-day horizon, two-stage
+  model): 46.2% precision at 9.7% recall at the primary threshold, 44.0% at
+  20.8%, 29.0% at 33.3%. An alerted drive is about 263 times likelier to
+  fail than a random one. The same alerts show 98.9% precision on a test set
+  where 15% of drives fail, the kind most published results use.
 - **The stated goal is not met.** It was 95% precision at 35-50% recall, then
   90% at >= 10% recall, both on the real fleet. Section 7.
 - **What moved precision:** fixing the training collapse (Section 5.2) and
@@ -30,10 +30,8 @@ measured on real data, it says so.
   quarter of data, more SMART attributes and features, persistence rules, a
   survival model, anomaly detection (Sections 4.1 to 4.3, 5).
 - **Second modest gain:** the two-stage model. Over five seeds it raised
-  precision at the primary threshold from 42.4% to 47.7% at the same recall,
-  and from 48.0% to 57.4% at the strictest setting (Section 4.5). It is an
-  option in `make train`, off by default, and the pipeline model has not yet
-  been trained with it.
+  precision at the primary threshold from 42.4% to 47.7% at the same recall
+  (Section 4.5). It is now the default.
 
 ## 2. How to run the pipeline
 
@@ -464,7 +462,8 @@ Drive level, test, thresholds chosen on validation.
 
 Decisions taken after Section 4.3, all in `configs/model.yaml` and
 `pipelines/train_model.py`. The results at the end of this section are the
-first produced with them and are the project's current figures.
+first produced with them. They are for the single model; the current
+figures, with the second stage, are in Section 4.5.
 
 - **30 days is the primary horizon** (`primary_horizon_days: 30`). `make
   train`, `make score-fleet` and the agent's decision records now use it.
@@ -545,14 +544,14 @@ drives; 220 trees). Drive level, test, thresholds from validation.
   `make final-report` passed its chaos, guardrail-latency and crash-recovery
   sections. No `memory_limit_exceeded`.
 
-### 4.5 Two-stage model as an option (implemented and confirmed across seeds, 2026-10-06)
+### 4.5 Two-stage model: confirmed across seeds and adopted (2026-10-06)
 
 The second stage is now part of the pipeline as an option, and the experiment
 runs the same code (`src/models/two_stage.py`; design in
 `docs/developer_guide.md` section 5.13).
 
-- `make train TRAIN_ARGS=--two-stage`, or `model.two_stage.enabled: true`.
-  Off by default. Thresholds, action tiers and reports are then built on the
+- `model.two_stage.enabled: true` (the default since it was adopted, below),
+  or `make train TRAIN_ARGS=--two-stage` for one run. Thresholds, action tiers and reports are then built on the
   combined score, and the first model alone is reported beside it.
 - `make score-fleet` uses the second stage automatically for a run trained
   with it.
@@ -616,9 +615,40 @@ both models' sampling, not the test drives):
   target. Differences of that size between single runs elsewhere in this
   document should be read with that in mind.
 
-Recommendation: adopt it for the pipeline model
-(`make train TRAIN_ARGS=--two-stage`, then `model.two_stage.enabled: true`
-once that run has been checked). That run has not been done yet.
+**Adopted.** The pipeline model was then trained with the second stage
+(`make train TRAIN_ARGS=--two-stage`, seed 0; 220 + 38 trees; 9,454 candidate
+train rows, 5,262 positive; candidate threshold 0.830), and
+`model.two_stage.enabled` is now `true`. **These are the project's current
+figures** (test, drive level, thresholds from validation):
+
+| Validation recall target | Two stage (current model) | First model alone, same run | At 15% failing | At 50% failing | Lift |
+|---|---|---|---|---|---|
+| 5% | P 45.0%, R 2.9% (18 caught, 22 FA) | P 48.9%, R 3.7% (23, 24) | 98.8% | 99.8% | 256 |
+| 10% (primary) | P 46.2%, R 9.7% (60, 70) | P 41.4%, R 8.5% (53, 75) | 98.9% | 99.8% | 263 |
+| 20% | P 44.0%, R 20.8% (129, 164) | P 37.1%, R 18.7% (116, 197) | 98.7% | 99.8% | 251 |
+| 35% | P 29.0%, R 33.3% (207, 506) | P 28.5%, R 34.1% (212, 531) | 97.6% | 99.6% | 165 |
+
+| Action tier | Validation target | Test precision | Test recall | Single model (Section 4.4) |
+|---|---|---|---|---|
+| warn | 15% | 9.9% | 62.5% | identical |
+| cordon | 25% | 17.4% | 51.2% | identical |
+| migrate | 40% | 29.1% | 33.0% | 29.5% at 32.4% |
+| drain | 60% | 46.0% | 10.3% | 47.4% at 5.8% |
+
+- The gain is at the 10% and 20% targets, as in the seed test: more drives
+  caught with fewer false alarms. At the 5% target this seed is slightly
+  worse than the first model alone (18 against 23 caught), within the spread
+  the seeds showed there.
+- **The drain tier catches nearly twice as many failing drives at the same
+  precision** (10.3% against 5.8% recall, about 46%).
+- Warn and cordon are unchanged by construction: they need more recall than
+  the candidate threshold allows the second stage to touch.
+- Validation at the primary threshold: 60.4% precision at 10.3% recall. At
+  15% failing, validation and test agree (99.0% and 98.9%).
+- Warning lead time: median 14 days, mean 17.9 (65 drives warned).
+- `make score-fleet` loaded the second stage (`two_stage_model_loaded`),
+  scored 363,548 drives and proposed an action for 3,973. `make final-report`
+  passed its chaos, guardrail-latency and crash-recovery sections.
 
 ## 6. The experiment tool
 
@@ -644,14 +674,14 @@ Thresholds are always chosen on validation and applied to test.
 
 **Neither goal is met on the real fleet.** The original goal was 95%
 precision at 35-50% recall per drive; it was later set to 90% at >= 10%
-recall (`configs/model.yaml` `threshold`). The current model gives 41.4% at
-8.5% recall and 28.5% at 34.1% (Section 4.4). At the validation threshold for
+recall (`configs/model.yaml` `threshold`). The current model gives 46.2% at
+9.7% recall and 29.0% at 33.3% (Section 4.5). At the validation threshold for
 95% precision it flags a single test drive.
 
 The limit is how rare failures are, not the false-alarm rate: at the primary
-threshold only 75 of 353,328 healthy drives are alerted (about 1 in 4,700),
+threshold only 70 of 353,328 healthy drives are alerted (about 1 in 5,000),
 but only 621 drives fail. On a test set where 15% of drives fail the same
-alerts are 98.6% precise (Section 4.4). The paper we reviewed (Amram et al.,
+alerts are 98.9% precise (Section 4.5). The paper we reviewed (Amram et al.,
 2021) reports about 44% precision at a 12% false-alarm rate on one drive
 model with random splits and about 15% positives, so it does not support a
 95% real-fleet target either.
@@ -667,9 +697,8 @@ What was tried, in the order it was tested:
    clear gain (Section 4.3).
 5. ~~Survival model, anomaly detection~~: no better than the classifier
    (Section 4.3).
-6. **Two-stage model:** confirmed over five seeds as a modest gain (about
-   +5 points at the primary threshold, +9 at the strictest setting); not yet
-   adopted as the default (Section 4.5).
+6. **Two-stage model:** done. Confirmed over five seeds as a modest gain
+   (about +5 points at the primary threshold) and adopted (Section 4.5).
 
 What could still change the picture:
 
@@ -717,8 +746,6 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 
 **Model and evaluation:**
 
-- **Adopt the two-stage model:** train the pipeline model with
-  `--two-stage`, check the run, then make it the default (Section 4.5).
 - **Validation precision is still above test** after the split fix (56.7%
   against 41.4%); about half is the higher failure rate in the validation
   period, the rest is unexplained (Section 4.4).
@@ -756,7 +783,7 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 | `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | 2026-04-15 / 2026-05-10 / 2026-05-31 | Split boundaries |
 | `configs/model.yaml` | `splits.purge_label_window` | true | Training stops one horizon before `train_end` |
 | `configs/model.yaml` | `splits.validation_after_train_only` | true | Validation holds only dates after `train_end` |
-| `configs/model.yaml` | `model.two_stage.enabled` | false | Optional second-stage model (Section 4.5) |
+| `configs/model.yaml` | `model.two_stage.enabled` | true | Second-stage model (Section 4.5) |
 | `configs/model.yaml` | `threshold.action_tier_precision` | 0.15 / 0.25 / 0.40 / 0.60 | Per-action precision targets (placeholders) |
 | `configs/model.yaml` | `diagnostics.shap_enabled` | false | SHAP is slow on real data and fails its additivity check with extreme leaves |
 | `configs/data.yaml` | `resource_limits.max_memory_gb` | 20 | RSS cap for every pipeline process |

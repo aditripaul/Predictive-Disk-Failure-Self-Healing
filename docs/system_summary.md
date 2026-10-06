@@ -34,7 +34,7 @@ SMART telemetry (Backblaze, daily, per drive)
 | Layer | What it does | Where |
 |---|---|---|
 | Data pipeline | Turns 62.6 million drive-days from 363,548 drives (Backblaze Q1 + Q2 2026) into about 213 features per drive-day, within a 20 GB memory cap | `pipelines/`, `src/features/` |
-| Failure model | LightGBM classifier; outputs a failure probability per drive-day | `pipelines/train_model.py` |
+| Failure model | LightGBM classifier, with a second LightGBM that re-ranks its highest-scoring drive-days; outputs a failure score per drive-day | `pipelines/train_model.py`, `src/models/two_stage.py` |
 | Action tiers | Maps the probability to an action. Mild actions accept more false alarms; destructive ones need more confidence | `src/models/threshold.py` |
 | Agent | A Monitor - Analyze - Plan - Execute loop (LangGraph), checkpointed so a crash cannot repeat an action | `src/agent/` |
 | Guardrails | Six hard pre-action rules (score cut-off, feature confidence, fresh telemetry, never the last healthy node, keep replication quorum, limit concurrent drains), three soft ones (high I/O, maintenance window, rate limit), and two hard post-action checks (data integrity, service continuity) | `src/guardrails/` |
@@ -80,10 +80,10 @@ compare with the literature (Amram et al., 2021, used about 15% positives).
 
 | Operating point | Failing drives caught | Healthy drives wrongly alerted | Precision, real fleet (0.18% fail) | Precision, 15% fail | Precision, 50% fail |
 |---|---|---|---|---|---|
-| Strictest | 23 of 621 (3.7%) | 24 of 353,328 (0.007%) | 48.9% | 99.0% | 99.8% |
-| Primary threshold | 53 of 621 (8.5%) | 75 (0.021%) | 41.4% | 98.6% | 99.8% |
-| Broader | 116 of 621 (18.7%) | 197 (0.056%) | 37.1% | 98.3% | 99.7% |
-| Broadest | 212 of 621 (34.1%) | 531 (0.150%) | 28.5% | 97.6% | 99.6% |
+| Strictest | 18 of 621 (2.9%) | 22 of 353,328 (0.006%) | 45.0% | 98.8% | 99.8% |
+| Primary threshold | 60 of 621 (9.7%) | 70 (0.020%) | 46.2% | 98.9% | 99.8% |
+| Broader | 129 of 621 (20.8%) | 164 (0.046%) | 44.0% | 98.7% | 99.8% |
+| Broadest | 207 of 621 (33.3%) | 506 (0.143%) | 29.0% | 97.6% | 99.6% |
 | Warn tier | about 388 of 621 (62.5%) | about 3,520 (1.0%) | 9.9% | 91.7% | 98.4% |
 
 The 15% and 50% columns are computed from the measured catch rate and
@@ -92,17 +92,17 @@ false-alarm rate f and failure rate p). They are not a separate experiment.
 
 Other measures at the primary threshold:
 
-- **Lift:** an alerted drive is about 236 times more likely to fail than a
+- **Lift:** an alerted drive is about 263 times more likely to fail than a
   drive picked at random.
-- **Warning time:** median 12 days before the failure (mean 15.3).
-- **False-alarm rate:** 75 of 353,328 healthy drives, about 1 in 4,700.
+- **Warning time:** median 14 days before the failure (mean 17.9).
+- **False-alarm rate:** 70 of 353,328 healthy drives, about 1 in 5,000.
 - **Validation agrees with test once the failure rate is held fixed:** at
-  15% failing, precision at the primary threshold is 98.9% on validation and
-  98.6% on test.
+  15% failing, precision at the primary threshold is 99.0% on validation and
+  98.9% on test.
 
 **Against the project's stated goal.** The original target was 95% precision
 at 35-50% recall on the real fleet; it was later set to 90% at 10% recall.
-Neither is met: the real-fleet figure is 41% at 8.5% recall.
+Neither is met: the real-fleet figure is 46% at 9.7% recall.
 
 The trained model scored the whole fleet (363,548 drives) and proposed an
 action for 3,973 of them (`make score-fleet`).
@@ -120,7 +120,7 @@ the same drives.
 | One model per drive family | Worse than the pooled model for all three largest families |
 | A second quarter of data (twice the failing drives) | Same precision, tighter estimate |
 | More SMART attributes and velocity, recency and age features | No measurable change |
-| Second-stage model on the hard cases | No gain at 14 days. At 30 days a modest, repeatable gain: over five seeds, 42.4% to 47.7% precision at the primary threshold and 48.0% to 57.4% at the strictest setting, at the same recall. Available as an option (`make train TRAIN_ARGS=--two-stage`), off by default; the figures in section 4 are without it |
+| Second-stage model on the hard cases | No gain at 14 days. At 30 days a modest, repeatable gain: over five seeds, 42.4% to 47.7% precision at the primary threshold at the same recall. Adopted: it is part of the model reported in section 4 (the single model on the same run gave 41.4% at 8.5% recall, where the pair gives 46.2% at 9.7%) |
 | Requiring several consecutive high-score days | Lower precision |
 | 30-day horizon in place of 14 days | The one clear gain: 34% to 46% precision near 10% recall, same test period and same split rules |
 | Survival model (time to failure, XGBoost AFT) | Same as the classifier |
@@ -129,8 +129,8 @@ the same drives.
 The consistent ceiling across model families, feature sets and framings
 indicates the limit is the information in daily SMART data, not the model.
 Most false alarms are drives with abnormal readings that kept running: of 531
-healthy test drives alerted at the broadest threshold, 500 were still in
-service when the data ended.
+healthy test drives alerted by the single model at the broadest threshold, 500
+were still in service when the data ended.
 
 ## 6. How the system is verified
 
@@ -154,11 +154,11 @@ service when the data ended.
   healthy node" and "keep quorum" are implemented and tested, but in the
   default demonstration wiring nothing supplies them with node and
   replication state, so they cannot fire there.
-- **Validation still reads higher than test on the real fleet** (56.7%
-  against 41.4% precision at the primary threshold). About half of that gap
+- **Validation still reads higher than test on the real fleet** (60.4%
+  against 46.2% precision at the primary threshold). About half of that gap
   is because more drives failed in the validation period (0.27% against
   0.18%); the rest is unexplained. The share of failing drives caught now
-  carries over closely (10.4% on validation, 8.5% on test).
+  carries over closely (10.3% on validation, 9.7% on test).
 - **Simulation only.** No action touches real hardware. The API has no
   authentication, and the audit store does not survive a restart.
 - **One data source.** All results are Backblaze drives; the second data set

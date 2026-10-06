@@ -420,7 +420,7 @@ synthetic-data walkthrough (§14) — only real-data / production settings.
 | `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | Before `make train` against real data whose date range doesn't overlap the defaults — an empty split raises a clear error naming which one. The synthetic stub (§14) derives its own date range from these same values, so it stays correct automatically if you change them |
 | `configs/model.yaml` | `primary_horizon_days` | The label horizon `make train`, `make score-fleet` and the agent use. 30 days by default; `test_end` must be at least this many days before the last date in the data |
 | `configs/model.yaml` | `splits.purge_label_window` / `validation_after_train_only` | Both `true` by default: training stops one horizon before `train_end`, and validation holds only later dates. See `docs/model_status_and_runbook.md` section 4.4 |
-| `configs/model.yaml` | `model.two_stage.enabled` | Optional second-stage model; `false` by default |
+| `configs/model.yaml` | `model.two_stage.enabled` | Second-stage model that re-ranks the first model's highest-scoring drive-days; `true` by default |
 | `configs/model.yaml` | `model.type` (`lightgbm` \| `xgboost`) | Only if you want XGBoost instead of the LightGBM default |
 | `configs/model.yaml` | `mlflow.tracking_uri` / `experiment_name` | Only if you want runs logged somewhere other than the local `sqlite:///mlflow/mlflow.db` default |
 | `configs/model.yaml` | `hyperparameter_search.enabled` / `smote_comparison.enabled` | Optional — both default to `false` so `make train` stays fast and deterministic |
@@ -488,7 +488,7 @@ The project uses a `Makefile` for reproducible pipeline execution.
 | `make build-silver` | Build canonical Silver telemetry |
 | `make build-features` | Build Gold trajectory features |
 | `make build-labels` | Build failure labels and splits |
-| `make train` | Train the model, choose thresholds and action tiers, write the evaluation report and model card, log to MLflow. `TRAIN_ARGS="--two-stage"` adds the optional second-stage model; `--horizon-days N` and `--keep-work-dir` are described in `docs/pipeline_usage.md`. SHAP is off by default (`diagnostics.shap_enabled`) |
+| `make train` | Train the model, choose thresholds and action tiers, write the evaluation report and model card, log to MLflow. The second-stage model is on by default (`model.two_stage.enabled`); `--horizon-days N` and `--keep-work-dir` are described in `docs/pipeline_usage.md`. SHAP is off by default (`diagnostics.shap_enabled`) |
 | `make experiment-model` / `full-experiment` / `clean-kept` | Compare modelling variants on a kept training run (`docs/pipeline_usage.md`) |
 | `make full-pipeline` | Ingest through plots, including the model experiment |
 | `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (`train-lstm` needs `uv sync --extra torch`) |
@@ -616,13 +616,14 @@ later set to 90% precision at ≥ 10% recall (`configs/model.yaml`
 
 | Operating point | Precision on the real fleet (0.18% of drives fail) | Same alerts, test set with 15% failing | 50% failing |
 |---|---|---|---|
-| 3.7% of failing drives caught, 24 false alarms | 48.9% | 99.0% | 99.8% |
-| 8.5% caught, 75 false alarms (primary threshold) | 41.4% | 98.6% | 99.8% |
-| 34.1% caught, 531 false alarms | 28.5% | 97.6% | 99.6% |
+| 2.9% of failing drives caught, 22 false alarms | 45.0% | 98.8% | 99.8% |
+| 9.7% caught, 70 false alarms (primary threshold) | 46.2% | 98.9% | 99.8% |
+| 20.8% caught, 164 false alarms | 44.0% | 98.7% | 99.8% |
+| 33.3% caught, 506 false alarms | 29.0% | 97.6% | 99.6% |
 
 Precision depends on how rare failures are in the test set; the last two
 columns restate the measured catch rate and false-alarm rate for test sets
-like those most published results use. An alerted drive is about 236 times
+like those most published results use. An alerted drive is about 263 times
 more likely to fail than a random one. Full results, the approaches tried and
 the limitations: `docs/system_summary.md` and
 `docs/model_status_and_runbook.md`.
@@ -837,8 +838,8 @@ make test
 
 | Metric | Target |
 |---|---:|
-| Prediction precision | ≥ 95% originally, later ≥ 90% (not met: 41% on the real fleet at the primary threshold; see §15) |
-| Prediction recall | 35–50% originally, later ≥ 10% (8.5% at the primary threshold) |
+| Prediction precision | ≥ 95% originally, later ≥ 90% (not met: 46% on the real fleet at the primary threshold; see §15) |
+| Prediction recall | 35–50% originally, later ≥ 10% (9.7% at the primary threshold) |
 | Loop cycle time | < 5 minutes |
 | Guardrail evaluation latency | < 500 ms |
 | Hard-guardrail compliance | 100% |

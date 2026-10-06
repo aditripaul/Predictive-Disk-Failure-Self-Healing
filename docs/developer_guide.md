@@ -1118,8 +1118,9 @@ rate. It is shown in the training log, evaluation report, model card, final
 report (`goal_status`) and experiment tables (`P@15%`). The configured target
 is judged on the fleet figure only.
 
-**Second stage** (`src/models/two_stage.py`, optional, off by default).
-`make train TRAIN_ARGS=--two-stage` or `model.two_stage.enabled: true`:
+**Second stage** (`src/models/two_stage.py`, on by default since 2026-10-06;
+`model.two_stage.enabled: false` gives the single model, and
+`make train TRAIN_ARGS=--two-stage` forces it on for one run):
 
 1. Stage 1 is the ordinary model. Its candidate threshold is the validation
    threshold that still catches `candidate_recall` (0.5) of failing drives.
@@ -1685,8 +1686,8 @@ Data / model:
 - The repository ships no data. The pipeline has been run end to end on real
   Backblaze Q1 + Q2 2026 data (results in `docs/model_status_and_runbook.md`);
   SMART-Z has not been evaluated.
-- The model does not reach the precision target on the real fleet (41% at
-  8.5% recall against a 90% target). `docs/system_summary.md` section 4.
+- The model does not reach the precision target on the real fleet (46% at
+  9.7% recall against a 90% target). `docs/system_summary.md` section 4.
 - `predictor` is never backed by the trained Phase 5 model in `demo.py`/the
   API's default wiring — it's a hardcoded two-drive fixture. Wiring a real
   MLflow-registered model in is the natural next step (see §11).

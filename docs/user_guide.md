@@ -270,13 +270,13 @@ drives), predicting failure within 30 days:
   the warning level about 1 in 10 do. Drive failure is rare (roughly 1 drive
   in 570 over the test period), so even a very selective model raises more
   false alarms than true ones at the lenient levels.
-- **An alert still means a lot.** An alerted drive is about 236 times more
+- **An alert still means a lot.** An alerted drive is about 263 times more
   likely to fail than a typical drive, and only about 1 healthy drive in
-  4,700 is alerted at the primary threshold.
+  5,000 is alerted at the primary threshold.
 - **It does not catch every failure.** The strictest levels catch under 10%
   of failing drives; the warning level catches about 60%. Many drives fail
   with no warning in their SMART readings.
-- **Warnings come about 12 days before the failure** (median).
+- **Warnings come about 14 days before the failure** (median).
 
 This is why a low score only warns, why migrate and drain need the highest
 scores plus the safety checks in §7, and why uncertain cases are sent to a
