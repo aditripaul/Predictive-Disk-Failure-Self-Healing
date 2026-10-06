@@ -120,7 +120,7 @@ the same drives.
 | One model per drive family | Worse than the pooled model for all three largest families |
 | A second quarter of data (twice the failing drives) | Same precision, tighter estimate |
 | More SMART attributes and velocity, recency and age features | No measurable change |
-| Second-stage model on the hard cases | No gain at 14 days. At 30 days, 5 to 12 points better at the two strictest operating points in both runs (e.g. 50.8% against 41.4%), on a few dozen drives; promising, not yet confirmed. Available as an option (`make train TRAIN_ARGS=--two-stage`), off by default |
+| Second-stage model on the hard cases | No gain at 14 days. At 30 days a modest, repeatable gain: over five seeds, 42.4% to 47.7% precision at the primary threshold and 48.0% to 57.4% at the strictest setting, at the same recall. Available as an option (`make train TRAIN_ARGS=--two-stage`), off by default; the figures in section 4 are without it |
 | Requiring several consecutive high-score days | Lower precision |
 | 30-day horizon in place of 14 days | The one clear gain: 34% to 46% precision near 10% recall, same test period and same split rules |
 | Survival model (time to failure, XGBoost AFT) | Same as the classifier |

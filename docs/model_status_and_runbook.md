@@ -29,9 +29,11 @@ measured on real data, it says so.
 - **What did not:** hyperparameters, XGBoost, per-family models, a second
   quarter of data, more SMART attributes and features, persistence rules, a
   survival model, anomaly detection (Sections 4.1 to 4.3, 5).
-- **Open lead:** the two-stage model was 5 to 12 points better at the
-  strictest operating points in both 30-day runs. It is now an option in
-  `make train` and has a multi-seed repeat to confirm it (Section 4.5).
+- **Second modest gain:** the two-stage model. Over five seeds it raised
+  precision at the primary threshold from 42.4% to 47.7% at the same recall,
+  and from 48.0% to 57.4% at the strictest setting (Section 4.5). It is an
+  option in `make train`, off by default, and the pipeline model has not yet
+  been trained with it.
 
 ## 2. How to run the pipeline
 
@@ -543,7 +545,7 @@ drives; 220 trees). Drive level, test, thresholds from validation.
   `make final-report` passed its chaos, guardrail-latency and crash-recovery
   sections. No `memory_limit_exceeded`.
 
-### 4.5 Two-stage model as an option (implemented 2026-10-06, not yet re-run)
+### 4.5 Two-stage model as an option (implemented and confirmed across seeds, 2026-10-06)
 
 The second stage is now part of the pipeline as an option, and the experiment
 runs the same code (`src/models/two_stage.py`; design in
@@ -586,8 +588,37 @@ the 5% and 10% targets is worth adopting for the strict tiers; a range that
 straddles zero is chance.
 
 The experiment's second stage now uses a fixed seed per run and gives
-non-candidates their first-stage score instead of zero, so its numbers will
+non-candidates their first-stage score instead of zero, so its numbers do
 not match Sections 4.3 and 4.4 to the last drive.
+
+**Five-seed result** (`adi_dev` at `4f884e0`; same data build and splits as
+Section 4.4; test, drive level; each seed changes the fold assignment and
+both models' sampling, not the test drives):
+
+| Validation recall target | First model alone (mean) | Two stage (mean) | Precision gain, range over seeds | Mean caught / false alarms |
+|---|---|---|---|---|
+| 5% | P 48.0%, R 3.9% | P 57.4%, R 4.2% | -1.1 to +14.9 points | 24.4 / 27.4 -> 26.0 / 19.6 |
+| 10% | P 42.4%, R 8.3% | P 47.7%, R 8.7% | +2.4 to +8.6 | 51.6 / 70.0 -> 54.0 / 59.4 |
+| 20% | P 37.3%, R 19.2% | P 39.8%, R 19.2% | +0.5 to +4.2 | 119.2 / 200.8 -> 119.0 / 180.6 |
+| 35% | P 28.3%, R 33.9% | P 28.9%, R 32.5% | -1.0 to +3.3 | 210.6 / 535.2 -> 201.8 / 495.8 |
+
+- **The gain is real but modest.** At the 10% and 20% targets the two-stage
+  model was more precise in all five seeds, catching as many or more drives
+  with about 10 to 20 fewer false alarms. At 5% it was better in four of
+  five (in the fifth it traded 1 point of precision for more drives caught).
+  At 35% there is no gain.
+- **Size:** about +9 points at the strictest setting, +5 at the primary
+  threshold, +2.5 at 20% recall. It does not approach the 90% target.
+- **What the seeds do and do not show.** They show the gain does not depend
+  on training randomness. All five are judged on the same 621 failing test
+  drives, so they do not show how it would vary on a different test period.
+- The first model alone also varies by seed: 40.9% to 43.6% at the 10%
+  target. Differences of that size between single runs elsewhere in this
+  document should be read with that in mind.
+
+Recommendation: adopt it for the pipeline model
+(`make train TRAIN_ARGS=--two-stage`, then `model.two_stage.enabled: true`
+once that run has been checked). That run has not been done yet.
 
 ## 6. The experiment tool
 
@@ -636,8 +667,9 @@ What was tried, in the order it was tested:
    clear gain (Section 4.3).
 5. ~~Survival model, anomaly detection~~: no better than the classifier
    (Section 4.3).
-6. **Two-stage model:** better at the strictest operating points in both
-   30-day runs; being confirmed (Section 4.5).
+6. **Two-stage model:** confirmed over five seeds as a modest gain (about
+   +5 points at the primary threshold, +9 at the strictest setting); not yet
+   adopted as the default (Section 4.5).
 
 What could still change the picture:
 
@@ -685,7 +717,8 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 
 **Model and evaluation:**
 
-- **Confirm the two-stage gain** with the multi-seed repeat (Section 4.5).
+- **Adopt the two-stage model:** train the pipeline model with
+  `--two-stage`, check the run, then make it the default (Section 4.5).
 - **Validation precision is still above test** after the split fix (56.7%
   against 41.4%); about half is the higher failure rate in the validation
   period, the rest is unexplained (Section 4.4).
