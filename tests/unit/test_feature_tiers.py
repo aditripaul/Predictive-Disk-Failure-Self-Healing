@@ -141,3 +141,45 @@ def test_ingest_reads_an_optional_smart_column_that_starts_empty(tmp_path: Path)
     assert df.schema["smart_194_raw"] == pl.Float64
     assert df.filter(pl.col("drive_id") == "LATE")["smart_194_raw"].to_list() == [35.5]
     assert "smart_7_raw" not in df.columns  # absent from the file: simply not ingested
+
+
+def _day_csv(rows: str, extra_header: str = "") -> str:
+    return (
+        "date,serial_number,model,capacity_bytes,failure,"
+        "smart_5_raw,smart_187_raw,smart_188_raw,smart_197_raw,smart_198_raw"
+        f"{extra_header}\n" + rows
+    )
+
+
+def test_core_smart_column_that_starts_empty_keeps_the_month_numeric(tmp_path: Path):
+    """Real Q2 failure: one day's smart_187_raw was empty for its first 10,000
+    rows, was inferred as String, and made the whole month's column text."""
+    bronze = tmp_path / "bronze"
+    day1 = tmp_path / "2026-04-01.csv"
+    day1.write_text(_day_csv("2026-04-01,A,M,1000,0,1,2,0,0,0\n"))
+    day2 = tmp_path / "2026-04-02.csv"
+    empty = "".join(f"2026-04-02,S{i},M,1000,0,0,,0,0,0\n" for i in range(10_050))
+    day2.write_text(_day_csv(empty + "2026-04-02,LATE,M,1000,0,0,7,0,0,0\n"))
+    ingest_backblaze_file(day1, bronze)
+    ingest_backblaze_file(day2, bronze)
+    df = pl.read_parquet(bronze / "**" / "*.parquet")
+    assert df.schema["smart_187_raw"] == pl.Float64
+    assert df.filter(pl.col("drive_id") == "LATE")["smart_187_raw"].to_list() == [7.0]
+    assert df.filter(pl.col("drive_id") == "A")["smart_187_raw"].to_list() == [2.0]
+
+
+def test_reingesting_a_day_with_more_columns_replaces_rows_instead_of_duplicating(
+    tmp_path: Path,
+):
+    bronze = tmp_path / "bronze"
+    csv_path = tmp_path / "2026-01-01.csv"
+    csv_path.write_text(_day_csv("2026-01-01,A,M,1000,0,1,0,0,0,0\n"))
+    ingest_backblaze_file(csv_path, bronze)
+    # the same day again, now with an extra SMART column in the file
+    csv_path.write_text(
+        _day_csv("2026-01-01,A,M,1000,0,1,0,0,0,0,123\n", extra_header=",smart_9_raw")
+    )
+    ingest_backblaze_file(csv_path, bronze)
+    df = pl.read_parquet(bronze / "**" / "*.parquet")
+    assert df.height == 1
+    assert df["smart_9_raw"].to_list() == [123.0]

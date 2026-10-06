@@ -41,6 +41,7 @@ def sink_partitioned_by_month(
     *,
     bronze_root: Path,
     date_column: str = "date",
+    dedup_keys: list[str] | None = None,
 ) -> list[Path]:
     """Sink a lazy frame to `bronze_root/year=YYYY/month=MM/part.parquet`.
 
@@ -58,7 +59,13 @@ def sink_partitioned_by_month(
     `ingested_at`, so re-running ingestion on an already-ingested file is a
     no-op rather than adding duplicates) - **not** overwritten, which
     would otherwise silently discard every previously-ingested day in that
-    month but the last one written."""
+    month but the last one written.
+
+    Pass `dedup_keys` (e.g. `["drive_id", "date"]`) when the source has one
+    row per key: the newest row for a key then REPLACES the stored one.
+    Comparing whole rows is not enough once the ingested column set changes -
+    a row stored earlier without some columns no longer equals the same row
+    re-ingested with them, so every such drive-day would be kept twice."""
     df = lf.with_columns(
         pl.col(date_column).dt.year().alias("_year"),
         pl.col(date_column).dt.month().alias("_month"),
@@ -73,8 +80,8 @@ def sink_partitioned_by_month(
         if out_path.exists():
             existing = pl.read_parquet(out_path)
             part = pl.concat([existing, part], how="diagonal_relaxed")
-            dedup_subset = [c for c in part.columns if c != "ingested_at"]
-            part = part.unique(subset=dedup_subset, keep="last")
+            dedup_subset = dedup_keys or [c for c in part.columns if c != "ingested_at"]
+            part = part.unique(subset=dedup_subset, keep="last", maintain_order=True)
         part.write_parquet(out_path, compression="zstd")
         written.append(out_path)
     return written

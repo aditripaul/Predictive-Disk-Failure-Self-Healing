@@ -78,16 +78,17 @@ def filter_files_by_date_range(
 def ingest_backblaze_file(csv_path: Path, bronze_root: Path) -> list[Path]:
     """Lazily ingest a single Backblaze daily/quarterly CSV file into Bronze
     Parquet, partitioned by year/month. Never materializes the full file."""
-    # Float64 for the optional SMART columns: a column that is empty in the
-    # first `infer_schema_length` rows (an attribute some drive models do not
-    # report) is otherwise inferred as String, so numbers land in Bronze as
-    # text and the type differs from file to file.
+    # Every SMART column is read as Float64, never inferred. A column that is
+    # empty in the first `infer_schema_length` rows of one day's file is
+    # otherwise inferred as String; appended to its month, that turns the whole
+    # month's column into text while other months stay numeric (seen on real
+    # Q2 data for smart_187_raw, a core column).
     header = pl.scan_csv(csv_path, n_rows=0).collect_schema().names()
     lf = pl.scan_csv(
         csv_path,
         infer_schema_length=10_000,
         try_parse_dates=True,
-        schema_overrides={c: pl.Float64 for c in OPTIONAL_SMART_COLUMNS if c in header},
+        schema_overrides={c: pl.Float64 for c in header if c.startswith("smart_")},
     )
 
     names = lf.collect_schema().names()
@@ -110,4 +111,6 @@ def ingest_backblaze_file(csv_path: Path, bronze_root: Path) -> list[Path]:
         lf, source_dataset=SourceDataset.BACKBLAZE, source_file=str(csv_path)
     )
 
-    return sink_partitioned_by_month(lf, bronze_root=bronze_root)
+    # One row per drive per day in Backblaze's files, so a re-ingested day
+    # replaces what is stored (see sink_partitioned_by_month's dedup_keys).
+    return sink_partitioned_by_month(lf, bronze_root=bronze_root, dedup_keys=["drive_id", "date"])
