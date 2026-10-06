@@ -53,3 +53,49 @@ def test_two_stage_experiment_runs_and_reports_both_models(tmp_path):
     for row in report["two_stage"]:
         assert row["threshold"] is not None
         assert 0.0 <= row["test"]["precision"] <= 1.0
+
+
+def test_anomaly_stage_experiment_reports_every_comparison(tmp_path):
+    from pipelines.experiment_model import (
+        _anomaly_scores,
+        _print_anomaly_stage,
+        anomaly_stage_experiment,
+    )
+
+    x_train, y_train, train_drives = _split(1, 900, tmp_path, "tr")
+    x_val, y_val, val_drives = _split(2, 500, tmp_path, "va")
+    x_test, y_test, test_drives = _split(3, 500, tmp_path, "te")
+    x_train = np.array(x_train)
+    x_train[0, 2] = np.nan  # the forest must tolerate missing values
+    data = {
+        "feature_columns": ["f0", "f1", "f2", "f3"],
+        "x_train": x_train,
+        "y_train": y_train,
+        "train_drives": train_drives,
+        "x_val": x_val,
+        "y_val": y_val,
+        "val_drives": val_drives,
+        "x_test": x_test,
+        "y_test": y_test,
+        "test_drives": test_drives,
+        "es_idx": early_stopping_subset(y_val),
+    }
+    report = anomaly_stage_experiment(data, keep_fractions=(0.5,), fit_rows=2000, n_estimators=25)
+    for key in ("pooled", "anomaly_score_alone", "pooled_plus_anomaly_feature"):
+        assert [r["target_recall"] for r in report[key]] == [0.05, 0.10, 0.20, 0.35]
+    (cascade,) = report["cascade"]
+    assert cascade["status"] == "ok", cascade
+    assert cascade["test_rows"] < cascade["test_rows_total"]  # the filter removed rows
+    assert 0 < cascade["failing_drives_kept"] <= cascade["failing_test_drives"]
+    assert 0.0 <= report["anomaly_feature_gain_share"] <= 1.0
+    assert np.isnan(data["x_train"][0, 2])  # inputs are left as they were
+    _print_anomaly_stage(report)  # formats without error
+
+    # Shifted rows are scored as more unusual than typical ones.
+    from sklearn.ensemble import IsolationForest
+
+    forest = IsolationForest(n_estimators=25, random_state=0).fit(
+        np.random.default_rng(0).normal(size=(500, 2))
+    )
+    scores = _anomaly_scores(forest, np.array([[0.0, 0.0], [9.0, 9.0]], dtype=np.float32))
+    assert scores[1] > scores[0]

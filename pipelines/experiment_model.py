@@ -26,6 +26,7 @@ import numpy as np
 import polars as pl
 import xgboost as xgb
 import yaml
+from sklearn.ensemble import IsolationForest
 from sklearn.metrics import precision_recall_curve
 
 from src.logging_config import configure_logging, get_logger
@@ -692,6 +693,190 @@ def _print_two_stage(report: dict[str, Any]) -> None:
         )
 
 
+def _anomaly_scores(forest: IsolationForest, x: np.ndarray) -> np.ndarray:
+    """Isolation-forest anomaly score per row (higher = more unusual), scored
+    in chunks so `x` may be a memory map. Missing values become 0, which the
+    forest (unlike LightGBM) cannot take as they are."""
+    parts = []
+    for start in range(0, len(x), PREDICT_CHUNK_ROWS):
+        chunk = np.nan_to_num(np.asarray(x[start : start + PREDICT_CHUNK_ROWS], dtype=np.float32))
+        parts.append(-forest.score_samples(chunk))
+    return np.concatenate(parts) if parts else np.empty((0,))
+
+
+def _with_column(x: np.ndarray, column: np.ndarray, rows: np.ndarray | None = None) -> np.ndarray:
+    """`x` (optionally only `rows`) with `column` appended as a last feature."""
+    if rows is None:
+        return np.column_stack([np.asarray(x), column])
+    return np.column_stack([np.asarray(x[rows]), column[rows]])
+
+
+def _predict_with_column(model: Any, x: np.ndarray, column: np.ndarray) -> np.ndarray:
+    parts = []
+    for start in range(0, len(x), PREDICT_CHUNK_ROWS):
+        stop = start + PREDICT_CHUNK_ROWS
+        parts.append(predict_proba_positive(model, _with_column(x[start:stop], column[start:stop])))
+    return np.concatenate(parts) if parts else np.empty((0,))
+
+
+def anomaly_stage_experiment(
+    data: dict[str, Any],
+    *,
+    keep_fractions: tuple[float, ...] = (0.05, 0.01),
+    fit_rows: int = 500_000,
+    n_estimators: int = 200,
+) -> dict[str, Any]:
+    """Does "learn what healthy looks like, then classify only the unusual
+    drives" beat the pooled model?
+
+    An isolation forest is fitted on healthy train rows only. Three things are
+    then measured on the same test drives as every other variant, thresholds
+    chosen on validation:
+
+    1. the anomaly score on its own, as the alert score;
+    2. the cascade: keep only the most anomalous `keep_fraction` of rows (the
+       cut is that quantile of healthy train rows), train LightGBM on the
+       train rows that pass, score the test rows that pass, 0 for the rest.
+       `failing_drives_kept` is the recall ceiling the filter imposes;
+    3. the pooled model with the anomaly score added as one more feature.
+
+    The pooled `reg_spw` model is the reference in each table."""
+    if "reg_spw" not in data.get("_scores", {}):
+        run_variant("reg_spw", data)
+    pooled_val, pooled_test = data["_scores"]["reg_spw"]
+    base = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["model"]["params"]
+    params = {**base, **REGULARIZED, "verbosity": -1}
+    y_train, train_drives = data["y_train"], data["train_drives"]
+    sub = data["es_idx"]
+
+    healthy = np.flatnonzero(y_train == 0)
+    rng = np.random.default_rng(0)
+    fit_idx = np.sort(rng.choice(healthy, size=min(fit_rows, len(healthy)), replace=False))
+    forest = IsolationForest(n_estimators=n_estimators, random_state=0, n_jobs=-1)
+    forest.fit(np.nan_to_num(data["x_train"][fit_idx]))
+    train_a = _anomaly_scores(forest, data["x_train"])
+    val_a = _anomaly_scores(forest, data["x_val"])
+    test_a = _anomaly_scores(forest, data["x_test"])
+
+    def table(val_scores: np.ndarray, test_scores: np.ndarray) -> list[dict[str, Any]]:
+        return precision_at_recall_table(
+            data["val_drives"],
+            data["y_val"],
+            val_scores,
+            data["test_drives"],
+            data["y_test"],
+            test_scores,
+        )
+
+    report: dict[str, Any] = {
+        "fit_rows": len(fit_idx),
+        "pooled": table(pooled_val, pooled_test),
+        "anomaly_score_alone": table(val_a, test_a),
+        "cascade": [],
+    }
+
+    failing_test = set(data["test_drives"][data["y_test"] == 1].tolist())
+    for keep in keep_fractions:
+        cut = float(np.quantile(train_a[healthy], 1.0 - keep))
+        cand_train, cand_val, cand_test = train_a >= cut, val_a >= cut, test_a >= cut
+        kept_failing = set(data["test_drives"][cand_test & (data["y_test"] == 1)].tolist())
+        entry: dict[str, Any] = {
+            "keep_fraction": keep,
+            "train_rows": int(cand_train.sum()),
+            "train_positive_rows": int(y_train[cand_train].sum()),
+            "test_rows": int(cand_test.sum()),
+            "test_rows_total": len(test_a),
+            "failing_test_drives": len(failing_test),
+            "failing_drives_kept": len(kept_failing),
+        }
+        if entry["train_positive_rows"] < 20 or data["y_val"][cand_val].sum() < 5:
+            entry["status"] = "too few candidate failures to train a second stage"
+            report["cascade"].append(entry)
+            continue
+        rows_train, rows_val, rows_test = (
+            np.flatnonzero(cand_train),
+            np.flatnonzero(cand_val),
+            np.flatnonzero(cand_test),
+        )
+        stage2 = _fit_lgbm(
+            params,
+            _with_column(data["x_train"], train_a, rows_train),
+            y_train[rows_train],
+            train_drives[rows_train],
+            eval_x=_with_column(data["x_val"], val_a, rows_val),
+            eval_y=data["y_val"][rows_val],
+        )
+        val_final, test_final = np.zeros(len(val_a)), np.zeros(len(test_a))
+        val_final[rows_val] = predict_proba_positive(
+            stage2, _with_column(data["x_val"], val_a, rows_val)
+        )
+        test_final[rows_test] = predict_proba_positive(
+            stage2, _with_column(data["x_test"], test_a, rows_test)
+        )
+        entry["stage2_trees"] = int(stage2.best_iteration_ or stage2.n_estimators)
+        entry["table"] = table(val_final, test_final)
+        entry["status"] = "ok"
+        report["cascade"].append(entry)
+        del stage2
+
+    # Pooled model with the anomaly score as an extra feature.
+    x_plus = _with_column(data["x_train"], train_a)
+    with_feature = _fit_lgbm(
+        params,
+        x_plus,
+        y_train,
+        train_drives,
+        eval_x=_with_column(data["x_val"], val_a, sub),
+        eval_y=data["y_val"][sub],
+    )
+    del x_plus
+    gains = with_feature.booster_.feature_importance("gain")
+    report["anomaly_feature_gain_share"] = float(gains[-1] / (gains.sum() or 1.0))
+    report["pooled_plus_anomaly_feature"] = table(
+        _predict_with_column(with_feature, data["x_val"], val_a),
+        _predict_with_column(with_feature, data["x_test"], test_a),
+    )
+    return report
+
+
+def _recall_cell(row: dict[str, Any]) -> str:
+    if row.get("threshold") is None:
+        return "unreachable"
+    t = row["test"]
+    return (
+        f"P={t['precision']:.3f} R={t['recall']:.3f} "
+        f"({t['caught_drive_count']}/{t['failing_drive_count']}, "
+        f"FA={t['false_alarm_drive_count']})"
+    )
+
+
+def _print_anomaly_stage(report: dict[str, Any]) -> None:
+    print("\n#### ANOMALY DETECTION (isolation forest on healthy rows) - TEST, drive level")
+    print(f"  forest fitted on {report['fit_rows']} healthy train rows")
+    columns: list[tuple[str, list[dict[str, Any]]]] = [
+        ("pooled reg_spw", report["pooled"]),
+        ("anomaly score alone", report["anomaly_score_alone"]),
+        ("pooled + anomaly feature", report["pooled_plus_anomaly_feature"]),
+    ]
+    for entry in report["cascade"]:
+        label = f"cascade keep {entry['keep_fraction']:.0%}"
+        print(
+            f"  {label}: test rows kept {entry['test_rows']}/{entry['test_rows_total']}, "
+            f"failing drives kept {entry['failing_drives_kept']}/{entry['failing_test_drives']} "
+            f"(recall ceiling), stage-2 train rows {entry['train_rows']} "
+            f"({entry['train_positive_rows']} positive)"
+        )
+        if entry["status"] == "ok":
+            columns.append((label, entry["table"]))
+        else:
+            print(f"     not trained: {entry['status']}")
+    print(f"  anomaly feature share of gain: {report['anomaly_feature_gain_share']:.1%}")
+    for i, pooled_row in enumerate(report["pooled"]):
+        print(f"  recall>={pooled_row['target_recall']:.0%}:")
+        for name, rows in columns:
+            print(f"     {name:<26} {_recall_cell(rows[i])}")
+
+
 def per_model_experiment(data: dict[str, Any], *, top_n: int) -> list[dict[str, Any]]:
     """Trains one LightGBM per drive family (the `top_n` families with the most
     failing validation drives) and compares it with the POOLED model on exactly
@@ -858,6 +1043,13 @@ def main() -> None:
         "scores on train) and compare it with the pooled model alone at fixed recall.",
     )
     parser.add_argument(
+        "--anomaly-stage",
+        action="store_true",
+        help="Fit an isolation forest on healthy train rows and compare, against the "
+        "pooled model: the anomaly score alone, an anomaly-filter-then-classify cascade, "
+        "and the pooled model with the anomaly score as a feature.",
+    )
+    parser.add_argument(
         "--per-model",
         type=int,
         nargs="?",
@@ -951,6 +1143,12 @@ def main() -> None:
         _print_two_stage(two_stage_report)
         (work_dir / "experiment_two_stage.json").write_text(
             json.dumps(two_stage_report, indent=2, default=str)
+        )
+    if args.anomaly_stage:
+        anomaly_report = anomaly_stage_experiment(data)
+        _print_anomaly_stage(anomaly_report)
+        (work_dir / "experiment_anomaly_stage.json").write_text(
+            json.dumps(anomaly_report, indent=2, default=str)
         )
     if args.deep_dive:
         report = deep_dive(args.deep_dive, data)

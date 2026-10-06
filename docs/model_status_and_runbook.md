@@ -381,8 +381,15 @@ Two changes test whether the 14-day window is what costs precision:
 ```bash
 make clean-kept
 make train TRAIN_ARGS="--keep-work-dir --horizon-days 30"
-make experiment-model EXPERIMENT_ARGS="--variants reg_spw xgboost xgboost_aft xgboost_aft_spw --skip-baseline --two-stage --deep-dive reg_spw" 2>&1 | tee experiment-30d.log
+make experiment-model EXPERIMENT_ARGS="--variants reg_spw xgboost xgboost_aft xgboost_aft_spw --skip-baseline --two-stage --anomaly-stage --deep-dive reg_spw" 2>&1 | tee experiment-30d.log
 ```
+
+`--anomaly-stage` tests the "learn what healthy looks like" proposal: an
+isolation forest fitted on healthy train rows, reported three ways against
+the pooled model on the same test drives: the anomaly score alone, an
+anomaly-filter-then-LightGBM cascade (keeping the most anomalous 5% and 1% of
+rows, with the share of failing drives the filter keeps), and the pooled
+model with the anomaly score as an extra feature.
 
 `reg_spw` and `xgboost` give the 30-day classifier baseline on the same rows;
 the two-stage table prints precision at 5/10/20/35% recall for `reg_spw`.
