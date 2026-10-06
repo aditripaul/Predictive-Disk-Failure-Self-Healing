@@ -36,6 +36,7 @@ def build_model_card(
     smote_comparison: dict[str, Any] | None = None,
     drive_level_metrics: dict[str, Any] | None = None,
     action_tiers: dict[str, Any] | None = None,
+    precision_at_recall: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         "generated_at": dt.datetime.now(dt.UTC).isoformat(),
@@ -79,6 +80,9 @@ def build_model_card(
             # drive-level precision target, with validation/test precision
             # and recall (src/models/threshold.py::tune_action_tiers).
             "action_tiers": action_tiers,
+            # Drive-level precision at fixed recall levels; thresholds chosen
+            # on validation, applied to test (evaluation.precision_at_recall_table).
+            "precision_at_recall": precision_at_recall,
         },
         # `shap_top_features=None` means SHAP was skipped for this run
         # (configs/model.yaml diagnostics.shap_enabled: false).
@@ -99,6 +103,24 @@ def build_model_card(
             "are the more honest read of generalization.",
         ],
     }
+
+
+def _precision_at_recall_lines(rows: list[dict[str, Any]] | None) -> list[str]:
+    if not rows:
+        return []
+    lines = ["- Drive-level precision at recall (threshold from validation, measured on test):"]
+    for row in rows:
+        if row.get("threshold") is None:
+            lines.append(f"  - recall >= {row['target_recall']:.0%}: not reachable on validation")
+            continue
+        test = row["test"]
+        lines.append(
+            f"  - recall >= {row['target_recall']:.0%}: test precision {test['precision']:.1%} "
+            f"at recall {test['recall']:.1%} ({test['caught_drive_count']}/"
+            f"{test['failing_drive_count']} failing drives, "
+            f"{test['false_alarm_drive_count']} false alarms)"
+        )
+    return lines
 
 
 def _action_tier_lines(action_tiers: dict[str, Any] | None) -> list[str]:
@@ -153,6 +175,7 @@ def render_model_card_markdown(card: dict[str, Any]) -> str:
         f"- Validation metrics: {evaluation['validation_metrics']}",
         f"- Test metrics: {evaluation['test_metrics']}",
         f"- Drive-level metrics: {evaluation.get('drive_level_metrics')}",
+        *_precision_at_recall_lines(evaluation.get("precision_at_recall")),
         *_action_tier_lines(evaluation.get("action_tiers")),
         f"- Test warning lead time: {evaluation['test_warning_lead_time']}",
         f"- Logistic Regression sanity baseline: {evaluation['logistic_regression_baseline']}",

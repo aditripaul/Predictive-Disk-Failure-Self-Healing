@@ -31,10 +31,13 @@ from sklearn.metrics import precision_recall_curve
 from src.logging_config import configure_logging, get_logger
 from src.models.alerting import SMOOTHERS, analyze_false_alarms, smooth_scores
 from src.models.evaluation import compute_auprc, drive_level_metrics, drive_level_table
-from src.models.features import feature_matrix
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
 from src.models.threshold import tune_drive_level_threshold
-from src.models.training import early_stopping_subset, predict_proba_positive
+from src.models.training import (
+    PREDICT_CHUNK_ROWS,
+    early_stopping_subset,
+    predict_proba_positive,
+)
 from src.resource_limits import apply_memory_limit_from_config
 
 logger = get_logger(__name__)
@@ -80,7 +83,8 @@ XGBOOST_PARAMS = {
 }
 
 #: name -> (extra LightGBM params, features to exclude, weighting)
-#: exclude: none | identity | non_windowed; weighting: is_unbalance | spw[:power] | drive
+#: exclude: none | identity | non_windowed | new_features | secondary | lifetime
+#: weighting: is_unbalance | spw[:power] | drive
 VARIANTS: dict[str, tuple[dict[str, Any], str, str]] = {
     "current": ({}, "none", "is_unbalance"),
     "regularized": (REGULARIZED, "none", "is_unbalance"),
@@ -95,6 +99,11 @@ VARIANTS: dict[str, tuple[dict[str, Any], str, str]] = {
     "leaves_15": ({**REGULARIZED, "num_leaves": 15}, "none", "spw"),
     "leaves_63": ({**REGULARIZED, "num_leaves": 63}, "none", "spw"),
     "min_child_1000": ({**REGULARIZED, "min_child_samples": 1000}, "none", "spw"),
+    # Feature-group ablations on the same data build: the earlier feature set,
+    # and the new set without its age or context columns.
+    "reg_spw_old_features": (REGULARIZED, "new_features", "spw"),
+    "reg_spw_no_lifetime": (REGULARIZED, "lifetime", "spw"),
+    "reg_spw_no_secondary": (REGULARIZED, "secondary", "spw"),
     # Same data, weights and early stopping (average precision) with XGBoost,
     # to check the precision ceiling is not specific to LightGBM.
     "xgboost": (XGBOOST_PARAMS, "none", "spw"),
@@ -121,6 +130,37 @@ def _find_work_dir(explicit: Path | None) -> Path:
     return candidates[-1]
 
 
+#: Context attributes added on 2026-10-06 (configs/features.yaml
+#: secondary_smart_attributes), by column-name prefix.
+SECONDARY_PREFIXES = (
+    "seek_error_rate",
+    "power_on_hours",
+    "temperature_celsius",
+    "udma_crc_error_count",
+)
+#: Columns that encode how old the drive is.
+LIFETIME_PREFIXES = ("power_on_hours", "power_on_days", "drive_age_days")
+LIFETIME_COLUMNS = {"uncorrectable_per_power_on_hour"}
+
+
+def _is_secondary(column: str) -> bool:
+    return column.startswith(SECONDARY_PREFIXES) or column in {
+        "temperature_spike",
+        "power_on_days",
+        "uncorrectable_per_power_on_hour",
+    }
+
+
+def _is_new_feature(column: str) -> bool:
+    """Every column added with the 2026-10-06 feature extension, so a model
+    without them reproduces the earlier feature set on the same data build."""
+    return (
+        _is_secondary(column)
+        or column.startswith("active_defect_")
+        or column.endswith("_days_since_last_increase")
+    )
+
+
 def _excluded_indices(feature_columns: list[str], mode: str) -> list[int]:
     if mode == "identity":
         return [i for i, c in enumerate(feature_columns) if c in IDENTITY_COLUMNS]
@@ -130,7 +170,32 @@ def _excluded_indices(feature_columns: list[str], mode: str) -> list[int]:
             for i, c in enumerate(feature_columns)
             if not _WINDOWED.search(c) and not c.endswith(("_zscore", "_slope"))
         ]
+    if mode == "new_features":
+        return [i for i, c in enumerate(feature_columns) if _is_new_feature(c)]
+    if mode == "secondary":
+        return [i for i, c in enumerate(feature_columns) if _is_secondary(c)]
+    if mode == "lifetime":
+        return [
+            i
+            for i, c in enumerate(feature_columns)
+            if c.startswith(LIFETIME_PREFIXES) or c in LIFETIME_COLUMNS
+        ]
+    if mode != "none":
+        raise ValueError(f"unknown exclusion mode: {mode!r}")
     return []
+
+
+def _predict_excluding(model: Any, x: np.ndarray, idx: list[int]) -> np.ndarray:
+    """Scores `x` (possibly a read-only memory map) in chunks, with the
+    excluded feature columns zeroed in each chunk's copy."""
+    if not idx:
+        return predict_proba_positive(model, x)
+    parts = []
+    for start in range(0, len(x), PREDICT_CHUNK_ROWS):
+        chunk = np.array(x[start : start + PREDICT_CHUNK_ROWS])
+        chunk[:, idx] = 0.0
+        parts.append(predict_proba_positive(model, chunk))
+    return np.concatenate(parts) if parts else np.empty((0,))
 
 
 class _Zeroed:
@@ -209,10 +274,15 @@ def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
         params.pop("is_unbalance", None)
     idx = _excluded_indices(data["feature_columns"], exclude)
     t0 = time.perf_counter()
-    arrays = [data["x_train"], data["x_val"], data["x_test"]]
-    with _Zeroed(arrays, idx):
+    # Only the train matrix is in RAM and zeroed in place. Validation and test
+    # are read-only memory maps: their excluded columns are zeroed per chunk
+    # while scoring (`_predict_excluding`), and in the early-stopping copy.
+    with _Zeroed([data["x_train"]], idx):
         weights = _sample_weights(data["y_train"], data["train_drives"], weighting)
         sub = data["es_idx"]
+        x_eval = np.array(data["x_val"][sub])
+        if idx:
+            x_eval[:, idx] = 0.0
         if extra.get("_engine") == "xgboost":
             xgb_params = {k: v for k, v in extra.items() if k != "_engine"}
             model = xgb.XGBClassifier(
@@ -227,7 +297,7 @@ def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
                 data["x_train"],
                 data["y_train"],
                 sample_weight=weights,
-                eval_set=[(data["x_val"][sub], data["y_val"][sub])],
+                eval_set=[(x_eval, data["y_val"][sub])],
                 verbose=False,
             )
         else:
@@ -240,13 +310,14 @@ def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
                 data["x_train"],
                 data["y_train"],
                 sample_weight=weights,
-                eval_X=data["x_val"][sub],
+                eval_X=x_eval,
                 eval_y=data["y_val"][sub],
                 eval_metric="average_precision",
                 callbacks=[lgb.early_stopping(50, first_metric_only=True, verbose=False)],
             )
-        val_scores = predict_proba_positive(model, data["x_val"])
-        test_scores = predict_proba_positive(model, data["x_test"])
+        del x_eval
+        val_scores = _predict_excluding(model, data["x_val"], idx)
+        test_scores = _predict_excluding(model, data["x_test"], idx)
     data.setdefault("_scores", {})[name] = (val_scores, test_scores)
     if isinstance(model, xgb.XGBClassifier):
         gains = model.feature_importances_  # normalized gain
@@ -578,29 +649,28 @@ def main() -> None:
     logger.info("experiment_work_dir", path=str(work_dir))
     feature_columns = json.loads((work_dir / "frame_meta.json").read_text())["feature_columns"]
 
-    test_df = pl.read_parquet(work_dir / "test_df.parquet")
+    val_ids = pl.read_parquet(work_dir / "validation_ids.parquet")
+    test_ids = pl.read_parquet(work_dir / "test_ids.parquet")
+    train_ids = pl.read_parquet(work_dir / "train_ids.parquet")
     data: dict[str, Any] = {
         "feature_columns": feature_columns,
+        # Train in RAM (LightGBM needs it there, and exclusions zero it in place);
+        # validation and test as read-only memory maps, scored in chunks.
         "x_train": np.load(work_dir / "x_train.npy"),
         "y_train": np.load(work_dir / "y_train.npy"),
-        "train_drives": pl.read_parquet(work_dir / "train_ids.parquet")["drive_id"].to_numpy(),
-        "val_ids": pl.read_parquet(work_dir / "validation_ids.parquet"),
-        "x_val": np.load(work_dir / "x_val.npy"),
+        "train_drives": train_ids["drive_id"].to_numpy(),
+        "train_models": train_ids["drive_model"].to_numpy(),
+        "x_val": np.load(work_dir / "x_val.npy", mmap_mode="r"),
         "y_val": np.load(work_dir / "y_val.npy"),
-        "val_drives": pl.read_parquet(work_dir / "validation_ids.parquet")["drive_id"].to_numpy(),
-        "x_test": feature_matrix(test_df, feature_columns),
-        "y_test": test_df["label"].to_numpy(),
-        "test_drives": test_df["drive_id"].to_numpy(),
-        "test_ids": test_df.select(
-            "drive_id", "date", "drive_model", "event_type", "days_to_event"
-        ),
-        "train_models": pl.read_parquet(work_dir / "train_ids.parquet")["drive_model"].to_numpy(),
-        "val_models": pl.read_parquet(work_dir / "validation_ids.parquet")[
-            "drive_model"
-        ].to_numpy(),
-        "test_models": test_df["drive_model"].to_numpy(),
+        "val_ids": val_ids,
+        "val_drives": val_ids["drive_id"].to_numpy(),
+        "val_models": val_ids["drive_model"].to_numpy(),
+        "x_test": np.load(work_dir / "x_test.npy", mmap_mode="r"),
+        "y_test": np.load(work_dir / "y_test.npy"),
+        "test_ids": test_ids,
+        "test_drives": test_ids["drive_id"].to_numpy(),
+        "test_models": test_ids["drive_model"].to_numpy(),
     }
-    del test_df
     data["es_idx"] = early_stopping_subset(data["y_val"])
 
     results: list[dict[str, Any]] = []

@@ -112,3 +112,23 @@ def test_apply_memory_limit_from_config_defaults_to_none_when_section_absent():
     ):
         apply_memory_limit_from_config()
     mock_apply.assert_called_once_with(None)
+
+
+def test_rss_counts_allocated_memory_but_not_memory_mapped_file_pages(tmp_path):
+    """Validation/test matrices are memory-mapped and read through; those
+    file-backed pages must not count against the cap, real allocations must."""
+    import numpy as np
+
+    size = 96 * 1024**2
+    path = tmp_path / "big.npy"
+    np.save(path, np.ones(size // 8))
+
+    before = current_rss_bytes()
+    mapped = np.load(path, mmap_mode="r")
+    assert float(mapped.sum()) == size // 8  # touches every page of the file
+    after_mapping = current_rss_bytes()
+    assert after_mapping - before < size // 4
+
+    allocated = np.ones(size // 8)  # the same amount, really allocated
+    assert current_rss_bytes() - after_mapping > size // 2
+    del allocated, mapped

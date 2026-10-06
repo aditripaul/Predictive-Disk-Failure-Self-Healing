@@ -14,7 +14,7 @@ sources:
     # Useful for keeping a single build-silver run's data volume bounded,
     # e.g. while validating on a smaller slice before ingesting more.
     start_date: "2026-01-01"
-    end_date: "2026-03-31"
+    end_date: "2026-06-30"
   smartz:
     raw_glob: "data/raw/smartz/*.csv"
     bronze_path: "data/bronze/smartz"
@@ -73,7 +73,7 @@ resource_limits:
   # you still hit the cap; raise it for fewer, larger batches. Batching is
   # on whole drives, so it never changes the resulting features (see
   # pipelines/build_gold_features.py::_write_wide_batches).
-  feature_batch_target_rows: 2000000
+  feature_batch_target_rows: 1000000
   # `make train` joins the gold feature table to the label table in
   # row-count-bounded batches rather than all at once. In the normal
   # path (gold features read via its own existing per-batch row groups -

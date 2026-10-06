@@ -173,3 +173,44 @@ def test_resolve_action_thresholds_falls_back_to_config_without_recorded_tiers()
 
     fallback = {"warn": 0.3, "cordon": 0.6, "migrate": 0.8, "drain": 0.9}
     assert resolve_action_thresholds(None, fallback) == fallback
+
+
+def test_precision_at_recall_uses_validation_thresholds_on_test():
+    from src.models.evaluation import precision_at_recall_table
+
+    # validation: failing drives score .9 .8 .4 .3; healthy .7 .5 .2 .1 .1 .05
+    val_d, val_y, val_s = _threshold_fixture()
+    # test: failing .85 .35; healthy .75 .45 .1
+    test_d = np.array(["TF0", "TF1", "TH0", "TH1", "TH2"])
+    test_y = np.array([1, 1, 0, 0, 0])
+    test_s = np.array([0.85, 0.35, 0.75, 0.45, 0.1])
+    rows = precision_at_recall_table(
+        val_d, val_y, val_s, test_d, test_y, test_s, recalls=(0.5, 0.75, 1.0)
+    )
+    by_recall = {r["target_recall"]: r for r in rows}
+    # recall >= .5 on validation: best precision is 1.0 at threshold .8 (2 of 4 caught)
+    assert by_recall[0.5]["threshold"] == pytest.approx(0.8)
+    assert by_recall[0.5]["validation"]["precision"] == pytest.approx(1.0)
+    # on test at .8: TF0 caught, no healthy drive above -> precision 1.0, recall .5
+    assert by_recall[0.5]["test"]["precision"] == pytest.approx(1.0)
+    assert by_recall[0.5]["test"]["recall"] == pytest.approx(0.5)
+    # recall >= .75: thresholds .4 (P=.6) and .3 (P=.667) qualify -> .3
+    assert by_recall[0.75]["threshold"] == pytest.approx(0.3)
+    assert by_recall[0.75]["test"]["false_alarm_drive_count"] == 2  # TH0, TH1
+    assert by_recall[1.0]["threshold"] == pytest.approx(0.3)
+
+
+def test_precision_at_recall_without_failing_validation_drives_reports_no_threshold():
+    from src.models.evaluation import precision_at_recall_table
+
+    d = np.array(["a", "b"])
+    rows = precision_at_recall_table(
+        d,
+        np.array([0, 0]),
+        np.array([0.1, 0.2]),
+        d,
+        np.array([0, 1]),
+        np.array([0.1, 0.9]),
+        recalls=(0.1,),
+    )
+    assert rows == [{"target_recall": 0.1, "threshold": None}]

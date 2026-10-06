@@ -57,6 +57,8 @@ def _goal_status(model_report: dict | None, model_config: dict) -> dict:
     test = model_report.get("test_drive_level", {})
     return {
         **goal,
+        "precision_at_recall": model_report.get("precision_at_recall"),
+        "data_build": model_report.get("data_build"),
         "target_met": bool(chosen.get("target_met", False)),
         "validation_precision_at_chosen_threshold": chosen.get("precision"),
         "validation_recall_at_chosen_threshold": chosen.get("recall"),

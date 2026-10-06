@@ -65,3 +65,26 @@ def test_id_columns_are_row_aligned_with_the_feature_arrays(tmp_path):
     ids = pl.read_parquet(tmp_path / "ids.parquet")["drive_id"].to_list()
     assert ids == ["a", "b", "c", "d", "e", "f"]
     assert len(ids) == x.shape[0] == len(y)
+
+
+def test_feature_group_exclusion_modes():
+    cols = [
+        "reallocated_sector_count",
+        "reallocated_sector_count_30d_mean",
+        "reallocated_sector_count_days_since_last_increase",
+        "active_defect_velocity_3d",
+        "power_on_hours",
+        "power_on_hours_30d_delta",
+        "power_on_days",
+        "temperature_celsius_7d_delta",
+        "temperature_spike",
+        "drive_age_days",
+        "uncorrectable_per_power_on_hour",
+    ]
+    names = lambda mode: [cols[i] for i in _excluded_indices(cols, mode)]  # noqa: E731
+    assert names("new_features") == cols[2:9] + cols[10:]
+    assert names("secondary") == cols[4:9] + cols[10:]
+    assert names("lifetime") == [cols[4], cols[5], cols[6], cols[9], cols[10]]
+    assert names("none") == []
+    with pytest.raises(ValueError, match="unknown exclusion mode"):
+        _excluded_indices(cols, "typo")

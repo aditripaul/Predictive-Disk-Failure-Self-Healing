@@ -135,3 +135,22 @@ def test_model_card_renders_action_tiers_including_unreachable_ones():
     markdown = render_model_card_markdown(card)
     assert "warn: score >= 0.4000" in markdown
     assert "drain: precision target unreachable" in markdown
+
+
+def test_model_card_renders_precision_at_recall_rows():
+    metrics = {
+        "precision": 0.4,
+        "recall": 0.11,
+        "caught_drive_count": 33,
+        "failing_drive_count": 300,
+        "false_alarm_drive_count": 50,
+    }
+    card = _sample_card(
+        precision_at_recall=[
+            {"target_recall": 0.1, "threshold": 0.9, "validation": metrics, "test": metrics},
+            {"target_recall": 0.35, "threshold": None},
+        ]
+    )
+    markdown = render_model_card_markdown(card)
+    assert "recall >= 10%: test precision 40.0% at recall 11.0%" in markdown
+    assert "recall >= 35%: not reachable on validation" in markdown

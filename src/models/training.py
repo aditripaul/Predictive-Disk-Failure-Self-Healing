@@ -94,10 +94,28 @@ def train_lightgbm(
     return model
 
 
-def predict_proba_positive(model: Any, x: np.ndarray) -> np.ndarray:
-    # Works for any sklearn-style classifier with predict_proba (LightGBM,
-    # XGBoost, scikit-learn's LogisticRegression, ...) - lightgbm's own
-    # stubs type predict_proba's return as a plain list, but it always
-    # returns an (n_samples, n_classes) ndarray at runtime.
-    probabilities = np.asarray(model.predict_proba(x))
-    return probabilities[:, 1]
+#: Rows scored per call in `predict_proba_positive`.
+PREDICT_CHUNK_ROWS = 500_000
+
+
+def predict_proba_positive(
+    model: Any, x: np.ndarray, *, chunk_rows: int = PREDICT_CHUNK_ROWS
+) -> np.ndarray:
+    """Positive-class probability for every row of `x`, scored `chunk_rows`
+    at a time. Works for any sklearn-style classifier with predict_proba
+    (LightGBM, XGBoost, scikit-learn pipelines).
+
+    Chunking keeps the working memory at one chunk regardless of the size of
+    `x`, which may be a read-only memory map of a matrix larger than RAM
+    (validation and test are not row-capped). It matters most for the sklearn
+    baseline, whose scaler copies its input to float64. Row-wise models give
+    the same scores chunked or not."""
+    if len(x) == 0:
+        return np.empty((0,), dtype=np.float64)
+    parts = []
+    for start in range(0, len(x), chunk_rows):
+        # lightgbm's stubs type predict_proba's return as a plain list, but it
+        # always returns an (n_samples, n_classes) ndarray at runtime.
+        chunk = np.ascontiguousarray(x[start : start + chunk_rows])
+        parts.append(np.asarray(model.predict_proba(chunk))[:, 1])
+    return np.concatenate(parts)

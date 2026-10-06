@@ -51,8 +51,9 @@ with another heavy step (see the history at the end of this docstring):
    single clean copy of a real quarter's full train split no longer fits
    the cap on its own. Writes that split's own small, already-converted
    artifact under `work_dir` (`x_train.npy`/`y_train.npy` for train,
-   `x_val.npy`/`y_val.npy` for validation, a narrow `test_df.parquet` for
-   test, plus a `{split}_meta.json` with its post-cap row count) and
+   `x_val.npy`/`y_val.npy` and `x_test.npy`/`y_test.npy` for validation and
+   test, each with a row-aligned `<split>_ids.parquet`, plus a
+   `{split}_meta.json` with its post-cap row count) and
    exits - so no two splits' collects ever share a process, any more than
    the join and a split's collect do.
 3. The top-level orchestrator (this function): never scans or filters
@@ -141,6 +142,7 @@ from src.models.evaluation import (
     drive_level_metrics,
     drive_level_table,
     evaluate_at_threshold,
+    precision_at_recall_table,
 )
 from src.models.explainability import (
     build_explainer,
@@ -475,9 +477,9 @@ def _collect_split_rows(
 
     Pass `out_path` to write the combined result directly there (one
     part at a time, never forming a single combined DataFrame in this
-    process - see `_finalize_batched_join`) instead of returning it; used
-    by test's `_stage_extract_split` branch to write `test_df.parquet`
-    directly. Train and validation do NOT use this function at all, for
+    process - see `_finalize_batched_join`) instead of returning it. No
+    split uses this function any more (test used to, to write a
+    `test_df.parquet`): all three build arrays instead, for
     the same reason: they need a numpy array, not a DataFrame or a file,
     and forming a combined DataFrame only to immediately convert it to a
     numpy array meant both the combined DataFrame AND the array it
@@ -505,7 +507,11 @@ def _collect_split_rows(
 
 
 def _build_feature_arrays(
-    part_paths: list[Path], feature_columns: list[str], *, label_column: str = "label"
+    part_paths: list[Path],
+    feature_columns: list[str],
+    *,
+    label_column: str = "label",
+    out_path: Path | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Builds `(x, y)` directly from `_row_group_parts`' spilled parts,
     filling ONE pre-allocated array part by part - never forming a single
@@ -517,11 +523,24 @@ def _build_feature_arrays(
     fail an allocation (~3.7GB) smaller than either one alone. Building
     directly into the final array instead means the only large thing
     resident at any point is the array itself, plus one small part's own
-    data - never a second nearly-full-size copy alongside it."""
-    if not part_paths:
-        return np.empty((0, len(feature_columns)), dtype=np.float32), np.empty((0,))
+    data - never a second nearly-full-size copy alongside it.
+
+    With `out_path`, the matrix is written straight to that `.npy` file
+    through a memory map instead of being allocated in RAM, and the returned
+    `x` is the map. The validation and test splits are not row-capped, so with
+    several quarters of data their matrices are larger than the train matrix
+    (about 11 GB and 6 GB for two quarters) and are never held in RAM whole -
+    neither here nor by the orchestrator, which maps them read-only and
+    scores them in chunks."""
     total_rows = sum(pq.ParquetFile(p).metadata.num_rows for p in part_paths)
-    x = np.empty((total_rows, len(feature_columns)), dtype=np.float32)
+    shape = (total_rows, len(feature_columns))
+    x: np.ndarray
+    if out_path is not None:
+        x = np.lib.format.open_memmap(out_path, mode="w+", dtype=np.float32, shape=shape)
+    else:
+        x = np.empty(shape, dtype=np.float32)
+    if not part_paths:
+        return x, np.empty((0,))
     y_parts: list[np.ndarray] = []
     offset = 0
     for path in part_paths:
@@ -532,6 +551,8 @@ def _build_feature_arrays(
         offset += n
         del part_df
         gc.collect()
+    if isinstance(x, np.memmap):
+        x.flush()
     return x, np.concatenate(y_parts)
 
 
@@ -540,8 +561,9 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
     PRIOR, already-exited `_stage_assemble` run) and collects ONE split -
     `split_name`, one of "train"/"validation"/"test" - into a small,
     already-converted artifact under `work_dir`: `x_train.npy`/
-    `y_train.npy` for train, `x_val.npy`/`y_val.npy` for validation, a
-    narrow `test_df.parquet` for test, plus a `{split_name}_meta.json`
+    `y_train.npy` for train, `x_val.npy`/`y_val.npy` and `x_test.npy`/
+    `y_test.npy` for validation and test (each with a row-aligned
+    `<split>_ids.parquet`), plus a `{split_name}_meta.json`
     with that split's post-cap row count.
 
     Runs in its own process, separate from `_stage_assemble`, `main()`,
@@ -610,80 +632,44 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
                 extra_predicate=predicate,
                 tmp_dir=part_tmp_dir,
             )
-            x_train, y_train = _build_feature_arrays(part_paths, feature_columns)
+            _, y_train = _build_feature_arrays(
+                part_paths, feature_columns, out_path=work_dir / "x_train.npy"
+            )
             _write_id_columns(
                 part_paths, ["drive_id", "date", "drive_model"], work_dir / "train_ids.parquet"
             )
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
         row_count = len(y_train)
-        np.save(work_dir / "x_train.npy", x_train)
-        del x_train
         np.save(work_dir / "y_train.npy", y_train)
-    elif split_name == "validation":
-        select_columns = [
-            *feature_columns,
-            "label",
-            "drive_id",
-            "date",
-            "drive_model",
-            "event_type",
-            "days_to_event",
-        ]
-        part_tmp_dir = work_dir / "_validation_parts"
+    else:
+        # Validation and test are extracted the same way: the feature matrix
+        # goes straight to `x_<name>.npy` through a memory map, the labels to
+        # `y_<name>.npy`, and the columns evaluation needs beside the scores
+        # (drive, date, drive model, event type, days to the event) to a small
+        # row-aligned `<split>_ids.parquet`.
+        short_name = "val" if split_name == "validation" else "test"
+        id_columns = ["drive_id", "date", "drive_model", "event_type", "days_to_event"]
+        select_columns = [*feature_columns, "label", *id_columns]
+        part_tmp_dir = work_dir / f"_{split_name}_parts"
         part_tmp_dir.mkdir()
         try:
             part_paths = _row_group_parts(
                 frame_path,
-                split_name="validation",
+                split_name=split_name,
                 select_columns=select_columns,
                 read_columns=sorted({*select_columns, "split"}),
                 extra_predicate=None,
                 tmp_dir=part_tmp_dir,
             )
-            x_val, y_val = _build_feature_arrays(part_paths, feature_columns)
-            _write_id_columns(
-                part_paths,
-                ["drive_id", "date", "drive_model", "event_type", "days_to_event"],
-                work_dir / "validation_ids.parquet",
+            _, y_split = _build_feature_arrays(
+                part_paths, feature_columns, out_path=work_dir / f"x_{short_name}.npy"
             )
+            _write_id_columns(part_paths, id_columns, work_dir / f"{split_name}_ids.parquet")
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
-        row_count = len(y_val)
-        np.save(work_dir / "x_val.npy", x_val)
-        del x_val
-        np.save(work_dir / "y_val.npy", y_val)
-    else:
-        # Kept as a narrow Parquet file rather than also converted to
-        # numpy: main() still needs test's drive_id/event_type/
-        # days_to_event columns (for the warning-lead-time metric)
-        # alongside its feature matrix, not just x_test/y_test. Written
-        # directly via out_path - _collect_split_rows never forms a
-        # combined DataFrame in this process either, for test's own
-        # (uncapped, so potentially just as large as train's) size.
-        select_columns = [
-            *feature_columns,
-            "label",
-            "drive_id",
-            "date",
-            "drive_model",
-            "event_type",
-            "days_to_event",
-        ]
-        part_tmp_dir = work_dir / "_test_parts"
-        part_tmp_dir.mkdir()
-        try:
-            _collect_split_rows(
-                frame_path,
-                split_name="test",
-                select_columns=select_columns,
-                read_columns=sorted({*select_columns, "split"}),
-                tmp_dir=part_tmp_dir,
-                out_path=work_dir / "test_df.parquet",
-            )
-        finally:
-            shutil.rmtree(part_tmp_dir, ignore_errors=True)
-        row_count = pl.scan_parquet(work_dir / "test_df.parquet").select(pl.len()).collect().item()
+        row_count = len(y_split)
+        np.save(work_dir / f"y_{short_name}.npy", y_split)
 
     (work_dir / f"{split_name}_meta.json").write_text(json.dumps({"row_count": row_count}))
     _log_stage(f"{split_name}_split_extracted", t0, row_count=row_count)
@@ -764,7 +750,7 @@ def main() -> None:
     parser.add_argument(
         "--keep-work-dir",
         action="store_true",
-        help="Keep the scratch work dir (x_*/y_*.npy, *_ids.parquet, test_df.parquet) after "
+        help="Keep the scratch work dir (x_*/y_*.npy, *_ids.parquet) after "
         "the run, for pipelines/experiment_model.py. Delete it yourself when done.",
     )
     args = parser.parse_args()
@@ -834,7 +820,10 @@ def main() -> None:
         mlflow.set_tracking_uri(model_config["mlflow"]["tracking_uri"])
         mlflow.set_experiment(model_config["mlflow"]["experiment_name"])
 
-        x_val = np.load(work_dir / "x_val.npy")
+        # Mapped read-only, not loaded: validation and test are not row-capped
+        # and are scored in chunks (src/models/training.py::
+        # predict_proba_positive), so only the train matrix is held in RAM.
+        x_val = np.load(work_dir / "x_val.npy", mmap_mode="r")
         y_val = np.load(work_dir / "y_val.npy")
         # Distinct from each _stage_extract_split's own
         # "{split}_split_extracted" log: this one times the whole round
@@ -945,15 +934,9 @@ def main() -> None:
                 y_val, val_scores, threshold_result["threshold"]
             )
 
-            # Loaded here, right before its first use, rather than up
-            # front with train/validation: test is only needed from this
-            # point on. Already narrowed to feature_columns plus the
-            # handful of extra columns compute_warning_lead_time_days
-            # needs below (drive_id, event_type, days_to_event) by the
-            # assemble subprocess that wrote it - see _stage_assemble.
-            test_df = pl.read_parquet(work_dir / "test_df.parquet")
-            x_test = feature_matrix(test_df, feature_columns)
-            y_test = test_df["label"].to_numpy()
+            x_test = np.load(work_dir / "x_test.npy", mmap_mode="r")
+            y_test = np.load(work_dir / "y_test.npy")
+            test_ids = pl.read_parquet(work_dir / "test_ids.parquet")
             test_scores = predict_proba_positive(model, x_test)
             results["test_metrics"] = evaluate_at_threshold(
                 y_test, test_scores, threshold_result["threshold"]
@@ -976,11 +959,39 @@ def main() -> None:
                 threshold_result["threshold"],
             )
             results["test_drive_level"] = drive_level_metrics(
-                test_df["drive_id"].to_numpy(),
+                test_ids["drive_id"].to_numpy(),
                 y_test,
                 test_scores,
                 threshold_result["threshold"],
             )
+            results["precision_at_recall"] = precision_at_recall_table(
+                val_drive_ids,
+                y_val,
+                val_scores,
+                test_ids["drive_id"].to_numpy(),
+                y_test,
+                test_scores,
+            )
+            # Which data this run saw. Results moved by ~0.04 AUPRC between two
+            # builds of the "same" quarter, so a number without its build is
+            # not comparable with another.
+            dataset_version_record = latest_dataset_version(Path(data_config["audit_dir"]))
+            results["data_build"] = {
+                "dataset_version": (
+                    dataset_version_record["version_id"] if dataset_version_record else None
+                ),
+                "rows": {
+                    "train": train_meta["row_count"],
+                    "train_before_cap": frame_meta["split_counts"]["train"],
+                    "validation": validation_meta["row_count"],
+                    "test": test_meta["row_count"],
+                },
+                "failing_drives": {
+                    "validation": results["validation_drive_level"]["failing_drive_count"],
+                    "test": results["test_drive_level"]["failing_drive_count"],
+                },
+                "feature_count": len(feature_columns),
+            }
             results["action_tiers"] = {
                 tier: (
                     None
@@ -992,7 +1003,7 @@ def main() -> None:
                             val_drive_ids, y_val, val_scores, threshold
                         ),
                         "test": drive_level_metrics(
-                            test_df["drive_id"].to_numpy(), y_test, test_scores, threshold
+                            test_ids["drive_id"].to_numpy(), y_test, test_scores, threshold
                         ),
                     }
                 )
@@ -1021,7 +1032,7 @@ def main() -> None:
             # Figure data for `make plots` (the paper's ROC and variable-importance
             # figures): ROC curves of the primary model and the baseline on test,
             # row level and drive level, and the primary model's gain importance.
-            test_drive_ids = test_df["drive_id"].to_numpy()
+            test_drive_ids = test_ids["drive_id"].to_numpy()
             results["roc_curves"] = {
                 "lightgbm_test_row": roc_points(y_test, test_scores),
                 "logistic_test_row": roc_points(y_test, baseline_test_scores),
@@ -1092,7 +1103,7 @@ def main() -> None:
             # Warning lead time (docs/dataset_strategy.md section 15): restrict
             # to drive-days belonging to drives with a genuine failure event
             # before asking "how early did the score cross threshold".
-            test_with_scores = test_df.with_columns(pl.Series("_p_fail_score", test_scores))
+            test_with_scores = test_ids.with_columns(pl.Series("_p_fail_score", test_scores))
             failing_test_rows = test_with_scores.filter(
                 pl.col("event_type").is_in(list(FAILURE_EVENT_TYPES))
             )
@@ -1101,7 +1112,7 @@ def main() -> None:
                 score_column="_p_fail_score",
                 threshold=threshold_result["threshold"],
             )
-            del test_df, test_with_scores, failing_test_rows
+            del test_with_scores, failing_test_rows
             gc.collect()
 
             mlflow.log_params({"horizon_days": horizon_days, **model_params})
@@ -1181,7 +1192,6 @@ def main() -> None:
                 # would plot it as if it described this model.
                 shap_report_path.unlink(missing_ok=True)
 
-            dataset_version_record = latest_dataset_version(Path(data_config["audit_dir"]))
             model_card = build_model_card(
                 horizon_days=horizon_days,
                 model_params=model_params,
@@ -1200,6 +1210,7 @@ def main() -> None:
                     "test": results["test_drive_level"],
                 },
                 action_tiers=results["action_tiers"],
+                precision_at_recall=results["precision_at_recall"],
                 shap_top_features=(
                     feature_importance[:20] if feature_importance is not None else None
                 ),
@@ -1226,6 +1237,21 @@ def main() -> None:
             logger.info("test_metrics", **results["test_metrics"])
             logger.info("validation_drive_level", **results["validation_drive_level"])
             logger.info("test_drive_level", **results["test_drive_level"])
+            for row in results["precision_at_recall"]:
+                if row["threshold"] is None:
+                    logger.info("precision_at_recall", target_recall=row["target_recall"])
+                    continue
+                logger.info(
+                    "precision_at_recall",
+                    target_recall=row["target_recall"],
+                    threshold=row["threshold"],
+                    validation_precision=row["validation"]["precision"],
+                    test_precision=row["test"]["precision"],
+                    test_recall=row["test"]["recall"],
+                    test_caught=row["test"]["caught_drive_count"],
+                    test_false_alarms=row["test"]["false_alarm_drive_count"],
+                )
+            logger.info("data_build", **results["data_build"])
             for tier, info in results["action_tiers"].items():
                 if info is None:
                     logger.info("action_tier", tier=tier, reachable=False)

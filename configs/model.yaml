@@ -48,9 +48,12 @@ model:
 # target_precision; if that goal is unreachable, the highest-precision
 # threshold with recall >= the lower bound, flagged target_met: false with
 # the gap recorded in the model card. The target is kept as the goal.
+# Goal (agreed 2026-10-06): 90% precision at >= 10% recall, per drive, on the
+# test split. The earlier 95% at 35-50% recall was not reachable; the report's
+# precision-at-recall table still shows 5 / 10 / 20 / 35% recall.
 threshold:
-  target_precision: 0.95
-  target_recall_range: [0.35, 0.50]
+  target_precision: 0.90
+  target_recall_range: [0.10, 0.50]
   search_metric: auprc
   # Per-agent-action precision requirements (drive level, ascending: a more
   # drastic action tolerates fewer false alarms). `make train` turns each into
@@ -120,9 +123,12 @@ diagnostics:
 
 splits:
   strategy: chronological
-  train_end: "2026-02-22"
-  validation_end: "2026-03-06"
-  test_end: "2026-03-17"
+  # Q1 + Q2 2026 (data to 2026-06-30). The test period ends 30 days before
+  # the data does, so 7-, 14- and 30-day labels are all observable for it.
+  # For Q1 only use 2026-02-22 / 2026-03-06 / 2026-03-17 (14-day horizon).
+  train_end: "2026-04-15"
+  validation_end: "2026-05-10"
+  test_end: "2026-05-31"
 
 mlflow:
   tracking_uri: sqlite:///mlflow/mlflow.db

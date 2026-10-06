@@ -4,7 +4,8 @@ just careful code). Every pipeline/service entry point calls
 `apply_memory_limit_from_config()` once, as early as possible in `main()`:
 it reads `configs/data.yaml`'s `resource_limits.max_memory_gb` and starts a
 watchdog that kills *this process* if its **resident** memory (RSS - the
-physical RAM it actually occupies) goes over the cap.
+physical RAM it actually occupies, counting what it allocated and not
+memory-mapped file pages) goes over the cap.
 
 If a fleet larger than expected (or a bug) would blow past the configured
 cap, the process is stopped with a clear `memory_limit_exceeded` log line
@@ -56,14 +57,22 @@ _watchdog: threading.Thread | None = None
 
 
 def current_rss_bytes() -> int | None:
-    """This process's current resident memory in bytes, or `None` where
-    it can't be read (non-Linux)."""
+    """This process's ANONYMOUS resident memory in bytes - what it has
+    allocated and touched (numpy arrays, Polars buffers) - or `None` where it
+    can't be read (non-Linux).
+
+    File-backed pages are left out (`statm`'s "shared" field: memory-mapped
+    files and shared memory). The pipelines map multi-GB `.npy` matrices
+    read-only and Polars maps Parquet files; those pages are page cache the
+    kernel drops under pressure, so counting them would stop a healthy run for
+    reading a large file."""
     try:
         with open(_STATM_PATH) as statm:
-            resident_pages = int(statm.read().split()[1])
+            fields = statm.read().split()
+            resident_pages, file_backed_pages = int(fields[1]), int(fields[2])
     except (OSError, ValueError, IndexError):
         return None
-    return resident_pages * os.sysconf("SC_PAGE_SIZE")
+    return max(0, resident_pages - file_backed_pages) * os.sysconf("SC_PAGE_SIZE")
 
 
 def current_rss_breakdown_gb() -> dict[str, float]:

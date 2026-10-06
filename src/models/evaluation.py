@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from sklearn.metrics import average_precision_score, confusion_matrix
+from sklearn.metrics import average_precision_score, confusion_matrix, precision_recall_curve
 
 
 def compute_auprc(y_true: np.ndarray, y_scores: np.ndarray) -> float:
@@ -107,9 +107,7 @@ def compute_warning_lead_time_days(
     time is the largest `days_to_event` among rows where the score first
     crossed `threshold` before the failure (`days_to_event > 0`) - i.e. how
     early the earliest warning came."""
-    warned = df.filter(
-        (pl.col(score_column) >= threshold) & (pl.col(days_to_event_column) > 0)
-    )
+    warned = df.filter((pl.col(score_column) >= threshold) & (pl.col(days_to_event_column) > 0))
     total_failed_drives = df[drive_id_column].n_unique() if df.height > 0 else 0
 
     if warned.height == 0:
@@ -199,6 +197,48 @@ def drive_level_metrics(
         "false_alarm_rate": false_alarms / healthy_count if healthy_count else 0.0,
         "auprc": compute_auprc(labels, scores) if failing_count else 0.0,
     }
+
+
+DEFAULT_RECALL_LEVELS = (0.05, 0.10, 0.20, 0.35)
+
+
+def precision_at_recall_table(
+    val_drive_ids: np.ndarray,
+    y_val: np.ndarray,
+    val_scores: np.ndarray,
+    test_drive_ids: np.ndarray,
+    y_test: np.ndarray,
+    test_scores: np.ndarray,
+    *,
+    recalls: tuple[float, ...] = DEFAULT_RECALL_LEVELS,
+) -> list[dict[str, Any]]:
+    """The model's drive-level precision at several recall levels, measured the
+    way it would be deployed: for each recall level the threshold is the
+    highest-precision one on VALIDATION that still catches at least that share
+    of failing drives, and that threshold is then applied to TEST. One row per
+    level, with the validation and test `drive_level_metrics`. `threshold` is
+    None when validation cannot reach the recall level."""
+    labels, scores = drive_level_table(val_drive_ids, y_val, val_scores)
+    rows: list[dict[str, Any]] = []
+    if labels.sum() == 0:
+        return [{"target_recall": r, "threshold": None} for r in recalls]
+    precision, recall, thresholds = precision_recall_curve(labels, scores)
+    precision, recall = precision[:-1], recall[:-1]
+    for target in recalls:
+        ok = np.flatnonzero(recall >= target)
+        if not len(ok):
+            rows.append({"target_recall": target, "threshold": None})
+            continue
+        threshold = float(thresholds[ok[np.argmax(precision[ok])]])
+        rows.append(
+            {
+                "target_recall": target,
+                "threshold": threshold,
+                "validation": drive_level_metrics(val_drive_ids, y_val, val_scores, threshold),
+                "test": drive_level_metrics(test_drive_ids, y_test, test_scores, threshold),
+            }
+        )
+    return rows
 
 
 def evaluate_at_threshold(y_true: np.ndarray, y_scores: np.ndarray, threshold: float) -> dict:
