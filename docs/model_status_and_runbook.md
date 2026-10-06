@@ -456,11 +456,11 @@ Drive level, test, thresholds chosen on validation.
   failure, 2 failed 31-60 days later. On validation 41 of 345 failed later.
 - **Persistence rules** again lowered precision at every setting.
 
-### 4.4 Changes after the 30-day run (2026-10-06, not yet re-measured)
+### 4.4 Changes after the 30-day run, and the current results (2026-10-06)
 
 Decisions taken after Section 4.3, all in `configs/model.yaml` and
-`pipelines/train_model.py`. **No result in this document was produced with
-them yet**; the next `make train` will be the first.
+`pipelines/train_model.py`. The results at the end of this section are the
+first produced with them and are the project's current figures.
 
 - **30 days is the primary horizon** (`primary_horizon_days: 30`). `make
   train`, `make score-fleet` and the agent's decision records now use it.
@@ -495,6 +495,51 @@ make full-experiment FULL_EXPERIMENT_ARGS="--variants reg_spw --skip-baseline --
 make score-fleet
 make final-report
 ```
+
+**Results with these changes** (`adi_dev` at `715f10d`; 30-day label; train
+22,844,327 rows before the cap, 5,000,295 used; validation 8,734,540 rows and
+934 failing drives; test 7,381,381 rows, 621 failing and 353,328 healthy
+drives; 220 trees). Drive level, test, thresholds from validation.
+
+| Validation recall target | Test, real fleet | Lift | Test at 15% failing | Test at 50% failing | Validation precision | Two stage, real fleet |
+|---|---|---|---|---|---|---|
+| 5% | P 48.9%, R 3.7% (23 caught, 24 FA) | 279 | 99.0% | 99.8% | 69.1% | P 60.9%, R 4.5% (28, 18) |
+| 10% | P 41.4%, R 8.5% (53, 75) | 236 | 98.6% | 99.8% | 56.7% | P 50.8%, R 9.8% (61, 59) |
+| 20% | P 37.1%, R 18.7% (116, 197) | 211 | 98.3% | 99.7% | 49.9% | P 39.6%, R 20.0% (124, 189) |
+| 35% | P 28.5%, R 34.1% (212, 531) | 163 | 97.6% | 99.6% | 39.3% | P 28.2%, R 32.4% (201, 512) |
+
+| Action tier | Validation target | Test precision | Test recall |
+|---|---|---|---|
+| warn | 15% | 9.9% | 62.5% |
+| cordon | 25% | 17.4% | 51.2% |
+| migrate | 40% | 29.5% | 32.4% |
+| drain | 60% | 47.4% | 5.8% |
+
+- **Recall now carries over from validation to test** (targets 10 / 20 / 35%
+  gave 8.5 / 18.7 / 34.1% on test; before the split fix the 20% and 35%
+  thresholds gave 12.6% and 27.7%).
+- **Validation precision is still above test** (56.7% against 41.4% at the
+  primary threshold). More drives fail in the validation period (0.265% of
+  drives against 0.175%); the test alerts would show about 52% precision at
+  the validation failure rate, so that accounts for roughly half of the gap.
+  At a fixed 15% failure rate the two agree: 98.9% and 98.6%.
+- **Test ranking is slightly lower than before the fix** (drive AUPRC 0.200
+  against 0.213), the expected cost of training on one month less. The
+  figures are the honest ones: no training label depends on the validation
+  or test periods.
+- **Two stage:** better than the single model at the 5% and 10% targets in
+  both 30-day runs (here 50.8% against 41.4%, earlier 52.1% against 46.3%),
+  with more drives caught and fewer false alarms each time. It showed no
+  gain at 14 days and none at 35% recall, and the differences rest on about
+  15 to 20 drives, so it is a candidate for the strictest tiers, not yet an
+  established improvement.
+- **False alarms** (35% threshold, test): 531 healthy drives alerted; 500
+  still running at the end of the data, 29 removed, 2 failed later.
+- **Persistence rules** did not help.
+- Warning lead time at the primary threshold: median 12 days, mean 15.3.
+- `make score-fleet` scored 363,548 drives and proposed an action for 3,973.
+  `make final-report` passed its chaos, guardrail-latency and crash-recovery
+  sections. No `memory_limit_exceeded`.
 
 ## 6. The experiment tool
 
