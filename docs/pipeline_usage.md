@@ -36,7 +36,7 @@ quarters are downloaded:
 sources:
   backblaze:
     start_date: "2026-01-01"
-    end_date: "2026-03-31"        # Q1 only; use "2026-06-30" for Q1 and Q2
+    end_date: "2026-06-30"        # Q1 and Q2 (the repo default); "2026-03-31" for Q1 only
 download:
   backblaze:
     quarters: ["Q1_2026"]         # or ["Q1_2026", "Q2_2026"]
@@ -49,14 +49,14 @@ test period must end at least 30 days before the last day of data, because a
 ```yaml
 splits:
   strategy: chronological
-  train_end: "2026-02-22"         # Q1 settings shown
-  validation_end: "2026-03-06"
-  test_end: "2026-03-17"
+  train_end: "2026-04-15"         # Q1 + Q2 settings (the repo default)
+  validation_end: "2026-05-10"
+  test_end: "2026-05-31"
 ```
 
-For Q1 and Q2 together, a suggested starting point is
-`train_end: "2026-04-15"`, `validation_end: "2026-05-10"`,
-`test_end: "2026-05-31"`. Check these against the last date in your files.
+For Q1 only, use `train_end: "2026-02-22"`, `validation_end: "2026-03-06"`,
+`test_end: "2026-03-17"` (valid for the 14-day horizon). Check the split dates
+against the last date in your files before running.
 
 ### 2.2 Run the steps in order
 
@@ -207,6 +207,7 @@ Options for `EXPERIMENT_ARGS` and `FULL_EXPERIMENT_ARGS`:
 | `--variants NAME ...` | The named configurations to compare (see `pipelines/experiment_model.py`). |
 | `--skip-baseline` | Skips the logistic-regression reference, which takes about two minutes. |
 | `--deep-dive [NAME]` | Prints the false-alarm breakdown and persistence rules for one variant (default `reg_spw`). |
+| `--two-stage` | Trains a second model on the rows the pooled model flags (out-of-fold scores on train) and compares it with the pooled model alone at 5/10/20/35% recall on the same test drives. An experiment only: nothing else uses it. |
 | `--per-model [N]` | Trains one model per drive family for the N families with the most failing validation drives (default 3), each compared with the pooled model on the same test drives. |
 
 Examples:

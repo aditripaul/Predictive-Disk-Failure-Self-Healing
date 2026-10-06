@@ -1,5 +1,12 @@
 # Model status, results and runbook
 
+> **Update 2026-10-06 (later the same day).** The repository now defaults to
+> **Q1 + Q2 2026**, a wider feature set, and a new target: **90% precision at
+> >= 10% recall, per drive** (`configs/model.yaml`). None of that has been run
+> on real data yet. Every result in this document is from Q1 with the earlier
+> five-attribute feature set and the earlier 95% target. See
+> `docs/feature_engineering.md` for the features and section 8 for what to run.
+
 Status as of 2026-10-06. This document records what was run on the real
 Backblaze Q1 2026 data, what was learned, what is still open, and how to run
 the pipeline end to end, including the Q1+Q2 setup. Numbers are copied from
@@ -325,7 +332,30 @@ What could change the picture, in order of expected effect:
 
 ## 8. Open items
 
-**Data and features (planned, not started):**
+**Implemented, waiting for a real run (commits `d54aabf`, `9bb331b` and the
+two-stage experiment):**
+
+- SMART 7, 9, 194 and 199 ingested with a light feature family; active defect
+  velocity, days since last increase, temperature spike, power-on days.
+- Validation and test matrices memory-mapped and scored in chunks; the
+  watchdog counts allocated memory only. Estimated to keep a two-quarter
+  training run near 5-7 GB; **not measured**.
+- Precision at 5/10/20/35% recall and the data build recorded in every report.
+- Ablations `reg_spw_old_features`, `reg_spw_no_lifetime`,
+  `reg_spw_no_secondary`, and `--two-stage`.
+
+First real run, after `git pull`:
+
+```bash
+make ingest-backblaze build-silver build-features build-labels
+make full-experiment FULL_EXPERIMENT_ARGS="--variants reg_spw reg_spw_old_features reg_spw_no_lifetime reg_spw_no_secondary --skip-baseline --two-stage --deep-dive reg_spw"
+```
+
+What to check: no `memory_limit_exceeded`; `data_build` shows millions of rows
+per split and about 200 features; the `precision_at_recall` lines. The goal is
+met if test precision is >= 90% at >= 10% recall.
+
+**Data and features (still planned, not started):**
 
 - **Ingest more SMART attributes.** Currently only 5, 187, 188, 197 and 198
   reach the model. The paper's most useful ones that we drop are 3 (spin-up
@@ -370,13 +400,13 @@ What could change the picture, in order of expected effect:
 | `configs/model.yaml` | `model.max_train_rows` | 5000000 | Training-row cap |
 | `configs/model.yaml` | `model.positive_weight_power` | 0.5 | Positive weight = (neg/pos)^0.5 |
 | `configs/model.yaml` | `model.early_stopping_rounds` | 50 | Early stopping patience (average precision) |
-| `configs/model.yaml` | `threshold.target_precision` | 0.95 | Goal precision (kept as the target) |
+| `configs/model.yaml` | `threshold.target_precision` | 0.90 | Goal precision, at recall >= 10% (was 0.95 at 35-50%) |
 | `configs/model.yaml` | `threshold.target_recall_range` | [0.35, 0.50] | Goal recall range |
 | `configs/model.yaml` | `threshold.action_tier_precision` | 0.15 / 0.25 / 0.40 / 0.60 | Per-action precision targets (placeholders) |
 | `configs/model.yaml` | `diagnostics.shap_enabled` | false | SHAP is slow on real data and fails its additivity check with extreme leaves |
 | `configs/data.yaml` | `resource_limits.max_memory_gb` | 20 | RSS cap for every pipeline process |
 | `configs/data.yaml` | `resource_limits.scratch_dir` | null | Scratch location (default `<gold_dir>/../tmp`) |
-| `configs/data.yaml` | `sources.backblaze.end_date` | 2026-03-31 | Last date ingested |
+| `configs/data.yaml` | `sources.backblaze.end_date` | 2026-06-30 | Last date ingested (was 2026-03-31) |
 
 ## 10. Related documents
 

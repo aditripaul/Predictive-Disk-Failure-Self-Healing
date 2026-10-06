@@ -30,7 +30,12 @@ from sklearn.metrics import precision_recall_curve
 
 from src.logging_config import configure_logging, get_logger
 from src.models.alerting import SMOOTHERS, analyze_false_alarms, smooth_scores
-from src.models.evaluation import compute_auprc, drive_level_metrics, drive_level_table
+from src.models.evaluation import (
+    compute_auprc,
+    drive_level_metrics,
+    drive_level_table,
+    precision_at_recall_table,  # noqa: I001
+)
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
 from src.models.threshold import tune_drive_level_threshold
 from src.models.training import (
@@ -464,6 +469,184 @@ def _print_deep_dive(report: dict[str, Any]) -> None:
         print(f"  {smoother:9s} | {cells[0]:36s} | {cells[1]}")
 
 
+def drive_folds(drive_ids: np.ndarray, n_folds: int) -> np.ndarray:
+    """A fold number per row, the same for every row of a drive (hash of the
+    drive id), so out-of-fold scores never come from a model that saw that
+    drive."""
+    return (pl.Series("d", drive_ids).hash(seed=0) % n_folds).to_numpy().astype(np.int64)
+
+
+def _fit_lgbm(
+    params: dict[str, Any],
+    x: np.ndarray,
+    y: np.ndarray,
+    drives: np.ndarray,
+    *,
+    eval_x: np.ndarray | None = None,
+    eval_y: np.ndarray | None = None,
+) -> lgb.LGBMClassifier:
+    """LightGBM with sqrt positive weights; early-stopped on average precision
+    when an evaluation set is given, otherwise trained for `n_estimators`."""
+    weights = _sample_weights(y, drives, "spw")
+    if eval_x is None or eval_y is None:
+        return lgb.LGBMClassifier(**params).fit(x, y, sample_weight=weights)
+    model = lgb.LGBMClassifier(**params, metric="average_precision")
+    model.fit(
+        x,
+        y,
+        sample_weight=weights,
+        eval_X=eval_x,
+        eval_y=eval_y,
+        eval_metric="average_precision",
+        callbacks=[lgb.early_stopping(50, first_metric_only=True, verbose=False)],
+    )
+    return model
+
+
+def two_stage_experiment(
+    data: dict[str, Any], *, n_folds: int = 3, candidate_recall: float = 0.5
+) -> dict[str, Any]:
+    """Does a second model trained only on the hard cases beat the pooled model?
+
+    Stage 1 is the pooled model. Its candidates are the rows scoring at or above
+    the validation threshold that still catches `candidate_recall` of failing
+    drives. Stage 2 is trained on the TRAIN rows that are candidates, using
+    out-of-fold Stage 1 scores for them (each drive scored by a model that never
+    saw it; in-sample scores would be far more confident than anything Stage 2
+    meets later). The final score is Stage 2's for candidates and 0 otherwise.
+
+    A cascade cannot raise precision by filtering alone; it helps only if
+    Stage 2 separates the look-alike healthy drives better than Stage 1 did.
+    The report compares both at the same recall levels, on the same test
+    drives, with thresholds chosen on validation."""
+    base = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["model"]["params"]
+    params = {**base, **REGULARIZED, "verbosity": -1}
+    sub = data["es_idx"]
+    y_train, train_drives = data["y_train"], data["train_drives"]
+
+    stage1 = _fit_lgbm(
+        params,
+        data["x_train"],
+        y_train,
+        train_drives,
+        eval_x=np.array(data["x_val"][sub]),
+        eval_y=data["y_val"][sub],
+    )
+    n_trees = int(stage1.best_iteration_ or stage1.n_estimators)
+    val_s1 = predict_proba_positive(stage1, data["x_val"])
+    test_s1 = predict_proba_positive(stage1, data["x_test"])
+
+    # Out-of-fold Stage 1 scores for the train rows, with the same tree count.
+    folds = drive_folds(train_drives, n_folds)
+    fold_params = {**params, "n_estimators": n_trees}
+    train_s1 = np.zeros(len(y_train), dtype=np.float64)
+    for fold in range(n_folds):
+        held_out = folds == fold
+        model = _fit_lgbm(
+            fold_params, data["x_train"][~held_out], y_train[~held_out], train_drives[~held_out]
+        )
+        train_s1[held_out] = predict_proba_positive(model, data["x_train"][held_out])
+        del model
+
+    # Candidate threshold: the highest-precision validation threshold that
+    # still catches `candidate_recall` of the failing drives.
+    candidate_row = precision_at_recall_table(
+        data["val_drives"],
+        data["y_val"],
+        val_s1,
+        data["test_drives"],
+        data["y_test"],
+        test_s1,
+        recalls=(candidate_recall,),
+    )[0]
+    report: dict[str, Any] = {
+        "stage1_trees": n_trees,
+        "candidate_recall": candidate_recall,
+        "candidate_threshold": candidate_row["threshold"],
+    }
+    if candidate_row["threshold"] is None:
+        report["status"] = "candidate recall not reachable on validation"
+        return report
+    threshold = candidate_row["threshold"]
+    cand_train, cand_val, cand_test = (
+        train_s1 >= threshold,
+        val_s1 >= threshold,
+        test_s1 >= threshold,
+    )
+    report["candidates"] = {
+        "train_rows": int(cand_train.sum()),
+        "train_positive_rows": int(y_train[cand_train].sum()),
+        "validation_rows": int(cand_val.sum()),
+        "test_rows": int(cand_test.sum()),
+    }
+    if report["candidates"]["train_positive_rows"] < 20 or data["y_val"][cand_val].sum() < 5:
+        report["status"] = "too few candidate failures to train a second stage"
+        return report
+
+    def with_score(x: np.ndarray, mask: np.ndarray, score: np.ndarray) -> np.ndarray:
+        """Candidate rows' features plus the Stage 1 score as a last column."""
+        return np.column_stack([np.asarray(x[np.flatnonzero(mask)]), score[mask]])
+
+    stage2 = _fit_lgbm(
+        {**params, "min_child_samples": 50},
+        with_score(data["x_train"], cand_train, train_s1),
+        y_train[cand_train],
+        train_drives[cand_train],
+        eval_x=with_score(data["x_val"], cand_val, val_s1),
+        eval_y=data["y_val"][cand_val],
+    )
+    val_final = np.zeros(len(val_s1))
+    test_final = np.zeros(len(test_s1))
+    val_final[cand_val] = predict_proba_positive(
+        stage2, with_score(data["x_val"], cand_val, val_s1)
+    )
+    test_final[cand_test] = predict_proba_positive(
+        stage2, with_score(data["x_test"], cand_test, test_s1)
+    )
+    report["stage2_trees"] = int(stage2.best_iteration_ or stage2.n_estimators)
+    recalls = tuple(r for r in (0.05, 0.10, 0.20, 0.35) if r <= candidate_recall)
+    for name, val_scores, test_scores in (
+        ("stage1", val_s1, test_s1),
+        ("two_stage", val_final, test_final),
+    ):
+        report[name] = precision_at_recall_table(
+            data["val_drives"],
+            data["y_val"],
+            val_scores,
+            data["test_drives"],
+            data["y_test"],
+            test_scores,
+            recalls=recalls,
+        )
+    report["status"] = "ok"
+    return report
+
+
+def _print_two_stage(report: dict[str, Any]) -> None:
+    print("\n#### TWO STAGE (second model on Stage 1's hard cases) - TEST, drive level")
+    print(f"  stage 1 trees={report['stage1_trees']}  candidates={report.get('candidates')}")
+    if report["status"] != "ok":
+        print(f"  not run: {report['status']}")
+        return
+    print(f"  stage 2 trees={report['stage2_trees']}")
+    for stage1_row, two_row in zip(report["stage1"], report["two_stage"], strict=True):
+        cells = []
+        for row in (stage1_row, two_row):
+            if row.get("threshold") is None:
+                cells.append("unreachable")
+                continue
+            t = row["test"]
+            cells.append(
+                f"P={t['precision']:.3f} R={t['recall']:.3f} "
+                f"({t['caught_drive_count']}/{t['failing_drive_count']}, "
+                f"FA={t['false_alarm_drive_count']})"
+            )
+        print(
+            f"  recall>={stage1_row['target_recall']:.0%}: stage 1 alone {cells[0]}"
+            f"  |  two stage {cells[1]}"
+        )
+
+
 def per_model_experiment(data: dict[str, Any], *, top_n: int) -> list[dict[str, Any]]:
     """Trains one LightGBM per drive family (the `top_n` families with the most
     failing validation drives) and compares it with the POOLED model on exactly
@@ -624,6 +807,12 @@ def main() -> None:
     parser.add_argument("--variants", nargs="*", default=list(VARIANTS), choices=list(VARIANTS))
     parser.add_argument("--skip-baseline", action="store_true")
     parser.add_argument(
+        "--two-stage",
+        action="store_true",
+        help="Train a second model on the rows the pooled model flags (out-of-fold "
+        "scores on train) and compare it with the pooled model alone at fixed recall.",
+    )
+    parser.add_argument(
         "--per-model",
         type=int,
         nargs="?",
@@ -705,6 +894,12 @@ def main() -> None:
         _print_per_model(per_model)
         (work_dir / "experiment_per_model.json").write_text(
             json.dumps(per_model, indent=2, default=str)
+        )
+    if args.two_stage:
+        two_stage_report = two_stage_experiment(data)
+        _print_two_stage(two_stage_report)
+        (work_dir / "experiment_two_stage.json").write_text(
+            json.dumps(two_stage_report, indent=2, default=str)
         )
     if args.deep_dive:
         report = deep_dive(args.deep_dive, data)
