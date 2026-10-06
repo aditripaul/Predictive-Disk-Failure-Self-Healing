@@ -118,6 +118,7 @@ would have defaulted right back to `/tmp`).
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import gc
 import json
 import shutil
@@ -397,6 +398,23 @@ def _stage_assemble(work_dir: Path, horizon_days: int | None = None) -> None:
     )
 
 
+def _evaluation_period_predicate(split_name: str, model_config: dict) -> pl.Expr | None:
+    """Keeps test rows up to `splits.test_end` (configs/model.yaml).
+
+    The label table calls every date after `validation_end` "test". Close
+    to the end of the data a healthy drive-day has no label (its horizon
+    runs past the last observation) and is dropped, but a failing
+    drive-day keeps its positive label. Without this cut-off the last
+    `horizon_days` of the data would add failing drives to the test set
+    with no healthy rows beside them, which no deployed model ever sees.
+    `test_end` must therefore be at least the longest evaluated horizon
+    before the last date in the data."""
+    test_end = model_config.get("splits", {}).get("test_end")
+    if split_name != "test" or not test_end:
+        return None
+    return pl.col("date") <= dt.date.fromisoformat(str(test_end))
+
+
 def _row_group_parts(
     frame_path: Path,
     *,
@@ -614,7 +632,11 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             )
         )
         predicate = _train_sample_predicate(label_counts, max_rows=max_train_rows, seed=0)
-        select_columns = [*feature_columns, "label", "drive_id", "date", "drive_model"]
+        # event_type/days_to_event are not model inputs: they give each train
+        # row its time to failure, for the survival variants in
+        # pipelines/experiment_model.py.
+        train_id_columns = ["drive_id", "date", "drive_model", "event_type", "days_to_event"]
+        select_columns = [*feature_columns, "label", *train_id_columns]
         # A subdirectory of work_dir, not tempfile's own default location
         # (typically /tmp): every scratch file this pipeline writes needs
         # to land on the same, deliberately chosen filesystem - see
@@ -635,9 +657,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             _, y_train = _build_feature_arrays(
                 part_paths, feature_columns, out_path=work_dir / "x_train.npy"
             )
-            _write_id_columns(
-                part_paths, ["drive_id", "date", "drive_model"], work_dir / "train_ids.parquet"
-            )
+            _write_id_columns(part_paths, train_id_columns, work_dir / "train_ids.parquet")
         finally:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
         row_count = len(y_train)
@@ -659,7 +679,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
                 split_name=split_name,
                 select_columns=select_columns,
                 read_columns=sorted({*select_columns, "split"}),
-                extra_predicate=None,
+                extra_predicate=_evaluation_period_predicate(split_name, model_config),
                 tmp_dir=part_tmp_dir,
             )
             _, y_split = _build_feature_arrays(

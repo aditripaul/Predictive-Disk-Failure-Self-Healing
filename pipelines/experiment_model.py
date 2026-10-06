@@ -37,6 +37,7 @@ from src.models.evaluation import (
     precision_at_recall_table,  # noqa: I001
 )
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
+from src.models.survival import AftModel, survival_bounds, train_aft
 from src.models.threshold import tune_drive_level_threshold
 from src.models.training import (
     PREDICT_CHUNK_ROWS,
@@ -87,6 +88,10 @@ XGBOOST_PARAMS = {
     "tree_method": "hist",
 }
 
+#: Survival variants (src/models/survival.py): trained on time to failure
+#: instead of the binary label. "_engine" routes run_variant to the AFT trainer.
+AFT_ENGINE = {"_engine": "xgboost_aft"}
+
 #: name -> (extra LightGBM params, features to exclude, weighting)
 #: exclude: none | identity | non_windowed | new_features | secondary | lifetime
 #: weighting: is_unbalance | spw[:power] | drive
@@ -113,6 +118,10 @@ VARIANTS: dict[str, tuple[dict[str, Any], str, str]] = {
     # to check the precision ceiling is not specific to LightGBM.
     "xgboost": (XGBOOST_PARAMS, "none", "spw"),
     "xgboost_deep": ({**XGBOOST_PARAMS, "max_depth": 8, "min_child_weight": 5}, "none", "spw"),
+    # Survival: unweighted, and with the sqrt weight on rows whose failure
+    # is observed. Scored on the same binary label as every other variant.
+    "xgboost_aft": (AFT_ENGINE, "none", "none"),
+    "xgboost_aft_spw": (AFT_ENGINE, "none", "spw"),
     "strong_reg": (
         {**REGULARIZED, "min_child_samples": 500, "reg_lambda": 50.0},
         "none",
@@ -271,6 +280,26 @@ def threshold_for_precision(labels: np.ndarray, scores: np.ndarray, target: floa
     return float(thresholds[ok[np.argmax(recall[:-1][ok])]])
 
 
+def _train_survival_bounds(data: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
+    """Time-to-failure bounds for the train rows, using outcomes only up to
+    the last train date plus the label horizon (what the binary label uses)."""
+    train_ids = data["train_ids"]
+    missing = {"event_type", "days_to_event"} - set(train_ids.columns)
+    if missing:
+        raise SystemExit(
+            f"train_ids.parquet has no {sorted(missing)}: this work dir predates the survival "
+            "variants. Re-run `make train TRAIN_ARGS=--keep-work-dir`."
+        )
+    dates = train_ids["date"].to_numpy().astype("datetime64[D]")
+    return survival_bounds(
+        dates,
+        train_ids["event_type"].to_numpy(),
+        train_ids["days_to_event"].to_numpy().astype(np.float64),
+        cutoff_date=dates.max(),
+        horizon_days=data["horizon_days"],
+    )
+
+
 def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
     extra, exclude, weighting = VARIANTS[name]
     base = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["model"]["params"]
@@ -288,7 +317,19 @@ def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
         x_eval = np.array(data["x_val"][sub])
         if idx:
             x_eval[:, idx] = 0.0
-        if extra.get("_engine") == "xgboost":
+        if extra.get("_engine") == "xgboost_aft":
+            lower, upper = _train_survival_bounds(data)
+            observed = np.isfinite(upper).astype(np.int8)
+            model = train_aft(
+                data["x_train"],
+                lower,
+                upper,
+                eval_x=x_eval,
+                eval_y=data["y_val"][sub],
+                horizon_days=data["horizon_days"],
+                sample_weight=_sample_weights(observed, data["train_drives"], weighting),
+            )
+        elif extra.get("_engine") == "xgboost":
             xgb_params = {k: v for k, v in extra.items() if k != "_engine"}
             model = xgb.XGBClassifier(
                 objective="binary:logistic",
@@ -324,7 +365,9 @@ def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
         val_scores = _predict_excluding(model, data["x_val"], idx)
         test_scores = _predict_excluding(model, data["x_test"], idx)
     data.setdefault("_scores", {})[name] = (val_scores, test_scores)
-    if isinstance(model, xgb.XGBClassifier):
+    if isinstance(model, AftModel):
+        gains = model.gain_by_feature(len(data["feature_columns"]))
+    elif isinstance(model, xgb.XGBClassifier):
         gains = model.feature_importances_  # normalized gain
     else:
         gains = model.booster_.feature_importance("gain")
@@ -336,12 +379,14 @@ def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
         "variant": name,
         "excluded_features": len(idx),
         "trees": (
-            int(model.best_iteration) + 1
+            model.tree_count
+            if isinstance(model, AftModel)
+            else int(model.best_iteration) + 1
             if isinstance(model, xgb.XGBClassifier)
             else int(model.best_iteration_ or model.n_estimators)
         ),
         "max_abs_leaf": (
-            None if isinstance(model, xgb.XGBClassifier) else round(_max_abs_leaf(model), 2)
+            round(_max_abs_leaf(model), 2) if isinstance(model, lgb.LGBMClassifier) else None
         ),
         "val_row_auprc": compute_auprc(data["y_val"], val_scores),
         "test_row_auprc": compute_auprc(data["y_test"], test_scores),
@@ -836,13 +881,19 @@ def main() -> None:
     apply_memory_limit_from_config()
     work_dir = _find_work_dir(args.work_dir)
     logger.info("experiment_work_dir", path=str(work_dir))
-    feature_columns = json.loads((work_dir / "frame_meta.json").read_text())["feature_columns"]
+    frame_meta = json.loads((work_dir / "frame_meta.json").read_text())
+    feature_columns = frame_meta["feature_columns"]
+    model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
+    horizon_days = int(frame_meta.get("horizon_days") or model_config["primary_horizon_days"])
+    logger.info("experiment_horizon", horizon_days=horizon_days)
 
     val_ids = pl.read_parquet(work_dir / "validation_ids.parquet")
     test_ids = pl.read_parquet(work_dir / "test_ids.parquet")
     train_ids = pl.read_parquet(work_dir / "train_ids.parquet")
     data: dict[str, Any] = {
         "feature_columns": feature_columns,
+        "horizon_days": horizon_days,
+        "train_ids": train_ids,
         # Train in RAM (LightGBM needs it there, and exclusions zero it in place);
         # validation and test as read-only memory maps, scored in chunks.
         "x_train": np.load(work_dir / "x_train.npy"),
