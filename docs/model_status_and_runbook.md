@@ -2,10 +2,11 @@
 
 > **Update 2026-10-06 (later the same day).** The repository now defaults to
 > **Q1 + Q2 2026**, a wider feature set, and a new target: **90% precision at
-> >= 10% recall, per drive** (`configs/model.yaml`). None of that has been run
-> on real data yet. Every result in this document is from Q1 with the earlier
+> >= 10% recall, per drive** (`configs/model.yaml`). The first two-quarter run
+> is recorded in **Section 4.2: the target is not met** (about 40% precision at
+> 10% recall on test). Sections 4, 4.1 and 5 are from Q1 with the earlier
 > five-attribute feature set and the earlier 95% target. See
-> `docs/feature_engineering.md` for the features and section 8 for what to run.
+> `docs/feature_engineering.md` for the features.
 
 Status as of 2026-10-06. This document records what was run on the real
 Backblaze Q1 2026 data, what was learned, what is still open, and how to run
@@ -24,8 +25,9 @@ data, it says so.
   22% precision at 26% recall on test (Section 4).
 - **We do not expect 95% precision to be reachable with one quarter of SMART
   data.** Section 5 explains why, and Section 7 lists what would change that.
-- **The next step is a larger data set** (Q1 and Q2 2026) plus a richer
-  feature set. It has been planned, but not started (Section 8).
+- **Q1 + Q2 2026 with the richer feature set has been run** (Section 4.2).
+  It did not move precision: about 40% at 10% recall on test, against the
+  90% target. Neither the new features nor the two-stage model helped.
 
 ## 2. How to run the pipeline
 
@@ -65,7 +67,8 @@ Change, before running:
 
 Then run the same command sequence as in 2.2. Expect silver, gold and the
 training join to take roughly twice as long and to use about twice the disk.
-The two-quarter run has not been done yet.
+The two-quarter run was done on 2026-10-06: 62,565,487 drive-days from
+363,548 drives, ingest and silver each in a few minutes (Section 4.2).
 
 ### 2.4 Things that go wrong, and where to look
 
@@ -285,6 +288,70 @@ one family has, and that outweighs whatever the family-specific signal adds.
 Per-family models are not the route to the goal. The per-family report had a
 bug (it counted positive rows instead of drives), fixed in `e854b63`.
 
+### 4.2 Q1 + Q2 2026, extended features (2026-10-06, 14-day horizon)
+
+First run on two quarters: 62,565,487 drive-days, 363,548 drives, 620 failing
+drives in the test split (the Q1 runs had about 300). Splits: train to
+2026-04-15, validation to 2026-05-10, test to 2026-05-31. All numbers are
+drive level, on test, with thresholds chosen on validation. Source: the
+`make experiment-model` output of that run.
+
+**Feature ablation** (same rows, same settings, columns zeroed out):
+
+| Variant | Columns removed | Trees | Drive AUPRC val | Drive AUPRC test | Test at val "precision >= 50%" |
+|---|---|---|---|---|---|
+| `reg_spw` (all features) | 0 | 447 | 0.318 | 0.192 | P 33.8%, R 25.8% (160 caught, 314 false alarms) |
+| `reg_spw_old_features` | 26 | 336 | 0.328 | 0.189 | P 32.1%, R 26.9% (167, 353) |
+| `reg_spw_no_lifetime` | 7 | 391 | 0.326 | 0.198 | P 31.9%, R 26.3% (163, 348) |
+| `reg_spw_no_secondary` | 15 | 431 | 0.333 | 0.195 | P 32.9%, R 25.0% (155, 316) |
+
+The four variants are within 0.01 test AUPRC of each other, well inside the
+run-to-run spread seen before (about 0.04). **The new features did not improve
+the model.** `active_defect_total` takes 37-45% of the split gain when present,
+but it restates information the rolling counters already carried. Removing
+lifetime counters (the paper's choice) made no measurable difference either.
+
+**Precision at fixed recall** (`reg_spw`, test):
+
+| Recall target | Stage 1 alone | Two stage |
+|---|---|---|
+| 5% | P 44.0%, R 5.3% (33 caught, 42 false alarms) | P 43.2%, R 5.6% (35, 46) |
+| 10% | P 39.6%, R 10.5% (65, 99) | P 40.6%, R 9.4% (58, 85) |
+| 20% | P 37.1%, R 15.8% (98, 166) | P 35.3%, R 18.7% (116, 213) |
+| 35% | P 30.2%, R 29.5% (183, 423) | P 29.0%, R 30.8% (191, 467) |
+
+- **The 90% at 10% recall target is not met: 39.6%.** The Q1 result at the
+  same recall was about 37.5% (30 caught, 50 false alarms), so doubling the
+  data confirmed the number rather than changing it.
+- **The two-stage model is no better than Stage 1 alone** at any recall level.
+  It stays an experiment and is not wired into training or scoring.
+- At the validation threshold for 95% precision the model flags 4 test drives
+  (2 right, 2 wrong); `reg_spw_no_secondary` cannot reach 95% on validation
+  at all.
+- Validation is consistently better than test (drive AUPRC 0.32 against 0.19).
+  The split quirk in Section 8 (held-out drives' history inside validation) is
+  one likely cause; it has not been isolated.
+
+**False alarms** (`reg_spw`, threshold for 35% recall):
+
+| | Validation | Test |
+|---|---|---|
+| "Healthy" drives alerted | 331 | 423 |
+| ...that failed later (after the 14-day window) | 71 (53 of them 31-60 days later) | 8 |
+| ...removed without a recorded failure | 23 | 45 |
+| ...still active at the end of the data | 237 | 370 |
+
+About a fifth of validation false alarms were real failures that arrived
+later than 14 days. Test shows fewer only because the data ends 30 days after
+the test period, so later failures cannot be seen. This is the strongest
+evidence so far that the 14-day window, not the model, is cutting precision,
+but even counting every later failure and removal as correct, most alerted
+drives were still running when the data ended.
+
+**Persistence rules** again did not help: every smoother lowered precision at
+35% recall (raw 30.2%; best smoother 29.1%), and the best gain at the
+high-precision point was median5 at 37.6% precision for 9.5% recall.
+
 ## 6. The experiment tool
 
 ```bash
@@ -318,13 +385,23 @@ The paper we reviewed (Amram et al., 2021) reports about 44% precision at a
 rate is already about 100× lower, and our splits are time-based, so the paper
 does not support a 95% target either.
 
+**The 90% at 10% recall goal is not met either** (Section 4.2): 39.6% precision
+at 10.5% recall on two quarters, and no variant, feature group or second-stage
+model moved it.
+
 What could change the picture, in order of expected effect:
 
-1. **More failing drives:** a second quarter (in progress) and possibly more.
+1. ~~More failing drives~~: a second quarter doubled the failing test drives
+   (620) and left precision where it was.
 2. ~~Per-drive-family models~~: tested on 2026-10-06 and worse than the pooled
    model for the three largest families (Section 4.1).
-3. **A longer horizon** (30 days), once the split is valid.
-4. **Richer SMART features** (Section 8).
+3. **A longer horizon** (30 days). The split is now valid for it (the data
+   runs 30 days past the test period), and Section 4.2 shows a fifth of
+   validation false alarms failing 15-60+ days later. Not yet run on two
+   quarters. It changes what an alert means, so it is a decision as well as
+   an experiment.
+4. ~~Richer SMART features~~: SMART 7, 9, 194, 199 and the velocity, recency
+   and age features made no measurable difference (Section 4.2).
 5. **Tiered goals:** keep the destructive action at a high precision target
    and let warnings accept more false alarms. The tiers already exist (Section
    4); the targets in `configs/model.yaml` are placeholders to be set from the
@@ -332,8 +409,7 @@ What could change the picture, in order of expected effect:
 
 ## 8. Open items
 
-**Implemented, waiting for a real run (commits `d54aabf`, `9bb331b` and the
-two-stage experiment):**
+**Implemented and run on 2026-10-06 (results in Section 4.2):**
 
 - SMART 7, 9, 194 and 199 ingested with a light feature family; active defect
   velocity, days since last increase, temperature spike, power-on days.
@@ -344,16 +420,15 @@ two-stage experiment):**
 - Ablations `reg_spw_old_features`, `reg_spw_no_lifetime`,
   `reg_spw_no_secondary`, and `--two-stage`.
 
-First real run, after `git pull`:
+The command that produced Section 4.2:
 
 ```bash
 make ingest-backblaze build-silver build-features build-labels
 make full-experiment FULL_EXPERIMENT_ARGS="--variants reg_spw reg_spw_old_features reg_spw_no_lifetime reg_spw_no_secondary --skip-baseline --two-stage --deep-dive reg_spw"
 ```
 
-What to check: no `memory_limit_exceeded`; `data_build` shows millions of rows
-per split and about 200 features; the `precision_at_recall` lines. The goal is
-met if test precision is >= 90% at >= 10% recall.
+The run completed end to end with the 20 GB cap in place. The training
+stage's peak memory was not recorded here (the estimate was 5-7 GB).
 
 **Data and features (still planned, not started):**
 
