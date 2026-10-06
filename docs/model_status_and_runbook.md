@@ -296,6 +296,16 @@ drives in the test split (the Q1 runs had about 300). Splits: train to
 drive level, on test, with thresholds chosen on validation. Source: the
 `make experiment-model` output of that run.
 
+> **Caveat found after this run.** `splits.test_end` was not applied: the
+> test set ran to the last day of the data (2026-06-30), not 2026-05-31. In
+> the final 14 days a healthy drive-day has no label and is dropped, while a
+> failing drive-day keeps its positive label. So some of the 620 failing test
+> drives were scored with no healthy rows from the same dates beside them.
+> The comparisons between variants below are unaffected (all share the same
+> rows); the absolute precision figures are likely somewhat flattering. Fixed
+> in `pipelines/train_model.py::_evaluation_period_predicate`; the numbers
+> below have **not** been re-measured with the fix.
+
 **Feature ablation** (same rows, same settings, columns zeroed out):
 
 | Variant | Columns removed | Trees | Drive AUPRC val | Drive AUPRC test | Test at val "precision >= 50%" |
@@ -351,6 +361,32 @@ drives were still running when the data ended.
 **Persistence rules** again did not help: every smoother lowered precision at
 35% recall (raw 30.2%; best smoother 29.1%), and the best gain at the
 high-precision point was median5 at 37.6% precision for 9.5% recall.
+
+### 4.3 30-day horizon and survival model (implemented, not yet run)
+
+Two changes test whether the 14-day window is what costs precision:
+
+- **30-day label:** `make train TRAIN_ARGS="--keep-work-dir --horizon-days 30"`.
+  With `test_end` now enforced, the test set is 2026-05-11 to 2026-05-31 and
+  every row in it has a full 30 days of follow-up.
+- **Survival variants** `xgboost_aft` and `xgboost_aft_spw`
+  (`src/models/survival.py`): XGBoost's accelerated failure time objective,
+  trained on each train row's time to failure. A drive that fails after the
+  label window is a failure at that time, not a negative; a drive that has
+  not failed is "not failed so far". Outcomes are used only up to the last
+  train date plus the horizon, the same information the binary label uses.
+  The predicted time is mapped to a 0-1 risk score and evaluated on the same
+  binary label and drives as every other variant.
+
+```bash
+make clean-kept
+make train TRAIN_ARGS="--keep-work-dir --horizon-days 30"
+make experiment-model EXPERIMENT_ARGS="--variants reg_spw xgboost xgboost_aft xgboost_aft_spw --skip-baseline --two-stage --deep-dive reg_spw" 2>&1 | tee experiment-30d.log
+```
+
+`reg_spw` and `xgboost` give the 30-day classifier baseline on the same rows;
+the two-stage table prints precision at 5/10/20/35% recall for `reg_spw`.
+Verified with unit tests only (`tests/unit/test_survival.py`).
 
 ## 6. The experiment tool
 
