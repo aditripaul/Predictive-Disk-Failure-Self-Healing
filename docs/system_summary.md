@@ -114,7 +114,7 @@ the same drives.
 | More SMART attributes and velocity, recency and age features | No measurable change |
 | Second-stage model on the hard cases | Within noise of the single model |
 | Requiring several consecutive high-score days | Lower precision |
-| 30-day horizon in place of 14 days | Modest gain (about 40% to 46% near 10% recall) |
+| 30-day horizon in place of 14 days | The one clear gain: 34% to 46% precision near 10% recall, same test period |
 | Survival model (time to failure, XGBoost AFT) | Same as the classifier |
 | Anomaly detection (isolation forest): alone, as a filter, as a feature | Alone far worse; the others within noise |
 

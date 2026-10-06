@@ -303,8 +303,23 @@ drive level, on test, with thresholds chosen on validation. Source: the
 > drives were scored with no healthy rows from the same dates beside them.
 > The comparisons between variants below are unaffected (all share the same
 > rows); the absolute precision figures are likely somewhat flattering. Fixed
-> in `pipelines/train_model.py::_evaluation_period_predicate`; the numbers
-> below have **not** been re-measured with the fix.
+> in `pipelines/train_model.py::_split_period_predicate`. **Re-measured on
+> 2026-10-06 with the test set cut at 2026-05-31** (same model: 447 trees,
+> same validation; 455 failing and 353,633 healthy test drives):
+>
+> | Validation recall target | Test, corrected window | As first reported below |
+> |---|---|---|
+> | 5% | P 36.2%, R 3.7% (17 caught, 30 false alarms) | P 44.0%, R 5.3% |
+> | 10% | P 33.6%, R 7.9% (36, 71) | P 39.6%, R 10.5% |
+> | 20% | P 33.9%, R 13.6% (62, 121) | P 37.1%, R 15.8% |
+> | 35% | P 26.8%, R 26.6% (121, 330) | P 30.2%, R 29.5% |
+>
+> So the 14-day figures below overstate precision by about 4 to 8 points,
+> and test drive AUPRC is 0.154, not 0.192. Against this corrected baseline
+> the 30-day horizon (Section 4.3: 46.3% at 9.2% recall, AUPRC 0.213) is a
+> larger gain than it first appeared. Of the 330 healthy test drives alerted
+> at the 35% threshold, 43 failed 15-60 days later. The two-stage model was
+> again no better (33.0% at 6.6% recall for the 10% target).
 
 **Feature ablation** (same rows, same settings, columns zeroed out):
 
@@ -417,9 +432,9 @@ Drive level, test, thresholds chosen on validation.
 - **The target is still not met.** The pooled 30-day model gives 46.3%
   precision at 9.2% recall. The best single figure near 10% recall is the
   two-stage model at 52.1%.
-- **The 30-day label helps a little.** The 14-day run gave 39.6% at 10.5%
-  recall, but on a test window that ran past `test_end` (Section 4.2 caveat),
-  so the two are not an exact like-for-like comparison.
+- **The 30-day label helps.** On the same test window the 14-day model gives
+  33.6% at 7.9% recall (Section 4.2 caveat, re-measured), against 46.3% at
+  9.2% here.
 - **The survival model is no better than the classifier** (test drive AUPRC
   0.216 against 0.213). Unweighted, it put 62% of its gain on drive age.
 - **Anomaly detection does not beat the pooled model.** The anomaly score
