@@ -28,6 +28,7 @@ from src.models.serving import (
     score_latest_drive_day,
 )
 from src.models.threshold import resolve_action_thresholds
+from src.models.two_stage import load_two_stage
 from src.resource_limits import apply_memory_limit_from_config
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
@@ -94,6 +95,17 @@ def main() -> None:
         if model_type == "xgboost"
         else mlflow.lightgbm.load_model(f"runs:/{run_id}/model")
     )
+
+    # A run trained with a second stage is scored with it: its thresholds
+    # below were tuned on the combined score.
+    two_stage_model = load_two_stage(run_id, model) if model_type == "lightgbm" else None
+    if two_stage_model is not None:
+        model = two_stage_model
+        logger.info(
+            "two_stage_model_loaded",
+            run_id=run_id,
+            candidate_threshold=two_stage_model.candidate_threshold,
+        )
 
     # Per-tier thresholds tied to drive-level precision, recorded by
     # `make train` with the model; older runs without them fall back to the

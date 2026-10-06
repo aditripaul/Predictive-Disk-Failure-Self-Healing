@@ -28,6 +28,21 @@ model:
   # stops improving for this many rounds. null disables early stopping.
   early_stopping_rounds: 50
   early_stopping_max_negatives: 1500000
+  # Optional second stage (src/models/two_stage.py): a second model re-ranks
+  # the drive-days the first model scores highest. Off by default; also
+  # switched on for one run with `make train TRAIN_ARGS=--two-stage`.
+  # `make score-fleet` uses it automatically for a run trained with it.
+  two_stage:
+    enabled: false
+    # Candidates = rows at or above the validation threshold that still
+    # catches this share of failing drives. Tiers needing more recall than
+    # this are unaffected by the second stage.
+    candidate_recall: 0.5
+    # Train rows get their first-stage score from a model that never saw
+    # their drive (this many folds), so the second stage learns from scores
+    # like the ones it will meet in use.
+    n_folds: 3
+    seed: 0
   params:
     objective: binary
     num_leaves: 31

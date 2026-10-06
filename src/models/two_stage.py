@@ -36,6 +36,7 @@ import numpy as np
 import polars as pl
 from sklearn.metrics import precision_recall_curve
 
+import mlflow
 from src.models.evaluation import drive_level_table
 from src.models.training import PREDICT_CHUNK_ROWS, predict_proba_positive, train_lightgbm
 
@@ -238,3 +239,29 @@ def fit_second_stage(
     report["stage2_trees"] = tree_count(stage2)
     report["status"] = "ok"
     return TwoStageModel(stage1, stage2, threshold), report
+
+
+#: MLflow artifact names, beside the Stage 1 model logged as "model".
+STAGE2_MODEL_NAME = "model_stage2"
+TWO_STAGE_ARTIFACT = "two_stage.json"
+
+
+def log_two_stage(model: TwoStageModel, report: dict[str, Any]) -> None:
+    """Logs Stage 2 and the candidate threshold to the active MLflow run.
+    Stage 1 is logged by the caller as the run's ordinary "model", so a run
+    without these two artifacts is simply a single-stage run."""
+    mlflow.lightgbm.log_model(model.stage2, name=STAGE2_MODEL_NAME)
+    mlflow.log_dict(
+        {**report, "candidate_threshold": model.candidate_threshold}, TWO_STAGE_ARTIFACT
+    )
+
+
+def load_two_stage(run_id: str, stage1: Any) -> TwoStageModel | None:
+    """The two-stage model of `run_id`, wrapping its already-loaded Stage 1;
+    None when the run was trained without a second stage."""
+    try:
+        settings = mlflow.artifacts.load_dict(f"runs:/{run_id}/{TWO_STAGE_ARTIFACT}")
+    except Exception:
+        return None
+    stage2 = mlflow.lightgbm.load_model(f"runs:/{run_id}/{STAGE2_MODEL_NAME}")
+    return TwoStageModel(stage1, stage2, settings["candidate_threshold"])

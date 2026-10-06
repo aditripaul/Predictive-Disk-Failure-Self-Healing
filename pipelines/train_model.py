@@ -167,6 +167,7 @@ from src.models.training import (
     predict_proba_positive,
     train_lightgbm,
 )
+from src.models.two_stage import fit_second_stage, lightgbm_fitter, log_two_stage
 from src.models.xgboost_training import train_xgboost
 from src.reporting.figure_data import gain_importance, roc_points
 from src.resource_limits import apply_memory_limit_from_config
@@ -806,6 +807,13 @@ def main() -> None:
         "matches primary_horizon_days.",
     )
     parser.add_argument(
+        "--two-stage",
+        action="store_true",
+        help="Also train a second model that re-ranks the first model's candidates "
+        "(src/models/two_stage.py), for this run only. Same as model.two_stage.enabled: "
+        "true in configs/model.yaml.",
+    )
+    parser.add_argument(
         "--keep-work-dir",
         action="store_true",
         help="Keep the scratch work dir (x_*/y_*.npy, *_ids.parquet) after "
@@ -974,14 +982,52 @@ def main() -> None:
             _log_stage("model_trained", t0, model_type=model_type, train_row_count=x_train.shape[0])
 
             val_scores = predict_proba_positive(model, x_val)
+            val_drive_ids = pl.read_parquet(work_dir / "validation_ids.parquet")[
+                "drive_id"
+            ].to_numpy()
+
+            # Optional second stage (src/models/two_stage.py): a second model
+            # re-ranks the rows Stage 1 scores highest. `model` stays Stage 1
+            # (logged, explained and plotted as before); the scores every
+            # threshold and report below is built on become the combined ones.
+            two_stage_cfg = model_config["model"].get("two_stage", {})
+            two_stage_model = None
+            stage1_val_scores = val_scores
+            if args.two_stage or two_stage_cfg.get("enabled", False):
+                if model_type != "lightgbm":
+                    raise ValueError("model.two_stage is only implemented for model.type: lightgbm")
+                t0 = time.perf_counter()
+                two_stage_model, two_stage_report = fit_second_stage(
+                    lightgbm_fitter(
+                        model_params,
+                        positive_weight_power=model_config["model"].get("positive_weight_power"),
+                        early_stopping_rounds=model_config["model"].get("early_stopping_rounds"),
+                        seed=two_stage_cfg.get("seed", 0),
+                    ),
+                    model,
+                    x_train=x_train,
+                    y_train=y_train,
+                    train_drives=pl.read_parquet(work_dir / "train_ids.parquet")[
+                        "drive_id"
+                    ].to_numpy(),
+                    x_val=x_val,
+                    y_val=y_val,
+                    val_drives=val_drive_ids,
+                    val_stage1_scores=stage1_val_scores,
+                    candidate_recall=two_stage_cfg.get("candidate_recall", 0.5),
+                    n_folds=two_stage_cfg.get("n_folds", 3),
+                    seed=two_stage_cfg.get("seed", 0),
+                )
+                results["two_stage"] = two_stage_report
+                _log_stage("two_stage_trained", t0, **two_stage_report)
+                if two_stage_model is not None:
+                    val_scores = two_stage_model.final_scores(x_val, stage1_val_scores)
+
             # Chosen on the DRIVE-level precision/recall curve, honoring both
             # the precision target and the recall range; if the goal is
             # unreachable, the best achievable point inside the recall range
             # (never a single-drive, ~0%-recall fallback). See
             # src/models/threshold.py::tune_drive_level_threshold.
-            val_drive_ids = pl.read_parquet(work_dir / "validation_ids.parquet")[
-                "drive_id"
-            ].to_numpy()
             threshold_result = tune_drive_level_threshold(
                 val_drive_ids,
                 y_val,
@@ -998,6 +1044,19 @@ def main() -> None:
             y_test = np.load(work_dir / "y_test.npy")
             test_ids = pl.read_parquet(work_dir / "test_ids.parquet")
             test_scores = predict_proba_positive(model, x_test)
+            if two_stage_model is not None:
+                # Stage 1 alone on the same drives, so every report shows what
+                # the second stage changed.
+                results["two_stage"]["stage1_precision_at_recall"] = precision_at_recall_table(
+                    val_drive_ids,
+                    y_val,
+                    stage1_val_scores,
+                    test_ids["drive_id"].to_numpy(),
+                    y_test,
+                    test_scores,
+                )
+                test_scores = two_stage_model.final_scores(x_test, test_scores)
+            del stage1_val_scores
             results["test_metrics"] = evaluate_at_threshold(
                 y_test, test_scores, threshold_result["threshold"]
             )
@@ -1202,6 +1261,9 @@ def main() -> None:
                 mlflow.xgboost.log_model(model, name="model")
             else:
                 mlflow.lightgbm.log_model(model, name="model")
+            mlflow.log_param("two_stage", two_stage_model is not None)
+            if two_stage_model is not None:
+                log_two_stage(two_stage_model, results["two_stage"])
 
             # SHAP global feature importance (docs/design_goal.md "Explainability
             # by default"): background sample keeps TreeExplainer fast even on a
@@ -1273,6 +1335,7 @@ def main() -> None:
                 },
                 action_tiers=results["action_tiers"],
                 precision_at_recall=results["precision_at_recall"],
+                two_stage=results.get("two_stage"),
                 shap_top_features=(
                     feature_importance[:20] if feature_importance is not None else None
                 ),
@@ -1315,6 +1378,17 @@ def main() -> None:
                     test_lift=row["test"]["lift"],
                     # Same alerts on test sets with more failing drives.
                     test_precision_at_failure_rate=row["test"]["precision_at_failure_rate"],
+                )
+            for row in results.get("two_stage", {}).get("stage1_precision_at_recall", []):
+                if row["threshold"] is None:
+                    continue
+                logger.info(
+                    "stage1_alone_precision_at_recall",
+                    target_recall=row["target_recall"],
+                    test_precision=row["test"]["precision"],
+                    test_recall=row["test"]["recall"],
+                    test_caught=row["test"]["caught_drive_count"],
+                    test_false_alarms=row["test"]["false_alarm_drive_count"],
                 )
             logger.info("data_build", **results["data_build"])
             for tier, info in results["action_tiers"].items():

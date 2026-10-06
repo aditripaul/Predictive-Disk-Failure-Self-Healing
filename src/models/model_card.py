@@ -37,6 +37,7 @@ def build_model_card(
     drive_level_metrics: dict[str, Any] | None = None,
     action_tiers: dict[str, Any] | None = None,
     precision_at_recall: list[dict[str, Any]] | None = None,
+    two_stage: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "generated_at": dt.datetime.now(dt.UTC).isoformat(),
@@ -45,6 +46,8 @@ def build_model_card(
             "version": model_version,
             "params": model_params,
             "primary_horizon_days": horizon_days,
+            # Second-stage report (src/models/two_stage.py); None = single stage.
+            "two_stage": two_stage,
         },
         "intended_use": {
             "purpose": (
@@ -116,6 +119,32 @@ def _reference_rate_text(metrics: dict[str, Any]) -> str:
     )
 
 
+def _two_stage_lines(two_stage: dict[str, Any] | None) -> list[str]:
+    if not two_stage:
+        return ["- Stages: one (no second-stage model)"]
+    if two_stage.get("status") != "ok":
+        return [f"- Stages: one (second stage not trained: {two_stage.get('status')})"]
+    candidates = two_stage["candidates"]
+    lines = [
+        f"- Stages: two. Rows scoring >= {two_stage['candidate_threshold']:.4f} on the first "
+        f"model (the validation threshold catching {two_stage['candidate_recall']:.0%} of "
+        f"failing drives) are re-ranked by a second model ({two_stage['stage2_trees']} trees) "
+        f"trained on {candidates['train_rows']} candidate train rows "
+        f"({candidates['train_positive_rows']} positive). Every figure below is for the "
+        "combined score."
+    ]
+    for row in two_stage.get("stage1_precision_at_recall") or []:
+        if row.get("threshold") is None:
+            continue
+        test = row["test"]
+        lines.append(
+            f"  - first model alone, recall >= {row['target_recall']:.0%}: test precision "
+            f"{test['precision']:.1%} at recall {test['recall']:.1%} "
+            f"({test['caught_drive_count']} caught, {test['false_alarm_drive_count']} false alarms)"
+        )
+    return lines
+
+
 def _precision_at_recall_lines(rows: list[dict[str, Any]] | None) -> list[str]:
     if not rows:
         return []
@@ -175,6 +204,7 @@ def render_model_card_markdown(card: dict[str, Any]) -> str:
         f"- Version: {details['version']}",
         f"- Primary horizon: {details['primary_horizon_days']} days",
         f"- Params: {details['params']}",
+        *_two_stage_lines(details.get("two_stage")),
         "",
         "## Intended Use",
         f"- Purpose: {card['intended_use']['purpose']}",

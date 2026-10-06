@@ -45,6 +45,7 @@ from src.models.training import (
     early_stopping_subset,
     predict_proba_positive,
 )
+from src.models.two_stage import drive_folds, fit_second_stage, lightgbm_fitter  # noqa: F401
 from src.resource_limits import apply_memory_limit_from_config
 
 logger = get_logger(__name__)
@@ -515,13 +516,6 @@ def _print_deep_dive(report: dict[str, Any]) -> None:
         print(f"  {smoother:9s} | {cells[0]:36s} | {cells[1]}")
 
 
-def drive_folds(drive_ids: np.ndarray, n_folds: int) -> np.ndarray:
-    """A fold number per row, the same for every row of a drive (hash of the
-    drive id), so out-of-fold scores never come from a model that saw that
-    drive."""
-    return (pl.Series("d", drive_ids).hash(seed=0) % n_folds).to_numpy().astype(np.int64)
-
-
 def _fit_lgbm(
     params: dict[str, Any],
     x: np.ndarray,
@@ -550,110 +544,58 @@ def _fit_lgbm(
 
 
 def two_stage_experiment(
-    data: dict[str, Any], *, n_folds: int = 3, candidate_recall: float = 0.5
+    data: dict[str, Any], *, n_folds: int = 3, candidate_recall: float = 0.5, seed: int = 0
 ) -> dict[str, Any]:
     """Does a second model trained only on the hard cases beat the pooled model?
 
-    Stage 1 is the pooled model. Its candidates are the rows scoring at or above
-    the validation threshold that still catches `candidate_recall` of failing
-    drives. Stage 2 is trained on the TRAIN rows that are candidates, using
-    out-of-fold Stage 1 scores for them (each drive scored by a model that never
-    saw it; in-sample scores would be far more confident than anything Stage 2
-    meets later). The final score is Stage 2's for candidates and 0 otherwise.
-
-    A cascade cannot raise precision by filtering alone; it helps only if
-    Stage 2 separates the look-alike healthy drives better than Stage 1 did.
-    The report compares both at the same recall levels, on the same test
-    drives, with thresholds chosen on validation."""
-    base = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["model"]["params"]
-    params = {**base, **REGULARIZED, "verbosity": -1}
+    Uses the same code `make train TRAIN_ARGS=--two-stage` runs
+    (src/models/two_stage.py): Stage 1 is the pooled model; Stage 2 is trained
+    on the train rows Stage 1 scores above its candidate threshold, with
+    out-of-fold Stage 1 scores. The report compares both at the same recall
+    levels, on the same test drives, with thresholds chosen on validation.
+    `seed` sets the fold assignment and both models' sampling, so repeated
+    seeds show how much of a difference is chance."""
+    model_cfg = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["model"]
+    fit = lightgbm_fitter(
+        {**model_cfg["params"], **REGULARIZED},
+        positive_weight_power=0.5,
+        early_stopping_rounds=50,
+        seed=seed,
+    )
     sub = data["es_idx"]
-    y_train, train_drives = data["y_train"], data["train_drives"]
-
-    stage1 = _fit_lgbm(
-        params,
+    stage1 = fit(
         data["x_train"],
-        y_train,
-        train_drives,
+        data["y_train"],
         eval_x=np.array(data["x_val"][sub]),
         eval_y=data["y_val"][sub],
     )
-    n_trees = int(stage1.best_iteration_ or stage1.n_estimators)
     val_s1 = predict_proba_positive(stage1, data["x_val"])
     test_s1 = predict_proba_positive(stage1, data["x_test"])
-
-    # Out-of-fold Stage 1 scores for the train rows, with the same tree count.
-    folds = drive_folds(train_drives, n_folds)
-    fold_params = {**params, "n_estimators": n_trees}
-    train_s1 = np.zeros(len(y_train), dtype=np.float64)
-    for fold in range(n_folds):
-        held_out = folds == fold
-        model = _fit_lgbm(
-            fold_params, data["x_train"][~held_out], y_train[~held_out], train_drives[~held_out]
-        )
-        train_s1[held_out] = predict_proba_positive(model, data["x_train"][held_out])
-        del model
-
-    # Candidate threshold: the highest-precision validation threshold that
-    # still catches `candidate_recall` of the failing drives.
-    candidate_row = precision_at_recall_table(
-        data["val_drives"],
-        data["y_val"],
-        val_s1,
-        data["test_drives"],
-        data["y_test"],
-        test_s1,
-        recalls=(candidate_recall,),
-    )[0]
-    report: dict[str, Any] = {
-        "stage1_trees": n_trees,
-        "candidate_recall": candidate_recall,
-        "candidate_threshold": candidate_row["threshold"],
-    }
-    if candidate_row["threshold"] is None:
-        report["status"] = "candidate recall not reachable on validation"
+    model, report = fit_second_stage(
+        fit,
+        stage1,
+        x_train=data["x_train"],
+        y_train=data["y_train"],
+        train_drives=data["train_drives"],
+        x_val=data["x_val"],
+        y_val=data["y_val"],
+        val_drives=data["val_drives"],
+        val_stage1_scores=val_s1,
+        candidate_recall=candidate_recall,
+        n_folds=n_folds,
+        seed=seed,
+    )
+    if model is None:
         return report
-    threshold = candidate_row["threshold"]
-    cand_train, cand_val, cand_test = (
-        train_s1 >= threshold,
-        val_s1 >= threshold,
-        test_s1 >= threshold,
-    )
-    report["candidates"] = {
-        "train_rows": int(cand_train.sum()),
-        "train_positive_rows": int(y_train[cand_train].sum()),
-        "validation_rows": int(cand_val.sum()),
-        "test_rows": int(cand_test.sum()),
-    }
-    if report["candidates"]["train_positive_rows"] < 20 or data["y_val"][cand_val].sum() < 5:
-        report["status"] = "too few candidate failures to train a second stage"
-        return report
-
-    def with_score(x: np.ndarray, mask: np.ndarray, score: np.ndarray) -> np.ndarray:
-        """Candidate rows' features plus the Stage 1 score as a last column."""
-        return np.column_stack([np.asarray(x[np.flatnonzero(mask)]), score[mask]])
-
-    stage2 = _fit_lgbm(
-        {**params, "min_child_samples": 50},
-        with_score(data["x_train"], cand_train, train_s1),
-        y_train[cand_train],
-        train_drives[cand_train],
-        eval_x=with_score(data["x_val"], cand_val, val_s1),
-        eval_y=data["y_val"][cand_val],
-    )
-    val_final = np.zeros(len(val_s1))
-    test_final = np.zeros(len(test_s1))
-    val_final[cand_val] = predict_proba_positive(
-        stage2, with_score(data["x_val"], cand_val, val_s1)
-    )
-    test_final[cand_test] = predict_proba_positive(
-        stage2, with_score(data["x_test"], cand_test, test_s1)
-    )
-    report["stage2_trees"] = int(stage2.best_iteration_ or stage2.n_estimators)
+    report["candidates"]["test_rows"] = int((test_s1 >= model.candidate_threshold).sum())
     recalls = tuple(r for r in (0.05, 0.10, 0.20, 0.35) if r <= candidate_recall)
     for name, val_scores, test_scores in (
         ("stage1", val_s1, test_s1),
-        ("two_stage", val_final, test_final),
+        (
+            "two_stage",
+            model.final_scores(data["x_val"], val_s1),
+            model.final_scores(data["x_test"], test_s1),
+        ),
     ):
         report[name] = precision_at_recall_table(
             data["val_drives"],
@@ -664,32 +606,82 @@ def two_stage_experiment(
             test_scores,
             recalls=recalls,
         )
-    report["status"] = "ok"
     return report
 
 
 def _print_two_stage(report: dict[str, Any]) -> None:
-    print("\n#### TWO STAGE (second model on Stage 1's hard cases) - TEST, drive level")
+    print(
+        f"\n#### TWO STAGE (second model on Stage 1's hard cases) - TEST, drive level"
+        f" - seed {report['seed']}"
+    )
     print(f"  stage 1 trees={report['stage1_trees']}  candidates={report.get('candidates')}")
     if report["status"] != "ok":
         print(f"  not run: {report['status']}")
         return
     print(f"  stage 2 trees={report['stage2_trees']}")
     for stage1_row, two_row in zip(report["stage1"], report["two_stage"], strict=True):
-        cells = []
-        for row in (stage1_row, two_row):
-            if row.get("threshold") is None:
-                cells.append("unreachable")
-                continue
-            t = row["test"]
-            cells.append(
-                f"P={t['precision']:.3f} R={t['recall']:.3f} "
-                f"({t['caught_drive_count']}/{t['failing_drive_count']}, "
-                f"FA={t['false_alarm_drive_count']})"
-            )
         print(
-            f"  recall>={stage1_row['target_recall']:.0%}: stage 1 alone {cells[0]}"
-            f"  |  two stage {cells[1]}"
+            f"  recall>={stage1_row['target_recall']:.0%}: stage 1 alone "
+            f"{_recall_cell(stage1_row)}  |  two stage {_recall_cell(two_row)}"
+        )
+
+
+def summarize_two_stage_seeds(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Per recall level, across the seeds that trained a second stage: mean
+    test precision and recall of each model, and in how many seeds the
+    two-stage model was at least as good on both (and better on one)."""
+    usable = [r for r in reports if r.get("status") == "ok"]
+    summary: list[dict[str, Any]] = []
+    if not usable:
+        return summary
+    for i, first in enumerate(usable[0]["stage1"]):
+        pairs = [
+            (r["stage1"][i]["test"], r["two_stage"][i]["test"])
+            for r in usable
+            if r["stage1"][i].get("threshold") is not None
+            and r["two_stage"][i].get("threshold") is not None
+        ]
+        if not pairs:
+            continue
+
+        def mean(side: int, key: str, pairs: list = pairs) -> float:
+            return float(np.mean([pair[side][key] for pair in pairs]))
+
+        summary.append(
+            {
+                "target_recall": first["target_recall"],
+                "seeds": len(pairs),
+                "stage1_precision": mean(0, "precision"),
+                "stage1_recall": mean(0, "recall"),
+                "two_stage_precision": mean(1, "precision"),
+                "two_stage_recall": mean(1, "recall"),
+                "precision_gain_min": float(
+                    min(two["precision"] - one["precision"] for one, two in pairs)
+                ),
+                "precision_gain_max": float(
+                    max(two["precision"] - one["precision"] for one, two in pairs)
+                ),
+                "two_stage_better_seeds": sum(
+                    two["precision"] >= one["precision"]
+                    and two["recall"] >= one["recall"]
+                    and (two["precision"] > one["precision"] or two["recall"] > one["recall"])
+                    for one, two in pairs
+                ),
+            }
+        )
+    return summary
+
+
+def _print_two_stage_summary(summary: list[dict[str, Any]]) -> None:
+    print("\n#### TWO STAGE ACROSS SEEDS - TEST, drive level (means)")
+    for row in summary:
+        print(
+            f"  recall>={row['target_recall']:.0%} ({row['seeds']} seeds): stage 1 alone "
+            f"P={row['stage1_precision']:.3f} R={row['stage1_recall']:.3f}  |  two stage "
+            f"P={row['two_stage_precision']:.3f} R={row['two_stage_recall']:.3f}  |  "
+            f"precision gain {row['precision_gain_min']:+.3f} to "
+            f"{row['precision_gain_max']:+.3f}; two stage better on precision and recall "
+            f"in {row['two_stage_better_seeds']}/{row['seeds']}"
         )
 
 
@@ -1046,6 +1038,14 @@ def main() -> None:
         "scores on train) and compare it with the pooled model alone at fixed recall.",
     )
     parser.add_argument(
+        "--two-stage-seeds",
+        type=int,
+        default=1,
+        metavar="N",
+        help="With --two-stage: repeat it with N different seeds (fold assignment and "
+        "model sampling) and print the mean and spread, to tell a real gain from chance.",
+    )
+    parser.add_argument(
         "--anomaly-stage",
         action="store_true",
         help="Fit an isolation forest on healthy train rows and compare, against the "
@@ -1142,10 +1142,17 @@ def main() -> None:
             json.dumps(per_model, indent=2, default=str)
         )
     if args.two_stage:
-        two_stage_report = two_stage_experiment(data)
-        _print_two_stage(two_stage_report)
+        two_stage_reports = []
+        for seed in range(max(1, args.two_stage_seeds)):
+            two_stage_reports.append(two_stage_experiment(data, seed=seed))
+            _print_two_stage(two_stage_reports[-1])
+        two_stage_summary = summarize_two_stage_seeds(two_stage_reports)
+        if len(two_stage_reports) > 1:
+            _print_two_stage_summary(two_stage_summary)
         (work_dir / "experiment_two_stage.json").write_text(
-            json.dumps(two_stage_report, indent=2, default=str)
+            json.dumps(
+                {"runs": two_stage_reports, "summary": two_stage_summary}, indent=2, default=str
+            )
         )
     if args.anomaly_stage:
         anomaly_report = anomaly_stage_experiment(data)
