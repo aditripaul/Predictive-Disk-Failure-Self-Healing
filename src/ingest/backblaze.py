@@ -78,7 +78,17 @@ def filter_files_by_date_range(
 def ingest_backblaze_file(csv_path: Path, bronze_root: Path) -> list[Path]:
     """Lazily ingest a single Backblaze daily/quarterly CSV file into Bronze
     Parquet, partitioned by year/month. Never materializes the full file."""
-    lf = pl.scan_csv(csv_path, infer_schema_length=10_000, try_parse_dates=True)
+    # Float64 for the optional SMART columns: a column that is empty in the
+    # first `infer_schema_length` rows (an attribute some drive models do not
+    # report) is otherwise inferred as String, so numbers land in Bronze as
+    # text and the type differs from file to file.
+    header = pl.scan_csv(csv_path, n_rows=0).collect_schema().names()
+    lf = pl.scan_csv(
+        csv_path,
+        infer_schema_length=10_000,
+        try_parse_dates=True,
+        schema_overrides={c: pl.Float64 for c in OPTIONAL_SMART_COLUMNS if c in header},
+    )
 
     names = lf.collect_schema().names()
     # Optional attributes are kept when the file has them. Backblaze has not

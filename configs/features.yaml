@@ -1,18 +1,25 @@
 version: 1
 
+# Core error counters: each gets the FULL feature family (rolling stats, deltas,
+# slopes, acceleration, positive/spike counts, zero-to-nonzero flags, model-family
+# z-scores) - about 31 columns per attribute. Keep this list short: every entry
+# widens the gold table and the training matrices by that much.
 priority_smart_attributes:
   - reallocated_sector_count
   - current_pending_sector_count
   - offline_uncorrectable
   - reported_uncorrectable_errors
-  - raw_read_error_rate
-  - seek_error_rate
-  - spin_retry_count
   - command_timeout
+
+# Context attributes: each gets a LIGHT family only (current value plus its change
+# over secondary_delta_windows_days observations). Missing for some drive models,
+# so they are also left out of feature_confidence's attribute coverage.
+secondary_smart_attributes:
+  - seek_error_rate
   - power_on_hours
-  - smart_overall_health_normalized
-  - udma_crc_error_count
   - temperature_celsius
+  - udma_crc_error_count
+secondary_delta_windows_days: [7, 30]
 
 windows_days: [7, 14, 30]
 

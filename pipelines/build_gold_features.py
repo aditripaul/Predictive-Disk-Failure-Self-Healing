@@ -69,12 +69,16 @@ from src.features.cross_vendor import (
     model_family_zscore_plan,
     model_family_zscore_stats,
 )
-from src.features.derivatives import add_acceleration, add_deltas
+from src.features.derivatives import add_acceleration, add_deltas, add_secondary_deltas
 from src.features.events import add_positive_day_counts, add_spike_counts, add_zero_to_nonzero_flags
 from src.features.lifecycle import add_lifecycle_features
 from src.features.pivot import pivot_badness_wide
 from src.features.registry import build_registry
-from src.features.velocity import add_defect_velocity
+from src.features.velocity import (
+    add_days_since_last_increase,
+    add_defect_velocity,
+    add_temperature_spike,
+)
 from src.features.windows import add_rolling_aggregates
 from src.logging_config import configure_logging, get_logger
 from src.resource_limits import apply_memory_limit_from_config
@@ -116,6 +120,20 @@ def resolve_feature_plan(
     return available_attributes, windows_days, spike_thresholds
 
 
+def resolve_secondary_plan(
+    columns: list[str], features_config: dict
+) -> tuple[list[str], tuple[int, ...]]:
+    """The secondary (light-family) attributes present, and their delta
+    windows. Empty when the config has no `secondary_smart_attributes`."""
+    attributes = [a for a in features_config.get("secondary_smart_attributes", []) if a in columns]
+    windows = tuple(features_config.get("secondary_delta_windows_days", (7, 30)))
+    return attributes, windows
+
+
+#: Extra short window for the active-defect velocity, on top of `windows_days`.
+VELOCITY_SHORT_WINDOW_DAYS = 3
+
+
 def _require_silver_inputs(data_config: dict) -> tuple[Path, Path]:
     silver_dir = Path(data_config["silver_dir"])
     canonical_path = silver_dir / "canonical_telemetry" / "part.parquet"
@@ -136,6 +154,7 @@ def build_gold_features(wide: pl.DataFrame, features_config: dict) -> pl.DataFra
     available_attributes, windows_days, spike_thresholds = resolve_feature_plan(
         wide.columns, features_config
     )
+    secondary_attributes, secondary_windows = resolve_secondary_plan(wide.columns, features_config)
 
     t0 = time.perf_counter()
     gold = add_rolling_aggregates(wide, available_attributes, windows_days=windows_days)
@@ -155,8 +174,17 @@ def build_gold_features(wide: pl.DataFrame, features_config: dict) -> pl.DataFra
     _log_stage("acceleration_added", t0)
 
     t0 = time.perf_counter()
-    gold = add_defect_velocity(gold, windows_days=windows_days)
+    velocity_windows = tuple(sorted({VELOCITY_SHORT_WINDOW_DAYS, *windows_days}))
+    gold = add_defect_velocity(
+        gold, windows_days=velocity_windows, acceleration_short_days=windows_days[0]
+    )
+    gold = add_days_since_last_increase(gold, available_attributes)
     _log_stage("defect_velocity_added", t0)
+
+    t0 = time.perf_counter()
+    gold = add_secondary_deltas(gold, secondary_attributes, windows_days=secondary_windows)
+    gold = add_temperature_spike(gold)
+    _log_stage("secondary_features_added", t0, attribute_count=len(secondary_attributes))
 
     t0 = time.perf_counter()
     gold = add_positive_day_counts(gold, available_attributes, windows_days=windows_days)
@@ -515,13 +543,20 @@ def main() -> None:
     windows_days = tuple(result["windows_days"])
     spike_thresholds = result["spike_thresholds"]
 
-    registry = build_registry(attributes, windows_days, spike_thresholds)
+    gold_columns = pl.scan_parquet(out_path).collect_schema().names()
+    secondary_attributes, secondary_windows = resolve_secondary_plan(gold_columns, features_config)
+    registry = build_registry(
+        attributes,
+        windows_days,
+        spike_thresholds,
+        secondary_attributes=secondary_attributes,
+        secondary_windows_days=secondary_windows,
+        gold_columns=gold_columns,
+    )
     registry_dir = Path(data_config["audit_dir"]) / "feature_registry"
     registry_dir.mkdir(parents=True, exist_ok=True)
     registry_path = registry_dir / f"v{features_config['version']}.json"
-    registry_path.write_text(
-        json.dumps([e.model_dump() for e in registry], indent=2, default=str)
-    )
+    registry_path.write_text(json.dumps([e.model_dump() for e in registry], indent=2, default=str))
 
     logger.info(
         "gold_features_written",
@@ -529,9 +564,7 @@ def main() -> None:
         column_count=result["column_count"],
         path=str(out_path),
     )
-    logger.info(
-        "feature_registry_written", entry_count=len(registry), path=str(registry_path)
-    )
+    logger.info("feature_registry_written", entry_count=len(registry), path=str(registry_path))
 
 
 if __name__ == "__main__":

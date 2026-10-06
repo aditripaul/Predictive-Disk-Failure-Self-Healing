@@ -55,3 +55,19 @@ def add_acceleration(
         for attr in attributes
     ]
     return df.with_columns(exprs)
+
+
+def add_secondary_deltas(
+    df: pl.DataFrame, attributes: list[str], *, windows_days: tuple[int, ...]
+) -> pl.DataFrame:
+    """The light family for secondary attributes: only `{attr}_{window}d_delta`
+    (change over the last `window` observations of the same drive). No slopes,
+    rolling statistics or z-scores - see configs/features.yaml."""
+    exprs = [
+        (pl.col(attr) - pl.col(attr).shift(window).over("drive_id")).alias(
+            f"{attr}_{window}d_delta"
+        )
+        for attr in attributes
+        for window in windows_days
+    ]
+    return df.with_columns(exprs) if exprs else df

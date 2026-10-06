@@ -26,7 +26,16 @@ def build_registry(
     attributes: list[str],
     windows_days: tuple[int, ...],
     spike_thresholds: dict[str, float],
+    *,
+    secondary_attributes: list[str] | None = None,
+    secondary_windows_days: tuple[int, ...] = (),
+    gold_columns: list[str] | None = None,
 ) -> list[FeatureRegistryEntry]:
+    """`secondary_attributes`/`secondary_windows_days` register the light
+    family (value + deltas). `gold_columns` (the gold table's column names)
+    registers the features whose presence depends on the data - active-defect
+    velocity, days-since-last-increase, temperature spike, power-on days -
+    only when they were actually produced."""
     entries: list[FeatureRegistryEntry] = []
     for attr in attributes:
         for window in windows_days:
@@ -114,6 +123,50 @@ def build_registry(
                     source_attribute=attr,
                     window_days=window,
                     operation="model_family_zscore",
+                )
+            )
+
+    for attr in secondary_attributes or []:
+        for window in secondary_windows_days:
+            entries.append(
+                FeatureRegistryEntry(
+                    feature_name=f"{attr}_{window}d_delta",
+                    source_attribute=attr,
+                    window_days=window,
+                    operation="delta",
+                )
+            )
+
+    for column in gold_columns or []:
+        if column.startswith("active_defect_"):
+            entries.append(
+                FeatureRegistryEntry(
+                    feature_name=column,
+                    source_attribute="active_defect_total",
+                    operation="defect_velocity",
+                )
+            )
+        elif column.endswith("_days_since_last_increase"):
+            entries.append(
+                FeatureRegistryEntry(
+                    feature_name=column,
+                    source_attribute=column.removesuffix("_days_since_last_increase"),
+                    operation="days_since_last_increase",
+                    dtype="int16",
+                )
+            )
+        elif column == "temperature_spike":
+            entries.append(
+                FeatureRegistryEntry(
+                    feature_name=column,
+                    source_attribute="temperature_celsius",
+                    operation="short_max_minus_long_mean",
+                )
+            )
+        elif column == "power_on_days":
+            entries.append(
+                FeatureRegistryEntry(
+                    feature_name=column, source_attribute="power_on_hours", operation="lifecycle"
                 )
             )
 
