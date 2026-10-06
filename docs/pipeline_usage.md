@@ -54,9 +54,17 @@ splits:
   test_end: "2026-05-31"
 ```
 
-For Q1 only, use `train_end: "2026-02-22"`, `validation_end: "2026-03-06"`,
-`test_end: "2026-03-17"` (valid for the 14-day horizon). Check the split dates
-against the last date in your files before running.
+`make train` applies these dates when it extracts each split: training uses
+rows dated at least one horizon (30 days) before `train_end`, validation uses
+only dates after `train_end`, and test stops at `test_end`
+(`splits.purge_label_window` and `splits.validation_after_train_only`, both
+`true`; see `docs/model_status_and_runbook.md` section 4.4).
+
+One quarter is too short for the 30-day default: after the purge, training
+would have about three weeks of data. For Q1 only, set
+`primary_horizon_days: 14` and use `train_end: "2026-02-22"`,
+`validation_end: "2026-03-06"`, `test_end: "2026-03-17"`. Check the split
+dates against the last date in your files before running.
 
 ### 2.2 Run the steps in order
 
@@ -184,14 +192,21 @@ Each step needs the ones before it.
 | Option | Effect |
 |---|---|
 | `TRAIN_ARGS=--keep-work-dir` | Keeps the training arrays in `data/tmp/train_model_frame_*` for the experiment tool. Delete them with `make clean-kept`. |
-| `TRAIN_ARGS="--horizon-days 30"` | Trains for a horizon in `horizons_days`. The run is logged with that horizon; `score-fleet` only uses runs for the primary horizon (`primary_horizon_days`, now 30). |
+| `TRAIN_ARGS="--horizon-days 14"` | Trains for a horizon in `horizons_days` other than the default. The run is logged with that horizon; `score-fleet` only uses runs for the primary horizon (`primary_horizon_days`, now 30). |
+| `TRAIN_ARGS=--two-stage` | Also trains a second model that re-ranks the first model's highest-scoring rows (`src/models/two_stage.py`). Thresholds, tiers and reports are then built on the combined score, with the first model alone logged beside it (`stage1_alone_precision_at_recall`). `make score-fleet` uses the second stage automatically for a run trained with it. Same as `model.two_stage.enabled: true`. Adds three extra fits of the first model, so roughly doubles the model-fitting time. |
 
 Examples:
 ```bash
 make train
 make train TRAIN_ARGS=--keep-work-dir
-make train TRAIN_ARGS="--horizon-days 30"
+make train TRAIN_ARGS="--two-stage --keep-work-dir"
+make train TRAIN_ARGS="--horizon-days 14"
 ```
+
+Every drive-level result in the log and reports carries, beside its
+precision on the real fleet, `lift` and `precision_at_failure_rate` (the same
+alerts on test sets where 15% and 50% of drives fail). The configured target
+is judged on the real-fleet figure.
 
 ### Model comparison
 
@@ -208,7 +223,9 @@ Options for `EXPERIMENT_ARGS` and `FULL_EXPERIMENT_ARGS`:
 | `--variants NAME ...` | The named configurations to compare (see `pipelines/experiment_model.py`). |
 | `--skip-baseline` | Skips the logistic-regression reference, which takes about two minutes. |
 | `--deep-dive [NAME]` | Prints the false-alarm breakdown and persistence rules for one variant (default `reg_spw`). |
-| `--two-stage` | Trains a second model on the rows the pooled model flags (out-of-fold scores on train) and compares it with the pooled model alone at 5/10/20/35% recall on the same test drives. An experiment only: nothing else uses it. |
+| `--two-stage` | Runs the same second-stage code as `make train TRAIN_ARGS=--two-stage` and compares it with the first model alone at 5/10/20/35% recall on the same test drives. |
+| `--two-stage-seeds N` | With `--two-stage`: repeats it with N seeds and prints the mean, the range of the precision gain, and in how many seeds the two-stage model was better on both precision and recall. Use it to tell a real gain from chance; each seed takes a few minutes. |
+| `--anomaly-stage` | Fits an isolation forest on healthy train rows and reports the anomaly score alone, an anomaly-filter-then-classify cascade, and the score as an extra feature, each against the pooled model. |
 | `--per-model [N]` | Trains one model per drive family for the N families with the most failing validation drives (default 3), each compared with the pooled model on the same test drives. |
 
 Examples:
@@ -216,7 +233,16 @@ Examples:
 make experiment-model EXPERIMENT_ARGS="--variants reg_spw xgboost --skip-baseline"
 make full-experiment
 make full-experiment FULL_EXPERIMENT_ARGS="--variants reg_spw xgboost --per-model 5"
+make full-experiment FULL_EXPERIMENT_ARGS="--variants reg_spw --skip-baseline --two-stage --two-stage-seeds 5"
 ```
+
+Variants worth knowing (`--variants`): `reg_spw` is the pipeline's own
+configuration; `xgboost` and `xgboost_deep` swap the model family;
+`xgboost_aft` and `xgboost_aft_spw` are survival models trained on time to
+failure; `reg_spw_old_features`, `reg_spw_no_lifetime` and
+`reg_spw_no_secondary` remove feature groups. A kept work directory made
+before 2026-10-06 lacks the columns the survival variants need; rebuild it
+with `make train TRAIN_ARGS=--keep-work-dir`.
 
 ### Whole pipeline
 

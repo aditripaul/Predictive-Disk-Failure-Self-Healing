@@ -3,6 +3,14 @@
 ## AI-Based Autonomous System Validation & Reliability Checker
 ### Predictive Disk-Failure Self-Healing Agent for Server Fleets
 
+> **Status note (2026-10-06).** This document records the original design
+> and targets and is kept as written. What was built and measured is in
+> `docs/system_summary.md` and `docs/model_status_and_runbook.md`. In
+> particular: the prediction target stated here (95% precision at 35-50%
+> recall) is not met on real data (41% precision at 8.5% recall on the real
+> fleet, 30-day horizon), the primary horizon is now 30 days, and only
+> Backblaze data has been evaluated.
+
 **Document role:**
 This document defines the complete execution roadmap for the Project. It translates the design goals from `design_goal.md` and the dataset/feature strategy from `dataset_strategy.md` into a phased, actionable engineering plan.
 

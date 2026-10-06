@@ -105,11 +105,13 @@ would fail with "ruff: command not found."
 | `make download-backblaze` / `download-smartz` | Configurable raw-data download (§5.0) |
 | `make ingest-backblaze` / `ingest-smartz` / `ingest-synthetic-stub` | Bronze ingestion (§5) |
 | `make build-silver` / `build-features` / `build-labels` | Silver/Gold pipeline stages (§5) |
-| `make train` | Trains the model, tunes threshold, computes SHAP importance (§5.1) |
+| `make train` | Trains the model, chooses thresholds and action tiers, writes the evaluation report and model card (§5.12, §5.13). `TRAIN_ARGS` takes `--horizon-days N`, `--two-stage` and `--keep-work-dir`. SHAP only when `diagnostics.shap_enabled` (§5.1) |
+| `make experiment-model` | Compares modelling variants on a kept training run (§5.12, §5.13; `docs/pipeline_usage.md`) |
+| `make full-experiment` / `clean-kept` / `full-pipeline` | Train with kept arrays then run the experiment; remove kept work directories; ingest through plots |
 | `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (§5.7) — `train-lstm` requires `uv sync --extra torch` |
-| `make score-fleet` | Batch-scores the current fleet with the latest MLflow model; writes `data/audit/predictions/` (§5.8) |
-| `make plots` | Renders performance-metric plots (calibration, SHAP, class imbalance, metric comparison) to `data/audit/plots/` (§5.9) |
-| `make final-report` | `pipelines/generate_final_report.py` — aggregates chaos/latency/model reports |
+| `make score-fleet` | Batch-scores the current fleet with the latest MLflow run for `primary_horizon_days` (and that run's second-stage model and tier thresholds, when it has them); writes `data/audit/predictions/` (§5.8) |
+| `make plots` | Renders performance plots (calibration, ROC curves, feature importance, failures by drive family, class imbalance, metric comparison; SHAP when enabled) to `data/audit/plots/` (§5.9) |
+| `make final-report` | `pipelines/generate_final_report.py` — aggregates chaos/latency/model reports, the goal status against `configs/model.yaml` and the plot list; runs `make plots` first |
 | `make agent-demo` | One MAPE-K cycle against the hardcoded demo fleet (§6) |
 | `make dashboard` | Streamlit UI (§10) |
 | `make api` | FastAPI service (§10) |
@@ -1080,6 +1082,74 @@ objective: more history (more failing drives to learn from), a longer
 horizon (the 21 late failures above become hits at 30 days), and tiered
 operating points per agent action instead of one 95% target.
 
+> The paragraph above is the Q1 2026, 14-day record. Current figures (two
+> quarters, 30-day horizon, corrected splits) are in
+> `docs/model_status_and_runbook.md` section 4.4, and §5.13 below describes
+> the code behind them.
+
+### 5.13 Current evaluation rules, the 30-day horizon and the second stage
+
+Added on 2026-10-06. Results for each item: `docs/model_status_and_runbook.md`
+sections 4.2 to 4.4.
+
+**Horizon.** `primary_horizon_days` is 30. `make train --horizon-days N`
+trains for another horizon in `horizons_days`; `make score-fleet` only uses
+runs logged with the primary horizon.
+
+**Split dates** (`pipelines/train_model.py::_split_period_predicate`, applied
+when each split is extracted, so no label rebuild is needed):
+
+| Split | Rows kept | Why |
+|---|---|---|
+| train | dated at least `horizon_days` before `train_end` (`splits.purge_label_window`) | a later row's label is settled by events after `train_end`, inside validation |
+| validation | dated after `train_end` (`splits.validation_after_train_only`) | the label table also files the held-out drives' training-period rows under validation; those share their dates with training rows |
+| test | dated up to `test_end` | later, only failing drive-days still have a label |
+
+`train_meta.json` records `row_count_before_cap` after the purge, and the
+`data_build` record in every report carries the row and failing-drive counts.
+
+**Precision at stated failure rates** (`src/models/evaluation.py`).
+`drive_level_metrics` returns, besides precision and recall,
+`fleet_failure_rate`, `lift` and `precision_at_failure_rate` for the rates in
+`REFERENCE_FAILURE_RATES` (15% and 50%). `precision_at_failure_rate(recall,
+false_alarm_rate, failure_rate)` restates the measured rates for a population
+with more failures; it reproduces the measured precision at the fleet's own
+rate. It is shown in the training log, evaluation report, model card, final
+report (`goal_status`) and experiment tables (`P@15%`). The configured target
+is judged on the fleet figure only.
+
+**Second stage** (`src/models/two_stage.py`, optional, off by default).
+`make train TRAIN_ARGS=--two-stage` or `model.two_stage.enabled: true`:
+
+1. Stage 1 is the ordinary model. Its candidate threshold is the validation
+   threshold that still catches `candidate_recall` (0.5) of failing drives.
+2. Train rows are scored out of fold by drive (`n_folds`), so Stage 2 learns
+   from Stage 1 scores like those it meets in use.
+3. Stage 2 is a LightGBM trained on the candidate train rows, with the Stage
+   1 score as an extra feature, early-stopped on the validation candidates.
+4. One combined score: a non-candidate keeps its Stage 1 score; a candidate
+   scores `threshold + (1 - threshold) * stage2`. Tiers needing more recall
+   than `candidate_recall` therefore behave exactly as with Stage 1 alone.
+
+Thresholds, action tiers and every report are then built on the combined
+score, with Stage 1 alone reported beside it (`two_stage.
+stage1_precision_at_recall`, `stage1_alone_precision_at_recall` log lines).
+Stage 1 is still logged as the run's `model`; Stage 2 is logged as
+`model_stage2` with `two_stage.json`, and `make score-fleet` wraps both
+(`load_two_stage`) for any run that has them. SHAP and gain importance
+describe Stage 1. The live agent loop does not use the trained model at all
+yet (§13), so it is unaffected.
+
+**Experiment tool additions** (`pipelines/experiment_model.py`):
+
+| Flag / variant | What it measures |
+|---|---|
+| `--two-stage` | the same `two_stage` module, against Stage 1 alone at 5/10/20/35% recall |
+| `--two-stage-seeds N` | repeats it with N seeds and prints the mean, the spread of the precision gain, and in how many seeds it was better on both precision and recall |
+| `xgboost_aft`, `xgboost_aft_spw` | survival model (`src/models/survival.py`): XGBoost accelerated failure time on each train row's time to failure, scored on the same binary label |
+| `--anomaly-stage` | isolation forest fitted on healthy rows: the anomaly score alone, an anomaly-filter-then-classify cascade, and the score as an extra feature |
+| `reg_spw_old_features`, `reg_spw_no_lifetime`, `reg_spw_no_secondary` | feature-group ablations on the same rows |
+
 ---
 
 ## 6. The MAPE-K agent (`src/agent/`)
@@ -1612,8 +1682,11 @@ fully clean slate between experiments.
 
 Data / model:
 
-- No real Backblaze/SMART-Z data has been ingested in this repo — the data
-  pipeline is real and tested against synthetic fixtures only.
+- The repository ships no data. The pipeline has been run end to end on real
+  Backblaze Q1 + Q2 2026 data (results in `docs/model_status_and_runbook.md`);
+  SMART-Z has not been evaluated.
+- The model does not reach the precision target on the real fleet (41% at
+  8.5% recall against a 90% target). `docs/system_summary.md` section 4.
 - `predictor` is never backed by the trained Phase 5 model in `demo.py`/the
   API's default wiring — it's a hardcoded two-drive fixture. Wiring a real
   MLflow-registered model in is the natural next step (see §11).

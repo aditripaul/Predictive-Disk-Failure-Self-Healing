@@ -243,18 +243,45 @@ confident was the system," and a final score as "was it actually right."
 
 ### Which SMART readings drove the prediction?
 
-Every time a model is trained (`make train`), the system also computes a
-**global feature-importance ranking** using SHAP (a standard model-
-explainability technique): which SMART attributes and derived signals
-(rolling averages, slopes, spike counts, etc.) most influenced the model's
-predictions overall. That ranking is written to
-`data/audit/data_quality_reports/shap_feature_importance.json` after
-training, and logged alongside the model in MLflow. It answers "what does
+Every time a model is trained (`make train`), the evaluation report records
+a **feature-importance ranking**: which SMART attributes and derived signals
+(rolling averages, slopes, spike counts, etc.) the model relied on most
+(`feature_importance` in
+`data/audit/data_quality_reports/model_evaluation_report.json`, plotted by
+`make plots`). A second ranking using SHAP (a standard model-explainability
+technique) is optional and off by default because it is slow on a full
+fleet; set `diagnostics.shap_enabled: true` in `configs/model.yaml` to get
+`shap_feature_importance.json` as well. It answers "what does
 this model generally pay attention to," which is a useful sanity check —
 e.g. confirming the model is actually keying off reallocated-sector-count
 trends and not something spurious. This is a training-time, whole-model
 view; per-decision explanations in the audit trail (§5) come from the
 guardrail/trust-score system, not from SHAP directly.
+
+---
+
+## 6a. How reliable are the predictions?
+
+Measured on real Backblaze data (January to June 2026, about 360,000
+drives), predicting failure within 30 days:
+
+- **Most alerts are false alarms, and the system is designed for that.** At
+  the strictest setting about half of the alerted drives go on to fail; at
+  the warning level about 1 in 10 do. Drive failure is rare (roughly 1 drive
+  in 570 over the test period), so even a very selective model raises more
+  false alarms than true ones at the lenient levels.
+- **An alert still means a lot.** An alerted drive is about 236 times more
+  likely to fail than a typical drive, and only about 1 healthy drive in
+  4,700 is alerted at the primary threshold.
+- **It does not catch every failure.** The strictest levels catch under 10%
+  of failing drives; the warning level catches about 60%. Many drives fail
+  with no warning in their SMART readings.
+- **Warnings come about 12 days before the failure** (median).
+
+This is why a low score only warns, why migrate and drain need the highest
+scores plus the safety checks in §7, and why uncertain cases are sent to a
+person. The measured figures and how they were obtained are in
+`docs/system_summary.md`.
 
 ---
 
@@ -318,7 +345,10 @@ split boundaries if your data doesn't span the defaults, etc.):
    ```
 2. **Before running `make train`**, set `configs/model.yaml`'s
    `splits.train_end`/`validation_end`/`test_end` to fall inside the date
-   range you actually ingested (check with `uv run python -c "import
+   range you actually ingested. `test_end` must be at least
+   `primary_horizon_days` (30) before the last date in the data, and
+   `train_end` must leave more than 30 days of data before it, because
+   training stops one horizon before `train_end`. (with `uv run python -c "import
    polars as pl; df = pl.read_parquet('data/silver/canonical_telemetry/
    part.parquet'); print(df['date'].min(), df['date'].max())"`), then
    check `data/audit/data_quality_reports/label_imbalance_report.json`'s

@@ -158,6 +158,10 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
 
 | Document | Purpose |
 |---|---|
+| `docs/system_summary.md` | **Start here.** What was built, how one decision flows through it, measured results, limitations |
+| `docs/model_status_and_runbook.md` | Every result measured on real data, what was learned, how to reproduce it, open items |
+| `docs/pipeline_usage.md` | Commands for each pipeline stage, training options and the model experiment tool |
+| `docs/feature_engineering.md` | What the model sees and why |
 | `docs/design_goal.md` | Project goal, architecture, safety invariants, guardrails, reliability framework, and success criteria |
 | `docs/dataset_strategy.md` | Datasets, preprocessing, labeling, feature engineering, leakage prevention, and feature governance |
 | `docs/project_plan.md` | Phase-wise execution plan, milestones, deliverables, tools, and exit criteria |
@@ -239,7 +243,7 @@ project-root/
 |---|---|
 | Agent orchestration | LangGraph |
 | Checkpointing | SQLite / LangGraph saver |
-| Fleet-state cache | Redis (declared dependency; not yet wired — currently an in-memory stand-in, `src/guardrails/operational_state.py`) |
+| Fleet-state cache | In-memory by default; Redis optional (`configs/guardrails.yaml` `operational_state.backend`) |
 | DataFrame processing | Polars |
 | SQL engine | DuckDB |
 | Columnar I/O | PyArrow |
@@ -250,7 +254,7 @@ project-root/
 | API | FastAPI |
 | Dashboard | Streamlit |
 | Testing | pytest, Hypothesis, optional Locust |
-| Logging | structlog / JSON logs (declared dependency; not yet wired — pipelines currently use plain `print()`) |
+| Logging | structlog |
 | Optional tracing | OpenTelemetry |
 
 ---
@@ -414,6 +418,9 @@ synthetic-data walkthrough (§14) — only real-data / production settings.
 | `configs/data.yaml` | `download.smartz.url` | Before `make download-smartz` — SMART-Z has no public bulk-download API; request access first |
 | `configs/data.yaml` | `sources.backblaze.start_date` / `end_date` | Optional — restricts which already-downloaded raw CSVs `make ingest-backblaze` processes (and therefore how much data `make build-silver` has to handle in one run), independent of which quarters you've downloaded. Unset (default) ingests everything downloaded |
 | `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | Before `make train` against real data whose date range doesn't overlap the defaults — an empty split raises a clear error naming which one. The synthetic stub (§14) derives its own date range from these same values, so it stays correct automatically if you change them |
+| `configs/model.yaml` | `primary_horizon_days` | The label horizon `make train`, `make score-fleet` and the agent use. 30 days by default; `test_end` must be at least this many days before the last date in the data |
+| `configs/model.yaml` | `splits.purge_label_window` / `validation_after_train_only` | Both `true` by default: training stops one horizon before `train_end`, and validation holds only later dates. See `docs/model_status_and_runbook.md` section 4.4 |
+| `configs/model.yaml` | `model.two_stage.enabled` | Optional second-stage model; `false` by default |
 | `configs/model.yaml` | `model.type` (`lightgbm` \| `xgboost`) | Only if you want XGBoost instead of the LightGBM default |
 | `configs/model.yaml` | `mlflow.tracking_uri` / `experiment_name` | Only if you want runs logged somewhere other than the local `sqlite:///mlflow/mlflow.db` default |
 | `configs/model.yaml` | `hyperparameter_search.enabled` / `smote_comparison.enabled` | Optional — both default to `false` so `make train` stays fast and deterministic |
@@ -481,11 +488,13 @@ The project uses a `Makefile` for reproducible pipeline execution.
 | `make build-silver` | Build canonical Silver telemetry |
 | `make build-features` | Build Gold trajectory features |
 | `make build-labels` | Build failure labels and splits |
-| `make train` | Train model, tune threshold, compute SHAP importance, log to MLflow |
+| `make train` | Train the model, choose thresholds and action tiers, write the evaluation report and model card, log to MLflow. `TRAIN_ARGS="--two-stage"` adds the optional second-stage model; `--horizon-days N` and `--keep-work-dir` are described in `docs/pipeline_usage.md`. SHAP is off by default (`diagnostics.shap_enabled`) |
+| `make experiment-model` / `full-experiment` / `clean-kept` | Compare modelling variants on a kept training run (`docs/pipeline_usage.md`) |
+| `make full-pipeline` | Ingest through plots, including the model experiment |
 | `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (`train-lstm` needs `uv sync --extra torch`) |
 | `make score-fleet` | Batch-score the current fleet with the latest trained model |
-| `make plots` | Render performance-metric plots (calibration, SHAP, class imbalance) to `data/audit/plots/` |
-| `make final-report` | Aggregate chaos/latency/model reports into a final evaluation report |
+| `make plots` | Render performance plots (calibration, ROC curves, feature importance, failures by drive family, class imbalance; SHAP when enabled) to `data/audit/plots/` |
+| `make final-report` | Aggregate chaos/latency/model reports, the goal status and the plots into a final evaluation report |
 | `make agent-demo` | Run a minimal LangGraph agent demo |
 | `make dashboard` | Launch Streamlit dashboard |
 | `make api` | Launch FastAPI approval service |
@@ -599,10 +608,24 @@ AUPRC — Area Under the Precision-Recall Curve
 
 ### Target Operating Point
 
-```text
-Precision ≥ 95%
-Recall ≥ 35–50%
-```
+The original target was precision ≥ 95% at recall 35–50%, per drive. It was
+later set to 90% precision at ≥ 10% recall (`configs/model.yaml`
+`threshold`). **Neither is met on real data.**
+
+### Measured Result (Backblaze Q1 + Q2 2026, 30-day horizon, per drive, test)
+
+| Operating point | Precision on the real fleet (0.18% of drives fail) | Same alerts, test set with 15% failing | 50% failing |
+|---|---|---|---|
+| 3.7% of failing drives caught, 24 false alarms | 48.9% | 99.0% | 99.8% |
+| 8.5% caught, 75 false alarms (primary threshold) | 41.4% | 98.6% | 99.8% |
+| 34.1% caught, 531 false alarms | 28.5% | 97.6% | 99.6% |
+
+Precision depends on how rare failures are in the test set; the last two
+columns restate the measured catch rate and false-alarm rate for test sets
+like those most published results use. An alerted drive is about 236 times
+more likely to fail than a random one. Full results, the approaches tried and
+the limitations: `docs/system_summary.md` and
+`docs/model_status_and_runbook.md`.
 
 ---
 
@@ -814,8 +837,8 @@ make test
 
 | Metric | Target |
 |---|---:|
-| Prediction precision | ≥ 95% |
-| Prediction recall | 35–50% |
+| Prediction precision | ≥ 95% originally, later ≥ 90% (not met: 41% on the real fleet at the primary threshold; see §15) |
+| Prediction recall | 35–50% originally, later ≥ 10% (8.5% at the primary threshold) |
 | Loop cycle time | < 5 minutes |
 | Guardrail evaluation latency | < 500 ms |
 | Hard-guardrail compliance | 100% |

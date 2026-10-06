@@ -1,33 +1,37 @@
 # Model status, results and runbook
 
-> **Update 2026-10-06 (later the same day).** The repository now defaults to
-> **Q1 + Q2 2026**, a wider feature set, and a new target: **90% precision at
-> >= 10% recall, per drive** (`configs/model.yaml`). The first two-quarter run
-> is recorded in **Section 4.2: the target is not met** (about 40% precision at
-> 10% recall on test). Sections 4, 4.1 and 5 are from Q1 with the earlier
-> five-attribute feature set and the earlier 95% target. See
-> `docs/feature_engineering.md` for the features.
+> **Current state (2026-10-06).** Read Section 1 and Section 4.4 first. The
+> pipeline runs on **Q1 + Q2 2026** with a **30-day horizon** and corrected
+> split dates. Sections 3, 4, 4.1 and 5 are the earlier record (Q1 only,
+> 14-day horizon, five SMART attributes, the 95% target) and are kept because
+> the lessons in them still hold. For a shorter overview see
+> `docs/system_summary.md`.
 
-Status as of 2026-10-06. This document records what was run on the real
-Backblaze Q1 2026 data, what was learned, what is still open, and how to run
-the pipeline end to end, including the Q1+Q2 setup. Numbers are copied from
-the run logs and experiment output; where something was not measured on real
-data, it says so.
+This document records what was run on real Backblaze data, what was learned,
+what is still open, and how to run the pipeline end to end. Numbers are
+copied from the run logs and experiment output; where something was not
+measured on real data, it says so.
 
 ## 1. Where things stand
 
-- **The pipeline runs end to end on real Q1 data** within the 20 GB memory
-  cap. The primary model trains, and evaluation, the model card and MLflow
-  logging complete.
-- **The model is useful but far from the stated goal.** The goal is 95%
-  precision at 35–50% recall, per drive. The best result we measured is
-  about 22–31% precision at 26–35% recall on the validation split and about
-  22% precision at 26% recall on test (Section 4).
-- **We do not expect 95% precision to be reachable with one quarter of SMART
-  data.** Section 5 explains why, and Section 7 lists what would change that.
-- **Q1 + Q2 2026 with the richer feature set has been run** (Section 4.2).
-  It did not move precision: about 40% at 10% recall on test, against the
-  90% target. Neither the new features nor the two-stage model helped.
+- **The pipeline runs end to end on real Q1 + Q2 2026 data** (62.6 million
+  drive-days, 363,548 drives) within the 20 GB memory cap: ingest, silver,
+  features, labels, training, fleet scoring, plots and the final report.
+- **Current result** (Section 4.4; per drive, test, 30-day horizon): 41.4%
+  precision at 8.5% recall at the primary threshold, 48.9% at 3.7%, 28.5% at
+  34.1%. An alerted drive is about 236 times likelier to fail than a random
+  one. The same alerts show 98.6% precision on a test set where 15% of
+  drives fail, the kind most published results use.
+- **The stated goal is not met.** It was 95% precision at 35-50% recall, then
+  90% at >= 10% recall, both on the real fleet. Section 7.
+- **What moved precision:** fixing the training collapse (Section 5.2) and
+  the 30-day horizon (34% to 46% near 10% recall on the same test period).
+- **What did not:** hyperparameters, XGBoost, per-family models, a second
+  quarter of data, more SMART attributes and features, persistence rules, a
+  survival model, anomaly detection (Sections 4.1 to 4.3, 5).
+- **Open lead:** the two-stage model was 5 to 12 points better at the
+  strictest operating points in both 30-day runs. It is now an option in
+  `make train` and has a multi-seed repeat to confirm it (Section 4.5).
 
 ## 2. How to run the pipeline
 
@@ -37,11 +41,12 @@ data, it says so.
 make install
 ```
 
-### 2.2 Q1 2026 only (the configuration the results in this document use)
+### 2.2 Q1 + Q2 2026 (the repository default, and the current results)
 
-`configs/data.yaml`: `sources.backblaze.end_date: "2026-03-31"`.
-`configs/model.yaml`: `splits` with `train_end: "2026-02-22"`,
-`validation_end: "2026-03-06"`, `test_end: "2026-03-17"`.
+`configs/data.yaml` ingests 2026-01-01 to 2026-06-30. `configs/model.yaml`
+uses a 30-day horizon with `train_end: "2026-04-15"`, `validation_end:
+"2026-05-10"`, `test_end: "2026-05-31"`. The test period must end at least 30
+days before the data does.
 
 ```bash
 make ingest-backblaze
@@ -51,24 +56,21 @@ make build-labels
 make train                     # add TRAIN_ARGS=--keep-work-dir to keep arrays
 make experiment-model          # optional, see Section 6
 make score-fleet
-make plots
+make final-report              # runs make plots first
 ```
 
-### 2.3 Q1 and Q2 2026 together
+On 2026-10-06 this processed 62,565,487 drive-days from 363,548 drives:
+ingest and silver in a few minutes each, `make train` in about ten.
+Changing only model or split settings needs `make train` onwards, not a
+rebuild of features or labels.
 
-Change, before running:
+### 2.3 Q1 2026 only (the configuration of Sections 4, 4.1 and 5)
 
-- `configs/data.yaml`: `sources.backblaze.end_date: "2026-06-30"` (or the last
-  date in your Q2 files), and `download.backblaze.quarters: ["Q1_2026", "Q2_2026"]`.
-- `configs/model.yaml`: move the splits so the test period ends at least 30
-  days before the data does (a 30-day label needs that window). A suggested
-  starting point is `train_end: "2026-04-15"`, `validation_end: "2026-05-10"`,
-  `test_end: "2026-05-31"`. Check these against your files.
-
-Then run the same command sequence as in 2.2. Expect silver, gold and the
-training join to take roughly twice as long and to use about twice the disk.
-The two-quarter run was done on 2026-10-06: 62,565,487 drive-days from
-363,548 drives, ingest and silver each in a few minutes (Section 4.2).
+`configs/data.yaml`: `sources.backblaze.end_date: "2026-03-31"`.
+`configs/model.yaml`: `primary_horizon_days: 14` and `splits` with
+`train_end: "2026-02-22"`, `validation_end: "2026-03-06"`, `test_end:
+"2026-03-17"`. One quarter is too short for the 30-day horizon once training
+stops a horizon before `train_end`. Then the same commands as 2.2.
 
 ### 2.4 Things that go wrong, and where to look
 
@@ -541,6 +543,52 @@ drives; 220 trees). Drive level, test, thresholds from validation.
   `make final-report` passed its chaos, guardrail-latency and crash-recovery
   sections. No `memory_limit_exceeded`.
 
+### 4.5 Two-stage model as an option (implemented 2026-10-06, not yet re-run)
+
+The second stage is now part of the pipeline as an option, and the experiment
+runs the same code (`src/models/two_stage.py`; design in
+`docs/developer_guide.md` section 5.13).
+
+- `make train TRAIN_ARGS=--two-stage`, or `model.two_stage.enabled: true`.
+  Off by default. Thresholds, action tiers and reports are then built on the
+  combined score, and the first model alone is reported beside it.
+- `make score-fleet` uses the second stage automatically for a run trained
+  with it.
+- Tiers that need more than 50% recall (`candidate_recall`) behave exactly as
+  with the first model alone; only the stricter tiers change.
+
+Evidence so far (test, drive level):
+
+| Run | Target | First model alone | Two stage |
+|---|---|---|---|
+| 14-day, corrected test window | 10% | P 33.6%, R 7.9% | P 33.0%, R 6.6% |
+| 30-day (Section 4.3) | 5% | P 52.4%, R 5.3% | P 54.5%, R 5.8% |
+| 30-day (Section 4.3) | 10% | P 46.3%, R 9.2% | P 52.1%, R 9.8% |
+| 30-day, corrected splits (Section 4.4) | 5% | P 48.9%, R 3.7% | P 60.9%, R 4.5% |
+| 30-day, corrected splits (Section 4.4) | 10% | P 41.4%, R 8.5% | P 50.8%, R 9.8% |
+
+Each gain rests on about 15 to 20 drives, so it is not yet established. To
+confirm it, repeat it with several seeds (fold assignment and model
+sampling), then, if it holds, train the pipeline model with it:
+
+```bash
+make full-experiment FULL_EXPERIMENT_ARGS="--variants reg_spw --skip-baseline --two-stage --two-stage-seeds 5" 2>&1 | tee two-stage-seeds.log
+# only if the summary shows a consistent gain:
+make train TRAIN_ARGS=--two-stage
+make score-fleet
+make final-report
+```
+
+Read the `TWO STAGE ACROSS SEEDS` lines: the mean precision and recall of
+each model, the range of the precision gain, and in how many seeds the
+two-stage model was better on both. A gain that is positive in every seed at
+the 5% and 10% targets is worth adopting for the strict tiers; a range that
+straddles zero is chance.
+
+The experiment's second stage now uses a fixed seed per run and gives
+non-candidates their first-stage score instead of zero, so its numbers will
+not match Sections 4.3 and 4.4 to the last drive.
+
 ## 6. The experiment tool
 
 ```bash
@@ -563,38 +611,45 @@ Thresholds are always chosen on validation and applied to test.
 
 ## 7. Goal status and what would change it
 
-**The 95% precision goal is not reachable with the current data.** At 95%
-precision the best measured operating point catches about 1% of failing drives
-(3 of 309). At 35% recall the best precision is about 22–31%, and the
-false-alarm rate would need to fall roughly 50× to reach 95%. Nothing tried
-so far moved the curve by more than a small factor.
+**Neither goal is met on the real fleet.** The original goal was 95%
+precision at 35-50% recall per drive; it was later set to 90% at >= 10%
+recall (`configs/model.yaml` `threshold`). The current model gives 41.4% at
+8.5% recall and 28.5% at 34.1% (Section 4.4). At the validation threshold for
+95% precision it flags a single test drive.
 
-The paper we reviewed (Amram et al., 2021) reports about 44% precision at a
-12% false-alarm rate on one drive model with random splits. Our false-alarm
-rate is already about 100× lower, and our splits are time-based, so the paper
-does not support a 95% target either.
+The limit is how rare failures are, not the false-alarm rate: at the primary
+threshold only 75 of 353,328 healthy drives are alerted (about 1 in 4,700),
+but only 621 drives fail. On a test set where 15% of drives fail the same
+alerts are 98.6% precise (Section 4.4). The paper we reviewed (Amram et al.,
+2021) reports about 44% precision at a 12% false-alarm rate on one drive
+model with random splits and about 15% positives, so it does not support a
+95% real-fleet target either.
 
-**The 90% at 10% recall goal is not met either** (Section 4.2): 39.6% precision
-at 10.5% recall on two quarters, and no variant, feature group or second-stage
-model moved it.
-
-What could change the picture, in order of expected effect:
+What was tried, in the order it was tested:
 
 1. ~~More failing drives~~: a second quarter doubled the failing test drives
-   (620) and left precision where it was.
-2. ~~Per-drive-family models~~: tested on 2026-10-06 and worse than the pooled
-   model for the three largest families (Section 4.1).
-3. **A longer horizon** (30 days). The split is now valid for it (the data
-   runs 30 days past the test period), and Section 4.2 shows a fifth of
-   validation false alarms failing 15-60+ days later. Not yet run on two
-   quarters. It changes what an alert means, so it is a decision as well as
-   an experiment.
-4. ~~Richer SMART features~~: SMART 7, 9, 194, 199 and the velocity, recency
-   and age features made no measurable difference (Section 4.2).
-5. **Tiered goals:** keep the destructive action at a high precision target
-   and let warnings accept more false alarms. The tiers already exist (Section
-   4); the targets in `configs/model.yaml` are placeholders to be set from the
-   real cost of a false alarm per action.
+   and left precision where it was (Section 4.2).
+2. ~~Per-drive-family models~~: worse than the pooled model for the three
+   largest families (Section 4.1).
+3. ~~Richer SMART features~~: no measurable difference (Section 4.2).
+4. **A longer horizon:** done. 30 days is now the default and gave the one
+   clear gain (Section 4.3).
+5. ~~Survival model, anomaly detection~~: no better than the classifier
+   (Section 4.3).
+6. **Two-stage model:** better at the strictest operating points in both
+   30-day runs; being confirmed (Section 4.5).
+
+What could still change the picture:
+
+- **A longer horizon again (60-90 days).** On validation, 61 of 510
+  false alarms failed 31 or more days after the alert. It needs data well
+  past the test period (a third quarter) and changes what an alert means.
+- **Tiered goals:** keep the destructive action at a high precision target
+  and let warnings accept more false alarms. The tiers exist (Section 4.4);
+  their targets in `configs/model.yaml` are placeholders to be set from the
+  real cost of a false alarm per action.
+- **Signals beyond daily SMART** (I/O latency, error logs, drive workload).
+  Not available in the Backblaze data.
 
 ## 8. Open items
 
@@ -603,8 +658,8 @@ What could change the picture, in order of expected effect:
 - SMART 7, 9, 194 and 199 ingested with a light feature family; active defect
   velocity, days since last increase, temperature spike, power-on days.
 - Validation and test matrices memory-mapped and scored in chunks; the
-  watchdog counts allocated memory only. Estimated to keep a two-quarter
-  training run near 5-7 GB; **not measured**.
+  watchdog counts allocated memory only. Two-quarter runs complete under the
+  20 GB cap; the training stage's peak was not recorded.
 - Precision at 5/10/20/35% recall and the data build recorded in every report.
 - Ablations `reg_spw_old_features`, `reg_spw_no_lifetime`,
   `reg_spw_no_secondary`, and `--two-stage`.
@@ -619,53 +674,56 @@ make full-experiment FULL_EXPERIMENT_ARGS="--variants reg_spw reg_spw_old_featur
 The run completed end to end with the 20 GB cap in place. The training
 stage's peak memory was not recorded here (the estimate was 5-7 GB).
 
-**Data and features (still planned, not started):**
+**Data and features (not started):**
 
-- **Ingest more SMART attributes.** Currently only 5, 187, 188, 197 and 198
-  reach the model. The paper's most useful ones that we drop are 3 (spin-up
-  time), 7 (seek error rate), 190 (temperature difference), and both raw and
-  normalized values of each attribute.
-- **Lifetime counters** (4, 9, 12, 192, 193, 240–242). The paper removed these
-  because they mostly encode age. Ingest them as a separate group so the
-  experiment can switch them on and off.
+- **More attributes still.** SMART 7, 9, 194 and 199 were added and made no
+  difference (Section 4.2). Not tried: 3 (spin-up time), 190, normalized
+  values beside raw ones, and the other lifetime counters (4, 12, 192, 193,
+  240-242). Given the result above, expect little.
 - **Longer windows** (60 and 90 days) and "days since an error counter first
-  became nonzero" (the paper cites Google's finding that the first scan error
-  makes a drive 39 times more likely to fail within 60 days).
-- **Real power-on hours** (smart 9) in place of `drive_age_days`, which is
-  measured from the start of the loaded data.
-- **Feature-count risk.** The gold table would grow several times over. The
-  memory design should hold, but it has not been run at that width.
+  became nonzero".
 
 **Model and evaluation:**
 
-- **The split fix.** The 10% holdout drives' history is moved into validation,
-  and there is no purge gap before validation. This is a known distortion, and
-  fixing it needs a `make build-labels` re-run.
+- **Confirm the two-stage gain** with the multi-seed repeat (Section 4.5).
+- **Validation precision is still above test** after the split fix (56.7%
+  against 41.4%); about half is the higher failure rate in the validation
+  period, the rest is unexplained (Section 4.4).
+- **The held-out drives are no longer evaluated separately.** They are kept
+  out of training, but their training-period rows are now unused; a separate
+  "unseen drives" report would use them.
 - **Per-drive-family results** are in Section 4.1. The top three families were
   tested; the other families were not scored (too few failures).
 - **Tier targets** are placeholders (15 / 25 / 40 / 60%).
-- **The live agent loop** (`src/agent/nodes.py`) still uses the hand-picked
-  cutoffs in `configs/agent.yaml`, not the trained tier thresholds.
+- **The live agent loop** (`src/agent/nodes.py`) is not driven by the trained
+  model and uses the hand-picked cutoffs in `configs/agent.yaml`, not the
+  trained tier thresholds.
+- **The DuckDB spike** (Section 3.1) was never measured on real data; the
+  Polars pipeline fits the memory cap, so it is no longer needed for that.
 
 **Other:**
 
 - **HDD vs SSD:** not analyzed. `drive_model` is in the gold table, so a
   breakdown by drive type is cheap, but we expect it to explain few of the
   false alarms.
-- **Commits not pushed:** `main` is ahead of `origin/main` by the recent model
-  commits (see `git log`).
+- **Branches:** current work is on `adi_dev`; `main` holds the state before
+  the 30-day default and the split fix.
 
 ## 9. Reference: key config values
 
 | File | Key | Current value | Meaning |
 |---|---|---|---|
-| `configs/model.yaml` | `primary_horizon_days` | 14 | Horizon the shipped model is trained and scored for |
+| `configs/model.yaml` | `primary_horizon_days` | 30 | Horizon the shipped model is trained and scored for (was 14) |
 | `configs/model.yaml` | `horizons_days` | [7, 14, 30] | Horizons whose labels exist |
 | `configs/model.yaml` | `model.max_train_rows` | 5000000 | Training-row cap |
 | `configs/model.yaml` | `model.positive_weight_power` | 0.5 | Positive weight = (neg/pos)^0.5 |
 | `configs/model.yaml` | `model.early_stopping_rounds` | 50 | Early stopping patience (average precision) |
 | `configs/model.yaml` | `threshold.target_precision` | 0.90 | Goal precision, at recall >= 10% (was 0.95 at 35-50%) |
-| `configs/model.yaml` | `threshold.target_recall_range` | [0.35, 0.50] | Goal recall range |
+| `configs/model.yaml` | `threshold.target_recall_range` | [0.10, 0.50] | Goal recall range |
+| `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | 2026-04-15 / 2026-05-10 / 2026-05-31 | Split boundaries |
+| `configs/model.yaml` | `splits.purge_label_window` | true | Training stops one horizon before `train_end` |
+| `configs/model.yaml` | `splits.validation_after_train_only` | true | Validation holds only dates after `train_end` |
+| `configs/model.yaml` | `model.two_stage.enabled` | false | Optional second-stage model (Section 4.5) |
 | `configs/model.yaml` | `threshold.action_tier_precision` | 0.15 / 0.25 / 0.40 / 0.60 | Per-action precision targets (placeholders) |
 | `configs/model.yaml` | `diagnostics.shap_enabled` | false | SHAP is slow on real data and fails its additivity check with extreme leaves |
 | `configs/data.yaml` | `resource_limits.max_memory_gb` | 20 | RSS cap for every pipeline process |
@@ -674,6 +732,9 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 
 ## 10. Related documents
 
-- `docs/developer_guide.md` section 5.10–5.12: the memory cap, how
-  `make train` fits in RAM, and the model experiment workflow.
+- `docs/system_summary.md`: the short overview for a reviewer.
+- `docs/developer_guide.md` section 5.10–5.13: the memory cap, how
+  `make train` fits in RAM, the model experiment workflow, and the current
+  evaluation rules and second stage.
+- `docs/pipeline_usage.md`: every command and option.
 - `docs/dataset_strategy.md` and `docs/project_plan.md`: the original goals.

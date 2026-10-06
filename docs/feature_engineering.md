@@ -1,10 +1,16 @@
 # Feature engineering: what the model sees, and why
 
-Status as of 2026-10-06. This describes the feature set in the code at commit
-`d54aabf`. The attributes and features marked **new** have unit tests but have
-**not yet been run on real data**, so their effect on the model is unknown.
-Results quoted here come from the earlier feature set (five SMART attributes,
-Q1 2026).
+Status as of 2026-10-06. This describes the feature set in the code. The
+attributes and features marked **new** were added that day and have since
+been run on real data (Q1 + Q2 2026): **they made no measurable difference**.
+The models with and without them are within 0.01 drive-level AUPRC of each
+other on test, and removing the lifetime counters changed nothing either
+(`docs/model_status_and_runbook.md` section 4.2). `active_defect_total` takes
+about 40% of the model's split gain, but it restates what the rolling
+counters already carried. The features stay in the pipeline because they cost
+little and do no harm. Other results quoted in this document come from the
+earlier feature set (five SMART attributes, Q1 2026, 14-day horizon); the
+primary horizon is now 30 days.
 
 Related: `docs/model_status_and_runbook.md` (results, goal status) and
 `docs/pipeline_usage.md` (how to run).
