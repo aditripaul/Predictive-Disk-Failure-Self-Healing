@@ -792,6 +792,7 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 
 ## 10. Related documents
 
+- `docs/project_report.md`: the full project report.
 - `docs/system_summary.md`: the short overview for a reviewer.
 - `docs/developer_guide.md` section 5.10–5.13: the memory cap, how
   `make train` fits in RAM, the model experiment workflow, and the current
