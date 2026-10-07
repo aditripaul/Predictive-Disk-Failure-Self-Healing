@@ -45,6 +45,10 @@ NON_FEATURE_COLUMNS = {
     "split",
     "split_version",
     "split_strategy",
+    # Raw Backblaze failure flag: marks the failure day itself, so it is a
+    # label in disguise. All zeros in the current frame; excluded so it can
+    # never become a model input.
+    "failure",
 }
 
 
@@ -180,9 +184,7 @@ def chunked_inner_join(
         chunk_paths = []
         for offset in range(0, total_rows, chunk_rows):
             part = (
-                left_lazy.slice(offset, chunk_rows)
-                .join(right_lazy, on=on, how="inner")
-                .collect()
+                left_lazy.slice(offset, chunk_rows).join(right_lazy, on=on, how="inner").collect()
             )
             if part.height:
                 path = Path(tmp_dir) / f"chunk_{offset}.parquet"
@@ -540,9 +542,11 @@ def assemble_training_frame(
         horizon_labels = horizon_labels.select(label_columns)
 
     if chunk_rows is None:
-        result = gold_features.lazy().join(
-            horizon_labels, on=["drive_id", "date"], how="inner"
-        ).collect()
+        result = (
+            gold_features.lazy()
+            .join(horizon_labels, on=["drive_id", "date"], how="inner")
+            .collect()
+        )
         if out_path is not None:
             result.write_parquet(out_path, compression="zstd")
             return None
@@ -593,7 +597,5 @@ def feature_matrix(df: pl.DataFrame, feature_columns: list[str]) -> np.ndarray:
     `max_bin` (255 by default) histogram buckets internally, so the
     discarded mantissa bits cannot change a split point."""
     return (
-        df.select([pl.col(c).cast(pl.Float32) for c in feature_columns])
-        .fill_null(0.0)
-        .to_numpy()
+        df.select([pl.col(c).cast(pl.Float32) for c in feature_columns]).fill_null(0.0).to_numpy()
     )

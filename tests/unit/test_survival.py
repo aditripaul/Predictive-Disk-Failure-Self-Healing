@@ -300,6 +300,7 @@ def test_extract_stage_applies_the_split_dates_end_to_end(tmp_path, monkeypatch)
     assert json.loads((work_dir / "train_meta.json").read_text()) == {
         "row_count": 2,
         "row_count_before_cap": 2,
+        "positive_count": 1,
     }
     assert {"event_type", "days_to_event"} <= set(
         pl.read_parquet(work_dir / "train_ids.parquet").columns
