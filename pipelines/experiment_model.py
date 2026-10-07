@@ -30,6 +30,7 @@ from sklearn.ensemble import IsolationForest
 from sklearn.metrics import precision_recall_curve
 
 from src.logging_config import configure_logging, get_logger
+from src.models.access_log import record_test_access
 from src.models.alerting import SMOOTHERS, analyze_false_alarms, smooth_scores
 from src.models.evaluation import (
     compute_auprc,
@@ -303,6 +304,7 @@ def _train_survival_bounds(data: dict[str, Any]) -> tuple[np.ndarray, np.ndarray
 
 
 def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
+    record_test_access(variant=name, purpose="experiment_model run_variant (test scoring)")
     extra, exclude, weighting = VARIANTS[name]
     base = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["model"]["params"]
     params = {**base, **{k: v for k, v in extra.items() if k != "_engine"}, "verbosity": -1}
@@ -555,6 +557,9 @@ def two_stage_experiment(
     levels, on the same test drives, with thresholds chosen on validation.
     `seed` sets the fold assignment and both models' sampling, so repeated
     seeds show how much of a difference is chance."""
+    record_test_access(
+        variant="two_stage_experiment", purpose="experiment_model two-stage test scoring"
+    )
     model_cfg = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["model"]
     fit = lightgbm_fitter(
         {**model_cfg["params"], **REGULARIZED},
@@ -733,6 +738,9 @@ def anomaly_stage_experiment(
     3. the pooled model with the anomaly score added as one more feature.
 
     The pooled `reg_spw` model is the reference in each table."""
+    record_test_access(
+        variant="anomaly_stage_experiment", purpose="experiment_model anomaly test scoring"
+    )
     if "reg_spw" not in data.get("_scores", {}):
         run_variant("reg_spw", data)
     pooled_val, pooled_test = data["_scores"]["reg_spw"]
@@ -880,6 +888,9 @@ def per_model_experiment(data: dict[str, Any], *, top_n: int) -> list[dict[str, 
     recall), so the comparison is what a per-family deployment would get.
     Families with too few failures are reported but not scored: with a
     handful of failing drives, any precision figure is noise."""
+    record_test_access(
+        variant="per_model_experiment", purpose="experiment_model per-family test scoring"
+    )
     pooled_val, pooled_test = data["_scores"]["reg_spw"]  # (validation, test) scores
     val_labels = data["y_val"]
     failing_by_model = (
