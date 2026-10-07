@@ -24,6 +24,15 @@ measured on real data, it says so.
   where 15% of drives fail, the kind most published results use.
 - **The stated goal is not met.** It was 95% precision at 35-50% recall, then
   90% at >= 10% recall, both on the real fleet. Section 7.
+- **No cross-vendor result exists.** The SMART-Z split (`split=external_smartz`)
+  is built by `build_labels`, but no training or experiment step evaluates it.
+  The model card's "out of scope" text refers to a check that has not been run.
+  Generalization beyond Backblaze is unmeasured.
+- **Calibration:** the raw score is class-weighted and is not a failure
+  probability. A monotone isotonic calibrator, fitted on validation, now
+  reports calibrated test metrics beside the raw ones (`test_calibrated_*`
+  in MLflow). Decisions are unchanged, because the map preserves ranking.
+  These numbers come from the next local run, not from this document.
 - **What moved precision:** fixing the training collapse (Section 5.2) and
   the 30-day horizon (34% to 46% near 10% recall on the same test period).
 - **What did not:** hyperparameters, XGBoost, per-family models, a second
