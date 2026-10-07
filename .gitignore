@@ -36,3 +36,6 @@ tests/golden/golden_dataset.parquet
 
 # vscode settings
 .vscode/
+# Audit database and test-access log (local state, never committed)
+data/audit/*.sqlite*
+data/audit/*.jsonl
