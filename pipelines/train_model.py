@@ -63,56 +63,8 @@ with another heavy step (see the history at the end of this docstring):
    pipeline), then trains the model, tunes the threshold, evaluates, and
    runs SHAP.
 
-History, since the reasoning generalizes beyond this specific pipeline:
-attempt 1 put the join alone in its own subprocess, leaving `main()` to
-collect all three splits itself - failed on real data because collecting
-all three as full eager DataFrames, then a second numpy copy of each
-while the DataFrame was still alive, needed several times the size of
-even the largest split. Attempt 2 narrowed and sequenced that collection
-(one split at a time, minimal columns, immediately freed) but still ran
-it in `main()` - failed anyway, because each split's collect inherited
-whatever high-water mark the earlier splits' collects had left behind in
-that same process, even though any one split alone fit comfortably.
-Attempt 3 moved ALL split collection into the join's own subprocess -
-failed again, because the join's OWN retained memory was enough to starve
-the very first split collected right after it. Attempt 4 isolated EVERY
-distinct heavy Polars collect into its own process - the join, and each
-split separately - and got further, but a plain `scan_parquet(...)
-.filter(...).collect()` still failed even in a fully isolated process
-(attempt 5's fix: row-group-native reads, `_row_group_parts`), and even
-THAT still failed once fixed to spill each row group to disk instead of
-accumulating results in memory (attempt 6). Peak-RSS instrumentation
-(`resource.getrusage` checkpoints, since removed) finally pinned
-attempt 6's failure exactly: forming ONE
-combined Polars DataFrame from all the spilled parts, then converting
-THAT to a numpy array, needed both the ~6GB combined DataFrame and a
-further ~3.7GB array alive at once - together enough to fail even though
-either one alone fit easily. Attempt 7 (`_build_feature_arrays`) builds
-the numpy array directly from the spilled parts instead, one part at a
-time, never forming a combined DataFrame at all.
-
-The lesson generalizes beyond "isolate the heavy step" (attempts 1-4) to
-"the SHAPE of how a result is built matters, not just which process it
-runs in" (attempts 5-7): reading a wide file needs explicit row-group
-discipline, a loop must spill and drop each iteration's result rather
-than accumulate them, and converting a large result to a different
-representation (Parquet -> Polars -> numpy) can itself double memory if
-the intermediate representation lingers - build directly into the final
-form instead of combining-then-converting through one.
-
-Attempt 7 fixed the memory problem (train, then validation, completed
-successfully for the first time), but immediately surfaced an unrelated
-one: `np.save`'s underlying `array.tofile()` failed with a PARTIAL write
-- the OS ran out of disk space partway through, independent of this
-pipeline's own memory cap. `work_dir` was living under `tempfile`'s
-default location (`/tmp`), which turned out too small to hold
-`frame.parquet` (tens of GB at fleet scale) plus every split's own
-artifacts at once. Fixed by putting `work_dir` under `resource_limits.
-scratch_dir` (`_scratch_base`) instead - `<gold_dir>/../tmp` by default,
-a filesystem already proven to have room for comparably large files -
-and by spilling each split's own row-group parts into a subdirectory of
-`work_dir` rather than a separate `tempfile.TemporaryDirectory()` (which
-would have defaulted right back to `/tmp`).
+Why the stages are split, and the debugging history behind them, is in
+docs/adr/0001-training-memory-isolation.md.
 """
 
 from __future__ import annotations
@@ -137,8 +89,11 @@ import mlflow
 from src.labels.dataset_version import latest_dataset_version
 from src.labels.event_types import FAILURE_EVENT_TYPES
 from src.logging_config import configure_logging, get_logger
+from src.models.access_log import record_test_access
+from src.models.calibration import IsotonicCalibrator
 from src.models.evaluation import (
     compute_auprc,
+    compute_calibration,
     compute_warning_lead_time_days,
     drive_level_metrics,
     drive_level_table,
@@ -1060,6 +1015,18 @@ def main() -> None:
             results["test_metrics"] = evaluate_at_threshold(
                 y_test, test_scores, threshold_result["threshold"]
             )
+            record_test_access(
+                variant=f"{model_type}{'+two_stage' if two_stage_model is not None else ''}",
+                purpose="train_model headline test metrics",
+            )
+            # Calibrated probabilities are reported beside the raw scores. The
+            # map is monotone, so decisions (the thresholds above and the action
+            # tiers below) are unchanged; only the probability reading moves.
+            calibrator = IsotonicCalibrator().fit(val_scores, y_val)
+            results["calibration"] = calibrator.to_dict()
+            results["test_calibrated_calibration"] = compute_calibration(
+                y_test, calibrator.transform(test_scores)
+            )
             # One threshold per agent action tier, each tied to the drive-level
             # precision that action can tolerate (configs/model.yaml
             # threshold.action_tier_precision). Evaluated on test below.
@@ -1251,6 +1218,14 @@ def main() -> None:
             )
             mlflow.log_metric(
                 "test_brier_score", results["test_metrics"]["calibration"]["brier_score"]
+            )
+            mlflow.log_metric(
+                "test_calibrated_expected_calibration_error",
+                results["test_calibrated_calibration"]["expected_calibration_error"],
+            )
+            mlflow.log_metric(
+                "test_calibrated_brier_score",
+                results["test_calibrated_calibration"]["brier_score"],
             )
             if results["test_warning_lead_time"]["mean_lead_time_days"] is not None:
                 mlflow.log_metric(
