@@ -28,6 +28,17 @@ measured on real data, it says so.
   is built by `build_labels`, but no training or experiment step evaluates it.
   The model card's "out of scope" text refers to a check that has not been run.
   Generalization beyond Backblaze is unmeasured.
+- **Evaluated base rates differ from the label report.** The split date
+  windows (`configs/model.yaml`, `splits`) decide which rows are scored. Test
+  keeps dates up to 2026-05-31. Its last 30 days are censored for healthy
+  drives, so the label table keeps only the failing drives' positives there.
+  The label report's test rate (0.150%) therefore counts positives the
+  evaluation never scores. The rate the evaluation scores is 0.094% on test
+  and 0.132% on validation (`data_build.evaluated_failure_rate` in the
+  evaluation report). Quote the evaluated rate. Precision depends on it, so
+  compare models on drive-level lift, not raw precision, across splits.
+- **Raw `failure` flag excluded from features.** It marks the failure day
+  itself. It was all zeros in the frame, so this changes no result.
 - **Calibration:** the raw score is class-weighted and is not a failure
   probability. A monotone isotonic calibrator, fitted on validation, now
   reports calibrated test metrics beside the raw ones (`test_calibrated_*`
