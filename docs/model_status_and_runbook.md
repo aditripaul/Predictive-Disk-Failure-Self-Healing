@@ -24,10 +24,21 @@ measured on real data, it says so.
   where 15% of drives fail, the kind most published results use.
 - **The stated goal is not met.** It was 95% precision at 35-50% recall, then
   90% at >= 10% recall, both on the real fleet. Section 7.
-- **No cross-vendor result exists.** The SMART-Z split (`split=external_smartz`)
-  is built by `build_labels`, but no training or experiment step evaluates it.
-  The model card's "out of scope" text refers to a check that has not been run.
-  Generalization beyond Backblaze is unmeasured.
+- **Cross-vendor result: pending.** The SMART-Z split (`split=external_smartz`)
+  is built by `build_labels`. `make evaluate-frozen ARGS="--run-id <id> --split
+  external_smartz"` scores the frozen run on it, once, and writes
+  `data/audit/frozen_evaluations/`. No result exists until that runs on data
+  that includes SMART-Z. Until then, generalization beyond Backblaze is
+  unmeasured.
+- **Sealed final quarter (Q3 2026).** Rows dated on or after `splits.sealed_start`
+  (2026-07-01, `configs/model.yaml`) are labeled `split=sealed`. No training,
+  validation or test step reads them. Scored once with `make evaluate-frozen`,
+  using a run frozen before the Q3 data arrived. The result file refuses a
+  second evaluation of the same split and run.
+- **Action tiers are set in lift.** `threshold.action_tier_lift` (56.6 / 94.3 /
+  151.0 / 226.4) replaces the precision targets. On validation they reproduce
+  the former precision targets, so the thresholds shouldn't move. Test lift
+  is reported beside test precision.
 - **Evaluated base rates differ from the label report.** The split date
   windows (`configs/model.yaml`, `splits`) decide which rows are scored. Test
   keeps dates up to 2026-05-31. Its last 30 days are censored for healthy
@@ -804,7 +815,7 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 | `configs/model.yaml` | `splits.purge_label_window` | true | Training stops one horizon before `train_end` |
 | `configs/model.yaml` | `splits.validation_after_train_only` | true | Validation holds only dates after `train_end` |
 | `configs/model.yaml` | `model.two_stage.enabled` | true | Second-stage model (Section 4.5) |
-| `configs/model.yaml` | `threshold.action_tier_precision` | 0.15 / 0.25 / 0.40 / 0.60 | Per-action precision targets (placeholders) |
+| `configs/model.yaml` | `threshold.action_tier_lift` | 56.6 / 94.3 / 151.0 / 226.4 | Per-action lift targets (= former precision 0.15 / 0.25 / 0.40 / 0.60 at the validation rate) |
 | `configs/model.yaml` | `diagnostics.shap_enabled` | false | SHAP is slow on real data and fails its additivity check with extreme leaves |
 | `configs/data.yaml` | `resource_limits.max_memory_gb` | 20 | RSS cap for every pipeline process |
 | `configs/data.yaml` | `resource_limits.scratch_dir` | null | Scratch location (default `<gold_dir>/../tmp`) |

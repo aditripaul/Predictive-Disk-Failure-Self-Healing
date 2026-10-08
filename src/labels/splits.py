@@ -20,9 +20,12 @@ def add_chronological_split(
     train_end: str | dt.date,
     validation_end: str | dt.date,
     date_column: str = "date",
+    sealed_start: str | dt.date | None = None,
 ) -> pl.DataFrame:
     """Adds a `split` column: "train" up to `train_end`, "validation" up to
-    `validation_end`, "test" afterwards."""
+    `validation_end`, "test" afterwards. From `sealed_start` on, rows are
+    "sealed": a final window that no model choice may look at. Only the
+    frozen-model evaluation (pipelines/evaluate_frozen.py) reads it, once."""
     train_end = _to_date(train_end)
     validation_end = _to_date(validation_end)
 
@@ -33,6 +36,12 @@ def add_chronological_split(
         .then(pl.lit("validation"))
         .otherwise(pl.lit("test"))
     )
+    if sealed_start is not None:
+        split_expr = (
+            pl.when(pl.col(date_column) >= _to_date(sealed_start))
+            .then(pl.lit("sealed"))
+            .otherwise(split_expr)
+        )
 
     return df.with_columns(
         split_expr.alias("split"),
@@ -113,9 +122,10 @@ def apply_vendor_holdout(
 
     is_external = pl.col(source_column) == external_source
     return df.with_columns(
-        pl.when(is_external).then(pl.lit("external_smartz")).otherwise(pl.col("split")).alias(
-            "split"
-        ),
+        pl.when(is_external)
+        .then(pl.lit("external_smartz"))
+        .otherwise(pl.col("split"))
+        .alias("split"),
         pl.when(is_external)
         .then(pl.lit("vendor_holdout"))
         .otherwise(pl.col("split_strategy"))

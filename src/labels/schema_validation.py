@@ -18,7 +18,7 @@ import polars as pl
 from pandera import Check
 from pandera.polars import Column, DataFrameSchema
 
-KNOWN_SPLITS = ("train", "validation", "test", "external_smartz")
+KNOWN_SPLITS = ("train", "validation", "test", "external_smartz", "sealed")
 KNOWN_SPLIT_STRATEGIES = ("chronological", "drive_holdout", "vendor_holdout")
 
 

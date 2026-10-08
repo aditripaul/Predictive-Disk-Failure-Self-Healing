@@ -116,7 +116,11 @@ from src.models.hyperparameter_tuning import tune_lightgbm_hyperparameters
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
 from src.models.model_card import build_model_card, render_model_card_markdown
 from src.models.smote import apply_smote
-from src.models.threshold import tune_action_tiers, tune_drive_level_threshold
+from src.models.threshold import (
+    precision_targets_from_lift,
+    tune_action_tiers,
+    tune_drive_level_threshold,
+)
 from src.models.training import (
     early_stopping_subset,
     predict_proba_positive,
@@ -1043,8 +1047,10 @@ def main() -> None:
             )
             # One threshold per agent action tier, each tied to the drive-level
             # precision that action can tolerate (configs/model.yaml
-            # threshold.action_tier_precision). Evaluated on test below.
-            tier_targets = model_config["threshold"]["action_tier_precision"]
+            # threshold.action_tier_lift). Evaluated on test below.
+            val_drive_labels, _ = drive_level_table(val_drive_ids, y_val, val_scores)
+            tier_lift = model_config["threshold"]["action_tier_lift"]
+            tier_targets = precision_targets_from_lift(tier_lift, float(val_drive_labels.mean()))
             tier_thresholds = tune_action_tiers(
                 val_drive_ids, y_val, val_scores, precision_targets=tier_targets
             )
@@ -1109,6 +1115,7 @@ def main() -> None:
                     else {
                         "threshold": threshold,
                         "target_precision": tier_targets[tier],
+                        "target_lift": tier_lift[tier],
                         "validation": drive_level_metrics(
                             val_drive_ids, y_val, val_scores, threshold
                         ),
@@ -1261,6 +1268,21 @@ def main() -> None:
             mlflow.log_param("two_stage", two_stage_model is not None)
             if two_stage_model is not None:
                 log_two_stage(two_stage_model, results["two_stage"])
+            # Everything a frozen evaluation needs, so pipelines/evaluate_frozen.py
+            # can score a sealed or external split with this exact run and nothing
+            # re-chosen from it.
+            mlflow.log_dict(
+                {
+                    "model_type": model_type,
+                    "horizon_days": frame_meta["horizon_days"],
+                    "feature_columns": feature_columns,
+                    "two_stage": two_stage_model is not None,
+                    "drive_threshold": threshold_result["threshold"],
+                    "action_tier_thresholds": tier_thresholds,
+                    "calibrator": results["calibration"],
+                },
+                "frozen_spec.json",
+            )
 
             # SHAP global feature importance (docs/design_goal.md "Explainability
             # by default"): background sample keeps TreeExplainer fast even on a

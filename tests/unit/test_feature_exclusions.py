@@ -26,3 +26,12 @@ def test_evaluated_rate_uses_recorded_counts():
 def test_evaluated_rate_is_none_for_old_work_dirs():
     assert _rate({"row_count": 200}) is None
     assert _rate({"row_count": 0, "positive_count": 0}) is None
+
+
+def test_lift_targets_convert_to_precision_at_the_tuning_rate():
+    from src.models.threshold import precision_targets_from_lift
+
+    targets = precision_targets_from_lift({"warn": 56.6, "drain": 226.4}, 0.0026498633930167304)
+    assert abs(targets["warn"] - 0.15) < 1e-3
+    assert abs(targets["drain"] - 0.60) < 1e-3
+    assert precision_targets_from_lift({"x": 1e6}, 0.5) == {"x": 1.0}

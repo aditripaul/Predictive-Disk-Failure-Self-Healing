@@ -108,6 +108,16 @@ ACTION_TIERS = ("warn", "cordon", "migrate", "drain")
 UNREACHABLE_THRESHOLD = 1.01
 
 
+def precision_targets_from_lift(
+    lift_targets: dict[str, float], failure_rate: float
+) -> dict[str, float]:
+    """Precision target for each tier: lift x failure rate. The rate is that of
+    the split being tuned (validation), so the conversion is exact there."""
+    if not 0.0 < failure_rate < 1.0:
+        raise ValueError(f"failure_rate must be in (0, 1), got {failure_rate}")
+    return {tier: min(1.0, lift * failure_rate) for tier, lift in lift_targets.items()}
+
+
 def tune_action_tiers(
     drive_ids: np.ndarray,
     y_true: np.ndarray,

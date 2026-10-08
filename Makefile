@@ -146,6 +146,11 @@ train-lstm:
 score-fleet:
 	uv run python pipelines/score_fleet.py
 
+# Single-shot evaluation of a frozen run on the sealed quarter or SMART-Z:
+#   make evaluate-frozen ARGS="--run-id <mlflow run id> --split sealed"
+evaluate-frozen:
+	uv run python pipelines/evaluate_frozen.py $(ARGS)
+
 plots:
 	uv run python pipelines/generate_performance_plots.py
 

@@ -18,8 +18,8 @@ human_review:
 # Hand-picked probability cutoffs used by the live agent loop. The model's
 # probabilities are class-weighted, so these do NOT correspond to a fixed
 # false-alarm rate. `make score-fleet` instead uses per-tier thresholds that
-# `make train` derives from precision targets (configs/model.yaml
-# threshold.action_tier_precision) and records with the model; these values
+# `make train` derives from lift targets (configs/model.yaml
+# threshold.action_tier_lift) and records with the model; these values
 # are the fallback for models trained before that existed. Wiring the live
 # agent loop (src/agent/nodes.py) to the same thresholds is not done yet.
 action_thresholds:

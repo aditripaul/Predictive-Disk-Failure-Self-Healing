@@ -81,11 +81,16 @@ threshold:
   # unreachable never fires. These are placeholders to be set from the real
   # cost of a false alarm per action - on Q1 2026 data the shipped model
   # reaches ~17% precision at ~38% recall, ~40% at ~13%, ~95% only at ~1%.
-  action_tier_precision:
-    warn: 0.15
-    cordon: 0.25
-    migrate: 0.40
-    drain: 0.60
+  # Targets are LIFT (alerted-drive failure rate / fleet failure rate), not raw
+  # precision: precision moves with the base rate, which differs by split and
+  # fleet, and lift does not. Lift = precision / validation drive-level failure
+  # rate (0.265%), so these reproduce the former precision targets 0.15 / 0.25 /
+  # 0.40 / 0.60 on validation. Thresholds are still tuned on validation only.
+  action_tier_lift:
+    warn: 56.6
+    cordon: 94.3
+    migrate: 151.0
+    drain: 226.4
 
 # Optuna-based hyperparameter search (docs/project_plan.md Phase 6
 # "Threshold tuning: Use Optuna. Subsample for search. Retrain best
@@ -146,6 +151,11 @@ splits:
   train_end: "2026-04-15"
   validation_end: "2026-05-10"
   test_end: "2026-05-31"
+  # Sealed final quarter (Q3 2026). Rows dated on or after this are labeled
+  # split="sealed" and no training, validation or test step reads them. They
+  # are scored once, by pipelines/evaluate_frozen.py, with a model frozen
+  # before the data arrived. Null = no sealed window.
+  sealed_start: "2026-07-01"
   # Applied when `make train` extracts each split
   # (pipelines/train_model.py::_split_period_predicate):
   # - purge_label_window: train only on rows dated at least the label horizon

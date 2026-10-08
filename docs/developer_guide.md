@@ -1064,7 +1064,7 @@ the training window.
 
 **Action tiers.** Instead of one 95% target, `make train` derives a score
 threshold per agent action (warn / cordon / migrate / drain) from the
-drive-level precision each can tolerate (`threshold.action_tier_precision`
+drive-level precision each can tolerate (`threshold.action_tier_lift`
 in `configs/model.yaml`; placeholders: 15 / 25 / 40 / 60%). It reports
 validation and test precision and recall per tier (model card, log), writes
 `action_tiers.json` to the MLflow run, and `make score-fleet` uses those

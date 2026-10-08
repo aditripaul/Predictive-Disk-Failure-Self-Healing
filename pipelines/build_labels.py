@@ -174,9 +174,7 @@ def _stage_batch(tmp_dir: Path, batch_index: int, batch_out_path: Path) -> None:
     # any of that.
     t0 = time.perf_counter()
     features_columns = pl.scan_parquet(features_path).collect_schema().names()
-    drive_day_columns = [
-        c for c in ("drive_id", "date", "source_dataset") if c in features_columns
-    ]
+    drive_day_columns = [c for c in ("drive_id", "date", "source_dataset") if c in features_columns]
     drive_days = (
         pl.scan_parquet(features_path)
         .select(drive_day_columns)
@@ -184,7 +182,10 @@ def _stage_batch(tmp_dir: Path, batch_index: int, batch_out_path: Path) -> None:
         .collect()
     )
     _log_stage(
-        "drive_days_read", t0, batch_index=batch_index, batch_count=n_batches,
+        "drive_days_read",
+        t0,
+        batch_index=batch_index,
+        batch_count=n_batches,
         row_count=drive_days.height,
     )
 
@@ -198,9 +199,7 @@ def _stage_batch(tmp_dir: Path, batch_index: int, batch_out_path: Path) -> None:
     drive_metadata = pl.read_parquet(metadata_path)
     as_of_date = pl.scan_parquet(features_path).select(pl.col("date").max()).collect().item()
     drive_metadata = classify_event_types(drive_metadata, as_of_date=as_of_date)
-    _log_stage(
-        "drive_metadata_read", t0, batch_index=batch_index, row_count=drive_metadata.height
-    )
+    _log_stage("drive_metadata_read", t0, batch_index=batch_index, row_count=drive_metadata.height)
 
     # An empty batch (drive_days.is_empty()) is a normal, expected outcome
     # of hashing rows into batches (see the analogous case in
@@ -209,18 +208,22 @@ def _stage_batch(tmp_dir: Path, batch_index: int, batch_out_path: Path) -> None:
     # all produce a correctly-shaped, empty-but-valid result), so it
     # needs no special case here.
     t0 = time.perf_counter()
-    labels = compute_labels(
-        drive_days, drive_metadata, horizons_days=model_config["horizons_days"]
-    )
+    labels = compute_labels(drive_days, drive_metadata, horizons_days=model_config["horizons_days"])
     _log_stage(
-        "labels_computed", t0, batch_index=batch_index, batch_count=n_batches,
+        "labels_computed",
+        t0,
+        batch_index=batch_index,
+        batch_count=n_batches,
         row_count=labels.height,
     )
 
     splits_cfg = model_config["splits"]
     t0 = time.perf_counter()
     labels = add_chronological_split(
-        labels, train_end=splits_cfg["train_end"], validation_end=splits_cfg["validation_end"]
+        labels,
+        train_end=splits_cfg["train_end"],
+        validation_end=splits_cfg["validation_end"],
+        sealed_start=splits_cfg.get("sealed_start"),
     )
     labels = apply_drive_level_holdout(labels, holdout_drive_ids=holdout_drive_ids)
     if "source_dataset" in drive_days.columns:
@@ -231,7 +234,10 @@ def _stage_batch(tmp_dir: Path, batch_index: int, batch_out_path: Path) -> None:
         )
     labels = apply_vendor_holdout(labels)
     _log_stage(
-        "splits_applied", t0, batch_index=batch_index, batch_count=n_batches,
+        "splits_applied",
+        t0,
+        batch_index=batch_index,
+        batch_count=n_batches,
         row_count=labels.height,
     )
 
@@ -243,7 +249,10 @@ def _stage_batch(tmp_dir: Path, batch_index: int, batch_out_path: Path) -> None:
     t0 = time.perf_counter()
     labels.write_parquet(batch_out_path, compression="zstd")
     _log_stage(
-        "batch_written", t0, batch_index=batch_index, batch_count=n_batches,
+        "batch_written",
+        t0,
+        batch_index=batch_index,
+        batch_count=n_batches,
         row_count=labels.height,
     )
 
@@ -329,9 +338,7 @@ def main() -> None:
                 str(batch_out_path),
             )
             batch_paths.append(batch_out_path)
-            logger.info(
-                "build_labels_batch_done", batch_index=batch_index, batch_count=n_batches
-            )
+            logger.info("build_labels_batch_done", batch_index=batch_index, batch_count=n_batches)
 
         _run_stage(
             "--stage",
