@@ -98,6 +98,7 @@ from src.models.evaluation import (
     drive_level_metrics,
     drive_level_table,
     evaluate_at_threshold,
+    precision_at_recall_level,
     precision_at_recall_table,
 )
 from src.models.explainability import (
@@ -127,6 +128,7 @@ from src.models.training import (
     train_lightgbm,
 )
 from src.models.two_stage import fit_second_stage, lightgbm_fitter, log_two_stage
+from src.models.uncertainty import drive_level_bootstrap_ci
 from src.models.xgboost_training import train_xgboost
 from src.reporting.figure_data import gain_importance, roc_points
 from src.resource_limits import apply_memory_limit_from_config
@@ -1017,6 +1019,7 @@ def main() -> None:
             y_test = np.load(work_dir / "y_test.npy")
             test_ids = pl.read_parquet(work_dir / "test_ids.parquet")
             test_scores = predict_proba_positive(model, x_test)
+            stage1_test_scores = test_scores
             if two_stage_model is not None:
                 # Stage 1 alone on the same drives, so every report shows what
                 # the second stage changed.
@@ -1070,6 +1073,23 @@ def main() -> None:
                 test_scores,
                 threshold_result["threshold"],
             )
+            test_drive_ids = test_ids["drive_id"].to_numpy()
+            # Uncertainty on the headline test numbers (drive-level bootstrap).
+            results["test_drive_ci"] = drive_level_bootstrap_ci(
+                test_drive_ids, y_test, test_scores, threshold_result["threshold"]
+            )
+            if two_stage_model is not None:
+                # Stage 1 at the SAME catch rate as the two-stage model, so the
+                # gain is measured at matched recall, not at different thresholds.
+                results["two_stage"]["matched_recall"] = {
+                    "two_stage_recall": results["test_drive_level"]["recall"],
+                    "stage1_at_matched_recall": precision_at_recall_level(
+                        test_drive_ids,
+                        y_test,
+                        stage1_test_scores,
+                        results["test_drive_level"]["recall"],
+                    ),
+                }
             results["precision_at_recall"] = precision_at_recall_table(
                 val_drive_ids,
                 y_val,

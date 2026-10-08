@@ -24,6 +24,15 @@ measured on real data, it says so.
   where 15% of drives fail, the kind most published results use.
 - **The stated goal is not met.** It was 95% precision at 35-50% recall, then
   90% at >= 10% recall, both on the real fleet. Section 7.
+- **Frozen model for the sealed and SMART-Z evaluations.** MLflow run
+  `c9845215896e47a397317cadd3983b6d` (experiment in `configs/model.yaml`,
+  store `sqlite:///mlflow/mlflow.db`), trained at git commit `313bacb`,
+  dataset version `20261007T035648063409Z`, Q1 + Q2 2026 data. Its artifacts
+  include `frozen_spec.json`. Do not retrain this model after Q3 data arrives:
+  a retrain would silently change what the sealed quarter tests.
+- **Calibration caveat.** The calibrated test curve is close to the diagonal
+  up to about 0.5. Above that the bins hold 21 to 70 rows, so their observed
+  rates are noisy. Do not quote calibrated probabilities above 0.5.
 - **Cross-vendor result: pending.** The SMART-Z split (`split=external_smartz`)
   is built by `build_labels`. `make evaluate-frozen ARGS="--run-id <id> --split
   external_smartz"` scores the frozen run on it, once, and writes

@@ -236,6 +236,32 @@ def drive_level_metrics(
     }
 
 
+def precision_at_recall_level(
+    drive_ids: np.ndarray, y_true: np.ndarray, y_scores: np.ndarray, recall_level: float
+) -> dict[str, Any]:
+    """Drive-level precision at the highest threshold whose recall is still at
+    least `recall_level`: the operating point with the same catch rate as a
+    model being compared, so two models are compared at matched recall rather
+    than at different thresholds. Returns the point actually used, whose recall
+    may exceed `recall_level` slightly because recall moves in steps."""
+    from sklearn.metrics import precision_recall_curve
+
+    labels, scores = drive_level_table(drive_ids, y_true, y_scores)
+    precision, recall, thresholds = precision_recall_curve(labels, scores)
+    precision, recall = precision[:-1], recall[:-1]
+    ok = np.flatnonzero(recall >= recall_level)
+    if not len(ok):
+        return {"recall_level": recall_level, "reachable": False}
+    best = ok[np.argmax(thresholds[ok])]  # highest threshold that still meets the level
+    return {
+        "recall_level": recall_level,
+        "reachable": True,
+        "threshold": float(thresholds[best]),
+        "precision": float(precision[best]),
+        "recall": float(recall[best]),
+    }
+
+
 DEFAULT_RECALL_LEVELS = (0.05, 0.10, 0.20, 0.35)
 
 
