@@ -128,7 +128,7 @@ from src.models.training import (
     train_lightgbm,
 )
 from src.models.two_stage import fit_second_stage, lightgbm_fitter, log_two_stage
-from src.models.uncertainty import drive_level_bootstrap_ci
+from src.models.uncertainty import drive_level_bootstrap_ci, paired_difference_ci
 from src.models.xgboost_training import train_xgboost
 from src.reporting.figure_data import gain_importance, roc_points
 from src.resource_limits import apply_memory_limit_from_config
@@ -1081,15 +1081,31 @@ def main() -> None:
             if two_stage_model is not None:
                 # Stage 1 at the SAME catch rate as the two-stage model, so the
                 # gain is measured at matched recall, not at different thresholds.
+                stage1_matched = precision_at_recall_level(
+                    test_drive_ids,
+                    y_test,
+                    stage1_test_scores,
+                    results["test_drive_level"]["recall"],
+                )
                 results["two_stage"]["matched_recall"] = {
                     "two_stage_recall": results["test_drive_level"]["recall"],
-                    "stage1_at_matched_recall": precision_at_recall_level(
-                        test_drive_ids,
-                        y_test,
-                        stage1_test_scores,
-                        results["test_drive_level"]["recall"],
-                    ),
+                    "stage1_at_matched_recall": stage1_matched,
                 }
+                if stage1_matched.get("reachable"):
+                    # Resamples the SAME drives for both models, so the shared
+                    # sampling noise cancels - the test a point-estimate gap
+                    # cannot give. This is what answers "is the two-stage gain
+                    # real, or could stage 1 alone have done this by chance?".
+                    results["two_stage"]["matched_recall"]["paired_precision_difference_ci"] = (
+                        paired_difference_ci(
+                            test_drive_ids,
+                            y_test,
+                            stage1_test_scores,
+                            test_scores,
+                            stage1_matched["threshold"],
+                            threshold_result["threshold"],
+                        )
+                    )
             results["precision_at_recall"] = precision_at_recall_table(
                 val_drive_ids,
                 y_val,
