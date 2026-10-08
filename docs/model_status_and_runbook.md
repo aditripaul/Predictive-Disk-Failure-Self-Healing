@@ -1,6 +1,6 @@
 # Model status, results and runbook
 
-> **Current state (2026-10-06).** Read Section 1 and Section 4.4 first. The
+> **Current state (2026-10-07).** Read Section 1 and Section 4.4 first. The
 > pipeline runs on **Q1 + Q2 2026** with a **30-day horizon** and corrected
 > split dates. Sections 3, 4, 4.1 and 5 are the earlier record (Q1 only,
 > 14-day horizon, five SMART attributes, the 95% target) and are kept because
@@ -17,19 +17,34 @@ measured on real data, it says so.
 - **The pipeline runs end to end on real Q1 + Q2 2026 data** (62.6 million
   drive-days, 363,548 drives) within the 20 GB memory cap: ingest, silver,
   features, labels, training, fleet scoring, plots and the final report.
-- **Current result** (Section 4.5; per drive, test, 30-day horizon, two-stage
-  model): 46.2% precision at 9.7% recall at the primary threshold, 44.0% at
-  20.8%, 29.0% at 33.3%. An alerted drive is about 263 times likelier to
-  fail than a random one. The same alerts show 98.9% precision on a test set
-  where 15% of drives fail, the kind most published results use.
+- **Current result** (frozen run below; per drive, test, 30-day horizon,
+  two-stage model): 49.6% precision at 10.5% recall at the primary threshold
+  (95% CI [41.5%, 58.8%], 1000-draw drive bootstrap), 39.7% at 20.0%, 28.7%
+  at 32.4%. An alerted drive is about 283 times likelier to fail than a
+  random one. The same alerts show 99.0% precision on a test set where 15%
+  of drives fail, the kind most published results use. Numbers moved from
+  the previous record (46.2% / 9.7%) because removing the raw `failure`
+  flag from the features (an all-zero column; see below) shifted LightGBM's
+  column sampling and so the fitted trees, even though the column carried
+  no signal. The evaluated test population itself did not change.
 - **The stated goal is not met.** It was 95% precision at 35-50% recall, then
   90% at >= 10% recall, both on the real fleet. Section 7.
 - **Frozen model for the sealed and SMART-Z evaluations.** MLflow run
-  `c9845215896e47a397317cadd3983b6d` (experiment in `configs/model.yaml`,
-  store `sqlite:///mlflow/mlflow.db`), trained at git commit `313bacb`,
+  `0ee06c01ff2a427ca76011fb1afb8ce3` (experiment in `configs/model.yaml`,
+  store `sqlite:///mlflow/mlflow.db`), trained at git commit `748a8c3`,
   dataset version `20261007T035648063409Z`, Q1 + Q2 2026 data. Its artifacts
   include `frozen_spec.json`. Do not retrain this model after Q3 data arrives:
-  a retrain would silently change what the sealed quarter tests.
+  a retrain would silently change what the sealed quarter tests. (An earlier
+  run, `c9845215896e47a397317cadd3983b6d` at commit `313bacb`, trained to
+  bit-identical metrics; superseded only because it predates the CI and
+  matched-recall fields below, not because the model changed.)
+- **The two-stage gain is real, not noise.** Paired bootstrap, same drives for
+  both models at matched test recall (0.1047): stage 1 alone scores 0.389
+  precision, the two-stage model 0.496 - a gap of 0.107, 95% CI [0.032, 0.185].
+  The interval excludes 0. This replaces the five-seed average (42.4% to
+  47.7%) as the quoted result for the two-stage model, since it is a direct
+  significance test rather than an average of point estimates. One seed only;
+  the five-seed result still stands as corroborating evidence.
 - **Calibration caveat.** The calibrated test curve is close to the diagonal
   up to about 0.5. Above that the bins hold 21 to 70 rows, so their observed
   rates are noisy. Do not quote calibrated probabilities above 0.5.
