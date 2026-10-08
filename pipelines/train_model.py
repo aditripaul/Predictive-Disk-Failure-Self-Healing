@@ -354,6 +354,16 @@ def _stage_assemble(work_dir: Path, horizon_days: int | None = None) -> None:
     )
 
 
+def _rate(split_meta: dict) -> float | None:
+    """Positive share of a split's scored rows; None for work dirs written
+    before positive counts were recorded."""
+    rows = split_meta.get("row_count")
+    positives = split_meta.get("positive_count")
+    if not rows or positives is None:
+        return None
+    return positives / rows
+
+
 def _split_period_predicate(
     split_name: str, model_config: dict, horizon_days: int
 ) -> pl.Expr | None:
@@ -646,7 +656,11 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
             shutil.rmtree(part_tmp_dir, ignore_errors=True)
         row_count = len(y_train)
         np.save(work_dir / "y_train.npy", y_train)
-        meta = {"row_count": row_count, "row_count_before_cap": rows_before_cap}
+        meta = {
+            "row_count": row_count,
+            "row_count_before_cap": rows_before_cap,
+            "positive_count": int(y_train.sum()),
+        }
     else:
         # Validation and test are extracted the same way: the feature matrix
         # goes straight to `x_<name>.npy` through a memory map, the labels to
@@ -683,7 +697,7 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
                 "validation_end / test_end in configs/model.yaml against the data's dates."
             )
         np.save(work_dir / f"y_{short_name}.npy", y_split)
-        meta = {"row_count": row_count}
+        meta = {"row_count": row_count, "positive_count": int(y_split.sum())}
 
     (work_dir / f"{split_name}_meta.json").write_text(json.dumps(meta))
     _log_stage(f"{split_name}_split_extracted", t0, row_count=row_count)
@@ -1079,6 +1093,14 @@ def main() -> None:
                     "test": results["test_drive_level"]["failing_drive_count"],
                 },
                 "feature_count": len(feature_columns),
+                # Failure rate of the rows each split is ACTUALLY scored on.
+                # The label table's own rate can differ: the split date windows
+                # (configs/model.yaml splits) drop rows, and the label table
+                # keeps failing-drive rows the windows exclude. Report this one.
+                "evaluated_failure_rate": {
+                    name: _rate(meta)
+                    for name, meta in (("validation", validation_meta), ("test", test_meta))
+                },
             }
             results["action_tiers"] = {
                 tier: (
