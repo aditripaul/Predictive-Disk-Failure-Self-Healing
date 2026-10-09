@@ -10,6 +10,10 @@ priority_smart_attributes:
   - offline_uncorrectable
   - reported_uncorrectable_errors
   - command_timeout
+  # Added from the attribute screen (docs/adr/0002): separation 0.306 beats
+  # four of the five above, and its ~66% coverage reaches the non-Seagate
+  # drives where reported_uncorrectable_errors/command_timeout (~32%) are null.
+  - reallocation_event_count
 
 # Context attributes: each gets a LIGHT family only (current value plus its change
 # over secondary_delta_windows_days observations). Missing for some drive models,
@@ -24,6 +28,7 @@ secondary_delta_windows_days: [7, 30]
 windows_days: [7, 14, 30]
 
 log1p_attributes:
+  - reallocation_event_count
   - reallocated_sector_count
   - current_pending_sector_count
   - offline_uncorrectable

@@ -117,7 +117,29 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
   of data, more SMART attributes and features, persistence rules, a survival
   model, anomaly detection (Sections 4.1 to 4.3 and 5).
 
-### 1.6 Two conventions these numbers depend on
+### 1.6 Found by the attribute screen (2026-10-09)
+
+- **Guardrails could not act on ~2/3 of the fleet (fixed in code, needs a
+  rebuild).** `attribute_coverage_factor` divided by every priority attribute,
+  including Seagate's `smart_187`/`smart_188` (~32% coverage), so non-Seagate
+  drive-days were capped at 0.60 against the 0.80 destructive-action floor
+  whatever their telemetry quality - cordon, migrate and drain were
+  structurally impossible there. Coverage is now scored against the attributes
+  each drive MODEL reports.
+- **`smart_196` (reallocation event count) is now a priority attribute.** It
+  out-separates four of the five existing ones (0.306) at double the coverage
+  of `smart_187`, reaching the drives where the Seagate attributes are null.
+- **No neighbour-failure features.** Failure clustering weakens at finer
+  spatial grain (1.33x per chassis against 3.35x per vault), so it is a cohort
+  effect from filling a vault with one drive batch, not local correlation -
+  and model and age are already featurized.
+- Both code changes need a full re-ingest through train to take effect, which
+  **invalidates the frozen run in Section 1.4**. Do it before Q3 is ingested;
+  afterwards it costs the sealed evaluation. Full reasoning, including the
+  hypotheses the screen refuted, is in
+  `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md`.
+
+### 1.7 Two conventions these numbers depend on
 
 - **Action tiers are set in lift, not precision.**
   `threshold.action_tier_lift` (56.6 / 94.3 / 151.0 / 226.4) replaces the
@@ -863,7 +885,7 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   (`pipelines/evaluate_frozen.py`, Section 1.4).
 - **An append-only log of every test-split computation** (Section 1.4).
 - **Action-tier targets expressed as lift** rather than precision
-  (Section 1.6).
+  (Section 1.7).
 - **The raw `failure` flag excluded from the feature list** (Section 1.1).
 
 **Model and evaluation:**
@@ -877,7 +899,7 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 - **Per-drive-family results** are in Section 4.1. The top three families were
   tested; the other families were not scored (too few failures).
 - **Tier targets** are still placeholders. They are now expressed as lift
-  (56.6 / 94.3 / 151.0 / 226.4, Section 1.6), which makes them comparable
+  (56.6 / 94.3 / 151.0 / 226.4, Section 1.7), which makes them comparable
   across splits, but the numbers themselves should come from the real cost of
   a false alarm per action, not from the precisions they were converted from.
 - **The live agent loop** (`src/agent/nodes.py`) is not driven by the trained

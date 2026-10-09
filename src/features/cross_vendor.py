@@ -90,9 +90,7 @@ def add_model_family_zscores(
     return df.with_columns(exprs)
 
 
-def model_family_zscore_stats(
-    source: pl.LazyFrame, plan: list[tuple[str, str]]
-) -> pl.DataFrame:
+def model_family_zscore_stats(source: pl.LazyFrame, plan: list[tuple[str, str]]) -> pl.DataFrame:
     """Fleet-wide per-`model_family` mean and std of each rolling-mean
     column in `plan` - the only cross-drive statistic the gold feature
     pipeline needs. Narrow by construction (one row per model family), so
@@ -132,3 +130,61 @@ def add_model_family_zscores_from_stats(
     ]
     helper_columns = [f(col) for col, _ in plan for f in (_family_mean_column, _family_std_column)]
     return joined.with_columns(exprs).drop(helper_columns)
+
+
+#: A model must report an attribute in at least this share of its drive-days
+#: for the attribute to count as "expected" for that model, and must have at
+#: least this many drive-days before its own expected set is trusted at all.
+DEFAULT_EXPECTED_MIN_COVERAGE = 0.5
+DEFAULT_EXPECTED_MIN_DRIVE_DAYS = 1_000
+
+
+def expected_attribute_column(attribute: str) -> str:
+    return f"_expected_{attribute}"
+
+
+def model_expected_attributes(
+    source: pl.LazyFrame,
+    attributes: list[str],
+    *,
+    model_column: str = "drive_model",
+    min_coverage: float = DEFAULT_EXPECTED_MIN_COVERAGE,
+    min_drive_days: int = DEFAULT_EXPECTED_MIN_DRIVE_DAYS,
+) -> pl.DataFrame:
+    """Which of `attributes` each drive model actually reports.
+
+    Vendors publish different SMART attributes: `smart_187`/`smart_188` are
+    Seagate's, and on a mixed fleet they are null for about two thirds of
+    drive-days (docs/adr/0002). An absent attribute is then not missing
+    telemetry, it is an attribute that drive never had, and
+    `add_feature_confidence` must not score it as a data-quality fault - see
+    that function and ADR 0002 for what the conflation cost.
+
+    One narrow row per model, so this aggregates straight off the per-batch
+    Parquet files like `model_family_zscore_stats`, and like that function it
+    is computed fleet-wide: an attribute set is a property of the hardware and
+    its firmware, independent of any label, so it carries no outcome leakage.
+
+    A model with fewer than `min_drive_days` rows gets every attribute marked
+    expected - too little evidence to conclude a model does NOT report
+    something, and over-stating expectation is the conservative direction
+    (it lowers confidence rather than raising it)."""
+    present = (
+        source.select([model_column, *attributes])
+        .group_by(model_column)
+        .agg(
+            [pl.len().alias("_drive_days")]
+            + [pl.col(a).is_not_null().mean().alias(f"_coverage_{a}") for a in attributes]
+        )
+        .collect()
+    )
+    too_few = pl.col("_drive_days") < min_drive_days
+    return present.with_columns(
+        [
+            pl.when(too_few)
+            .then(pl.lit(True))
+            .otherwise(pl.col(f"_coverage_{a}") >= min_coverage)
+            .alias(expected_attribute_column(a))
+            for a in attributes
+        ]
+    ).select([model_column, *[expected_attribute_column(a) for a in attributes]])

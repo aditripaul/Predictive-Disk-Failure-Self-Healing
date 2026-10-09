@@ -66,6 +66,7 @@ from src.features.confidence import add_feature_confidence
 from src.features.cross_vendor import (
     add_attribute_ratios,
     add_model_family_zscores_from_stats,
+    model_expected_attributes,
     model_family_zscore_plan,
     model_family_zscore_stats,
 )
@@ -208,10 +209,20 @@ def build_gold_features(wide: pl.DataFrame, features_config: dict) -> pl.DataFra
     _log_stage("attribute_ratios_added", t0)
 
     t0 = time.perf_counter()
+    # Which attributes each MODEL reports, so a drive is not marked down for
+    # lacking another vendor's attribute (docs/adr/0002). Needs drive_model,
+    # which the real gold frame carries from drive_day; a narrow frame without
+    # it falls back to the global denominator.
+    expected_by_model = (
+        model_expected_attributes(gold.lazy(), available_attributes)
+        if "drive_model" in gold.columns
+        else None
+    )
     gold = add_feature_confidence(
         gold,
         available_attributes,
         recency_tau_hours=features_config["feature_confidence"]["recency_tau_hours"],
+        expected_by_model=expected_by_model,
     )
     _log_stage(
         "feature_confidence_added", t0, row_count=gold.height, column_count=len(gold.columns)

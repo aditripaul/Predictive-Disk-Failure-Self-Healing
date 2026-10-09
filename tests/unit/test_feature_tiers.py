@@ -21,6 +21,9 @@ CORE = {
     "offline_uncorrectable",
     "reported_uncorrectable_errors",
     "command_timeout",
+    # Screened in: docs/adr/0002. Keep this set small - each entry costs ~31
+    # gold columns - and change it only with a measured reason.
+    "reallocation_event_count",
 }
 
 
@@ -31,12 +34,14 @@ def _wide(n_days: int = 40) -> pl.DataFrame:
             rows.append(
                 {
                     "drive_id": drive,
+                    "drive_model": "ST12000NM0008",
                     "date": dt.date(2026, 1, 1) + dt.timedelta(days=day),
                     "reallocated_sector_count": float(day // 10),
                     "current_pending_sector_count": 0.0,
                     "offline_uncorrectable": 0.0,
                     "reported_uncorrectable_errors": 0.0,
                     "command_timeout": 0.0,
+                    "reallocation_event_count": float(day // 10),
                     "seek_error_rate": float(day * 100),
                     "power_on_hours": 1000.0 + 24 * day,
                     "temperature_celsius": 30.0 if drive == "a" else None,
@@ -74,7 +79,7 @@ def test_feature_confidence_ignores_secondary_attributes_that_are_missing():
 
 def test_gold_column_count_stays_bounded():
     gold = build_gold_features(_wide(), FEATURES_CONFIG)
-    assert len(gold.columns) < 240, len(gold.columns)
+    assert len(gold.columns) < 280, len(gold.columns)
 
 
 def test_resolve_plans_only_use_columns_that_exist():

@@ -33,12 +33,18 @@ REQUIRED_COLUMNS = [
 
 
 #: Extra SMART attributes ingested when present: 7 seek error rate, 9 power-on
-#: hours, 194 temperature, 199 UDMA CRC errors.
+#: hours, 194 temperature, 199 UDMA CRC errors, 196 reallocation event count.
+#:
+#: 196 was added from the attribute screen (docs/adr/0002): it out-separates
+#: four of the five priority attributes, and at ~66% coverage against
+#: smart_187/188's ~32% it reaches the non-Seagate drives where those two are
+#: null - the part of the fleet with no defect-EVENT counter at all until now.
 OPTIONAL_SMART_COLUMNS = [
     "smart_7_raw",
     "smart_9_raw",
     "smart_194_raw",
     "smart_199_raw",
+    "smart_196_raw",
 ]
 
 
