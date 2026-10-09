@@ -35,7 +35,7 @@ sources:
 download:
   backblaze:
     base_url: "https://f001.backblazeb2.com/file/Backblaze-Hard-Drive-Data"
-    quarters: ["Q1_2026","Q2_2026", "Q3_2026"]
+    quarters: ["Q1_2026","Q2_2026"]
     start_quarter: null
     end_quarter: null
   smartz:
