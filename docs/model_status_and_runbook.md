@@ -22,20 +22,20 @@ features, labels, training, fleet scoring, plots and the final report.
 
 ### 1.1 The current model
 
-Frozen MLflow run `0ee06c01ff2a427ca76011fb1afb8ce3` (experiment named in
-`configs/model.yaml`, store `sqlite:///mlflow/mlflow.db`), trained at git
-commit `748a8c3`, dataset version `20261007T035648063409Z`, Q1 + Q2 2026
-data, 30-day horizon, two-stage model. Per drive, on test, with thresholds
-chosen on validation. Test holds 621 failing and 353,328 healthy drives.
+Frozen MLflow run `29e338248d8948ccb41ee58db5321e76` (experiment named in
+`configs/model.yaml`, store `sqlite:///mlflow/mlflow.db`), dataset version
+`20261009T051152748998Z`, Q1 + Q2 2026 data, 30-day horizon, two-stage
+model, 246 features. Per drive, on test, with thresholds chosen on
+validation. Test holds 621 failing and 353,328 healthy drives.
 
 | Operating point | Precision, real fleet (0.18% fail) | Recall | Precision at 15% failing |
 |---|---|---|---|
-| **Primary threshold** | **49.6%**, 95% CI [41.5%, 58.8%] | **10.5%** | 99.0% |
-| Broader | 39.7% | 20.0% | - |
-| Broadest | 28.7% | 32.4% | - |
+| **Primary threshold** | **48.6%**, 95% CI [38.9%, 58.2%] | **8.7%** | 99.0% |
+| Broader | 39.7% | 20.3% | - |
+| Broadest | 29.5% | 33.3% | - |
 
-- At the primary threshold an alerted drive is about **283 times** likelier
-  to fail than a random one, and fewer than 1 healthy drive in 5,000 is
+- At the primary threshold an alerted drive is about **277 times** likelier
+  to fail than a random one, and fewer than 1 healthy drive in 6,000 is
   alerted.
 - The interval is a 1000-draw bootstrap over whole drives
   (`src/models/uncertainty.py`), so a drive's many near-identical rows are
@@ -44,16 +44,24 @@ chosen on validation. Test holds 621 failing and 353,328 healthy drives.
   test set in which 15% of drives fail, the kind most published results use.
   It is arithmetic on the measured rates, not a separate experiment.
 - The logged quantities are those rates, the lift and the interval. The drive
-  counts they imply on this test population are 65 of 621 failing drives
-  caught and 66 of 353,328 healthy drives alerted at the primary threshold.
+  counts they imply on this test population are 54 of 621 failing drives
+  caught and 57 of 353,328 healthy drives alerted at the primary threshold.
 - **Do not retrain this run.** It is what the sealed quarter and SMART-Z are
   scored against (Section 1.4), and a retrain would silently change what
   those evaluations test. Its artifacts include `frozen_spec.json`, which
   carries the thresholds, the feature list and the calibrator, so nothing is
-  re-chosen at evaluation time. (An earlier run,
-  `c9845215896e47a397317cadd3983b6d` at commit `313bacb`, trained to
-  bit-identical metrics; it is superseded only because it predates the
-  interval and matched-recall fields, not because the model changed.)
+  re-chosen at evaluation time.
+- **The previous freeze, `0ee06c01ff2a427ca76011fb1afb8ce3`, is void - not
+  merely superseded.** It was trained when `attribute_coverage_factor` was a
+  vendor proxy (0.6 for non-Seagate, 1.0 for Seagate) and `recency_factor`
+  was pinned near 0.6065 (ADR 0002). Those are model *features*, and the
+  current gold table has both at about 1.0, so scoring that run against the
+  rebuilt data would feed it three features far outside their training
+  distribution. Worse, it would do so silently: all 212 of its
+  `frozen_spec.json` columns still exist in the 246-column frame, so
+  `evaluate_frozen.py` would select them and score without complaint.
+  The same applies to `c9845215896e47a397317cadd3983b6d` (commit `313bacb`).
+  Neither may be used for the sealed quarter.
 
 These numbers moved from the previous record (46.2% precision at 9.7% recall,
 Section 4.5) because the raw `failure` flag was dropped from the feature
@@ -64,15 +72,37 @@ evaluated test population did not change. Section 4.5 holds the fuller
 breakdown: the per-tier results, the drive counts at four operating points
 and the warning lead time all come from that run.
 
-### 1.2 The two-stage gain is real, not noise
+### 1.2 The two-stage gain is not established
 
-Paired bootstrap over the same resampled drives, both models at matched test
-recall (0.1047): stage 1 alone scores 0.389 precision and the two-stage model
-0.496 - a gap of **0.107, 95% CI [0.032, 0.185]**. The interval excludes 0.
-This is the result to quote for the second stage, replacing the five-seed
-average (42.4% to 47.7%), because it is a direct significance test rather
-than an average of point estimates. It rests on one seed; the five-seed
-result (Section 4.5) stands as corroborating evidence.
+Two paired bootstraps now exist, both over the same resampled drives with
+both models at matched test recall, and they disagree about significance:
+
+| Run | Features | Stage 1 | Two-stage | Gap | 95% CI |
+|---|---|---|---|---|---|
+| `0ee06c01` | 212 | 0.389 | 0.496 | 0.107 | [0.032, 0.185] |
+| `29e33824` | 246 | 0.450 | 0.486 | 0.036 | **[-0.055, 0.128]** |
+
+The second interval includes 0, so the gain is **not** confirmed on the
+current feature set. The two runs do not contradict each other - each point
+estimate sits inside the other's interval, which is consistent with a true
+gain somewhere near 0.03 to 0.08 that the first run measured at the high end.
+What is no longer defensible is the earlier claim that a single paired test
+had settled it.
+
+Standing evidence, in order of strength: the five-seed repeat (Section 4.5)
+showed a gain in every seed (42.4% to 47.7%, about 5 points); the two paired
+tests give 0.107 and 0.036. Neither point estimate is negative, so the second
+stage does not appear to hurt - but "about 5 points, not yet significant on a
+single run" is the honest summary, not "real, not noise".
+
+The decisive experiment is already built and has not been run: paired
+comparison across seeds, which separates the gain from seed variance rather
+than reporting one of the two:
+
+    make full-experiment FULL_EXPERIMENT_ARGS="--variants reg_spw --skip-baseline --two-stage --two-stage-seeds 5"
+
+Until that runs, treat the second stage as retained on weak evidence rather
+than as a measured improvement.
 
 ### 1.3 Calibration
 
@@ -928,7 +958,7 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   the 30-day default and the split fix.
 - **The frozen run is not in this repository's MLflow store.** The real-data
   runs were made on the data machine, so `mlflow/mlflow.db` here ends at
-  2026-10-06 and `data/audit/` holds no report for run `0ee06c01`. Section 1.1
+  2026-10-06 and `data/audit/` holds no report for run `29e33824`. Section 1.1
   is the record for it. Re-running `make train` locally will not reproduce
   that run; it would produce a new one.
 

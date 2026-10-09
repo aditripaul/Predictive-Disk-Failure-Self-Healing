@@ -228,6 +228,33 @@ Measured on the real build: `recency_factor` median 0.6065, p95 0.6065, max
    *models*, which were tested and lost to pooled (0.128 vs 0.217 on HGST).
    Falsifiable check for the next run: if attribute availability causes the
    per-family gap, adding `smart_196` should narrow it.
+   - **Tested 2026-10-09, not supported.** On run `29e338248d8948ccb41ee58db5321e76`
+     (246 features) the pooled model's drive AUPRC is 0.473 on
+     ST12000NM0008 against 0.244 on HGST HUH721212ALN604; the gap did not
+     narrow. The headline also did not move: test drive precision 0.486
+     against the previous 0.496, recall 0.087 against 0.105, row AUPRC 0.1108
+     against 0.1115 - all inside the bootstrap interval.
+   - **The experiment was confounded, by this ADR's own changes.** Three things
+     moved at once: `smart_196` was added, `attribute_coverage_factor` went
+     from a 0.6/1.0 vendor split to about 1.0, and `recency_factor` went from
+     about 0.6065 to 1.0. The second matters more than it looked when shipped:
+     `attribute_coverage_factor` was an accidental vendor-identifying feature,
+     and the fix removed that signal from the model's inputs. Nothing here can
+     be attributed to `smart_196` alone. Bundling a feature experiment with
+     two bug fixes was a mistake; the lesson is to land fixes and measure
+     features in separate runs.
+   - **What the run did show, strongly.** At a single global threshold the
+     pooled model sits at completely different operating points per family:
+     fleet-wide 0.394 precision at 0.177 recall, but 0.733/0.129 on TOSHIBA
+     MG07ACA14TA, 0.508/**0.492** on ST12000NM0008 and 0.360/0.158 on HGST
+     HUH721212ALN604 - a 3.8x spread in recall and 2x in precision at an
+     identical cut-off (`per_model_experiment` evaluates the pooled model at
+     the pooled threshold, not a per-family one). ST12000NM0008 reaching 49%
+     recall at 51% precision, against 8.7% recall fleet-wide, is the strongest
+     evidence yet for per-family operating points, and the first lever in this
+     work that looks capable of moving the frontier rather than nibbling at
+     it. It raises recall by not averaging a single threshold over
+     heterogeneous populations, without improving the model at all.
 
 ## Consequences
 

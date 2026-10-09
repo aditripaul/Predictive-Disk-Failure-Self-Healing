@@ -3,12 +3,6 @@
 ## AI-Based Autonomous System Validation & Reliability Checker
 ### Predictive Disk-Failure Self-Healing Agent for Server Fleets
 
-> **The plan as written, before implementation, and kept that way.** Of the
-> objectives below, O2's prediction target is the one not met, and O1 is
-> Backblaze-only: SMART-Z is harmonized in code but has never been evaluated.
-> O3 to O6 were met in simulation. Measured outcomes:
-> `docs/system_summary.md` and `docs/model_status_and_runbook.md`.
-
 ---
 
 # 1. Goal
