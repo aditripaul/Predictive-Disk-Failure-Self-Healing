@@ -29,8 +29,8 @@ This project builds and validates a two-layer autonomous system:
 
 | Layer | Role |
 |---|---|
-| **Layer 1 — Self-Healing Agent** | Predicts impending disk failure from SMART telemetry and autonomously executes remediation actions such as monitor, warn, cordon, migrate, or drain inside a guardrailed LangGraph MAPE-K loop |
-| **Layer 2 — Reliability Checker** | Audits every autonomous decision for correctness, safety, necessity, timeliness, and guardrail compliance; issues a trust score with veto semantics and produces explainability logs |
+| **Layer 1 - Self-Healing Agent** | Predicts impending disk failure from SMART telemetry and autonomously executes remediation actions such as monitor, warn, cordon, migrate, or drain inside a guardrailed LangGraph MAPE-K loop |
+| **Layer 2 - Reliability Checker** | Audits every autonomous decision for correctness, safety, necessity, timeliness, and guardrail compliance; issues a trust score with veto semantics and produces explainability logs |
 
 The project is simulation-first. The agent operates against a simulated fleet, and all autonomous behavior is validated before any consideration of real-world deployment.
 
@@ -247,7 +247,7 @@ Some phases can partially overlap:
 
 ---
 
-## Phase 0 — Project Bootstrap & Architecture
+## Phase 0 - Project Bootstrap & Architecture
 
 **Milestone:** M0
 **Duration:** Week 1
@@ -362,7 +362,7 @@ make agent-demo
 
 ---
 
-## Phase 1 — Data Ingestion & Raw Landing
+## Phase 1 - Data Ingestion & Raw Landing
 
 **Milestone:** M1 start
 **Duration:** Weeks 1–2
@@ -466,7 +466,7 @@ lf = pl.scan_csv(
 
 ---
 
-## Phase 2 — Harmonization & Canonical Schema
+## Phase 2 - Harmonization & Canonical Schema
 
 **Milestone:** M1 complete
 **Duration:** Weeks 2–3
@@ -568,7 +568,7 @@ TO 'data/silver/canonical_telemetry/backblaze/year=2024/month=01/part.parquet'
 
 ---
 
-## Phase 3 — Feature Engineering Pipeline
+## Phase 3 - Feature Engineering Pipeline
 
 **Milestone:** M1 → M2
 **Duration:** Weeks 3–5
@@ -668,7 +668,7 @@ features:
 
 ---
 
-## Phase 4 — Labeling, Splitting & Imbalance Strategy
+## Phase 4 - Labeling, Splitting & Imbalance Strategy
 
 **Milestone:** M2
 **Duration:** Weeks 5–6
@@ -755,7 +755,7 @@ censoring_flag
 
 ---
 
-## Phase 5 — Model Training & Threshold Tuning
+## Phase 5 - Model Training & Threshold Tuning
 
 **Milestone:** M2 complete
 **Duration:** Weeks 6–8
@@ -865,7 +865,7 @@ AND guardrails pass
 
 ---
 
-## Phase 6 — LangGraph MAPE-K Agent Core
+## Phase 6 - LangGraph MAPE-K Agent Core
 
 **Milestone:** M3
 **Duration:** Weeks 8–10
@@ -945,7 +945,7 @@ Bulk telemetry and features remain in DuckDB, Parquet, or Redis.
 
 ---
 
-## Phase 7 — Guardrail Engine
+## Phase 7 - Guardrail Engine
 
 **Milestone:** M4
 **Duration:** Weeks 9–11
@@ -1021,7 +1021,7 @@ If rules conflict, the most restrictive rule wins.
 
 ---
 
-## Phase 8 — Fleet Simulator & Chaos Injection
+## Phase 8 - Fleet Simulator & Chaos Injection
 
 **Milestone:** M5
 **Duration:** Weeks 10–12
@@ -1107,7 +1107,7 @@ RECOVERED
 
 ---
 
-## Phase 9 — Reliability Checker & Trust Scoring
+## Phase 9 - Reliability Checker & Trust Scoring
 
 **Milestone:** M6
 **Duration:** Weeks 11–13
@@ -1212,7 +1212,7 @@ GuardrailMultiplier =
 
 ---
 
-## Phase 10 — Dashboards & Human-in-the-Loop UI
+## Phase 10 - Dashboards & Human-in-the-Loop UI
 
 **Milestone:** M7
 **Duration:** Weeks 12–14
@@ -1273,7 +1273,7 @@ GET  /api/v1/guardrails/violations
 
 ---
 
-## Phase 11 — End-to-End Evaluation & Final Report
+## Phase 11 - End-to-End Evaluation & Final Report
 
 **Milestone:** M8
 **Duration:** Weeks 13–15

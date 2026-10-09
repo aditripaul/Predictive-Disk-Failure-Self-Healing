@@ -40,7 +40,7 @@ Screen over 40 days spread across Q1+Q2 2026 (72,477 rows, 3,239 pre-failure,
 ingested. The coverage column matters more than the ranking: `smart_187` and
 `smart_188` are **Seagate** attributes at ~32% coverage, so the model's single
 strongest feature is absent on about two-thirds of the fleet. `smart_196` sits
-at double that coverage, reaching the drives where those two are null —
+at double that coverage, reaching the drives where those two are null -
 drives that until now had no defect-*event* counter at all. `0.32 + 0.66 =
 0.98` suggests the two sets are close to complementary by vendor.
 
@@ -54,13 +54,13 @@ will correlate with `smart_5`.
   were already in `STANDARD_SMART_ID_TO_CANONICAL` but never ingested, and
   README §2 names read-error rates and spin retries as the warning signs the
   project set out to detect. Measured: `smart_1` sep 0.062, `smart_10` below
-  the reporting cutoff (< 0.032) — weaker than `smart_7`, already known weak.
+  the reporting cutoff (< 0.032) - weaker than `smart_7`, already known weak.
   Textbook SMART lore, not this fleet. Not added.
 - **Vendor-normalized values.** Every `_normalized` column matched or
   underperformed its raw twin; `smart_5` loses most of its signal (0.290 raw
   vs 0.098 normalized) because vendor scaling compresses it. Not added as
   features. They are still required in the ingest for SMART-Z harmonization,
-  which publishes only normalized values — a comparability mechanism, not a
+  which publishes only normalized values - a comparability mechanism, not a
   model input.
 - **`smart_183` (0.2% coverage) and `smart_184` (7.2%).** Too sparse to carry
   a fleet-wide feature, whatever the literature says about end-to-end errors.
@@ -84,7 +84,7 @@ unique chassis; `vault_id` matches a Backblaze vault (20 pods x ~60 drives).
 The pair identifies a physical chassis of ~61 drives, which is the grain at
 which "the drives beside this one" means anything.
 
-**Clustering weakens as the grain gets finer** — 1.33x at chassis against
+**Clustering weakens as the grain gets finer** - 1.33x at chassis against
 3.35x at vault. A local physical mechanism (shared vibration, a failing PSU, a
 hot pocket, a bad controller) would concentrate failures most tightly at
 chassis level. It is lowest there. Over-dispersion that *grows* with group
@@ -111,11 +111,11 @@ Found while checking whether adding a 6th priority attribute would disturb
 
 1. `smart_187`/`smart_188` coverage 0.32 (measured, above).
 2. Nulls survive to gold: silver wrote 563,089,383 canonical rows from
-   62,565,487 drive-days — exactly 9.000 per drive-day, one per ingested
-   attribute — so a null reading is kept as a row, and the pivot's `.first()`
+   62,565,487 drive-days - exactly 9.000 per drive-day, one per ingested
+   attribute - so a null reading is kept as a row, and the pivot's `.first()`
    preserves it as an all-null gold column.
-3. `pipelines/build_gold_features.py` passed `priority_smart_attributes` — all
-   five — to `add_feature_confidence`.
+3. `pipelines/build_gold_features.py` passed `priority_smart_attributes` - all
+   five - to `add_feature_confidence`.
 4. `attribute_coverage_factor = sum(is_not_null) / 5` = **3/5 = 0.60** for
    every non-Seagate drive-day.
 5. `feature_confidence = telemetry_coverage_30d x recency_factor x
@@ -126,11 +126,11 @@ Found while checking whether adding a 6th priority attribute would disturb
    severity **hard**; `rules.py` blocks destructive actions below it.
 
 **Cordon, migrate and drain were therefore structurally impossible on roughly
-two-thirds of the fleet** — not because those drives had degraded telemetry,
+two-thirds of the fleet** - not because those drives had degraded telemetry,
 but because they do not report another vendor's attributes. No test caught it:
 every guardrail and chaos fixture builds synthetic drives with all attributes
-populated. In operation it is silent — the guardrail fires, the action routes
-to human review, the audit trail looks healthy — while the system is unable to
+populated. In operation it is silent - the guardrail fires, the action routes
+to human review, the audit trail looks healthy - while the system is unable to
 act autonomously on most of the fleet, which is the project's whole purpose.
 
 ### A second, larger cap in the same formula
@@ -219,7 +219,7 @@ Measured on the real build: `recency_factor` median 0.6065, p95 0.6065, max
    normalization as identity for every onboarded counter. Onboarding it needs
    that path built and tested, which belongs in its own change.
 5. **Per-family operating points: not done.** The guardrail's instinct was
-   sound even though its mechanism was wrong — prediction quality genuinely
+   sound even though its mechanism was wrong - prediction quality genuinely
    differs by family (pooled drive-level AUPRC 0.303 Seagate, 0.217 HGST,
    0.207 Toshiba), consistent with `smart_187`/`188` availability though not
    proof of it. The right way to express "require more confidence before
@@ -278,6 +278,6 @@ Measured on the real build: `recency_factor` median 0.6065, p95 0.6065, max
   Doing this before Q3 is ingested costs nothing; afterwards it would cost the
   sealed evaluation.
 - The precision ceiling is unaffected by any of this. The screen found no
-  hidden strong attribute — the best un-ingested candidate merely matches what
-  is already there — which is further evidence for the standing conclusion
+  hidden strong attribute - the best un-ingested candidate merely matches what
+  is already there - which is further evidence for the standing conclusion
   that the ceiling is in the data rather than in the model or the features.

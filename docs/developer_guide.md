@@ -6,7 +6,7 @@
 **Audience:** engineers reading, extending, or maintaining this codebase.
 **Companion documents:** `docs/design_goal.md` (why the system is built this
 way), `docs/dataset_strategy.md` (data/feature rules), `docs/project_plan.md`
-(phase history). This guide is about the code as it exists today — where
+(phase history). This guide is about the code as it exists today - where
 things live, how the pieces fit together, and how to change them safely.
 For running the system as an operator rather than modifying it, see
 `docs/user_guide.md`.
@@ -26,14 +26,14 @@ audit trail that a Streamlit dashboard renders.
 
 Everything downstream of "predict p_fail" is deliberately swappable: the
 agent, guardrails, and reliability checker never call a real ML model or a
-real fleet directly — they call whatever `AgentDependencies` you hand them.
+real fleet directly - they call whatever `AgentDependencies` you hand them.
 
 ---
 
 ## 2. Repository layout
 
 ```text
-configs/            YAML settings, loaded at runtime via src/config.py — not decorative
+configs/            YAML settings, loaded at runtime via src/config.py - not decorative
 data_contracts/     Pydantic models shared across every layer (the "wire format")
 src/
   ingest/           Bronze landing: Backblaze, SMART-Z, synthetic stub, profiling
@@ -56,8 +56,8 @@ tests/
   golden/           Synthetic golden dataset + regression smoke test
 ```
 
-If you're looking for a specific behavior, the module names above are literal
-— there's no hidden indirection layer. `src/agent/nodes.py` is exactly the
+If you're looking for a specific behavior, the module names above are literal -
+there's no hidden indirection layer. `src/agent/nodes.py` is exactly the
 five MAPE-K node functions; `src/guardrails/rules.py` is exactly the rule
 catalog from `configs/guardrails.yaml`.
 
@@ -73,11 +73,11 @@ make test          # full pytest suite
 
 Python 3.11+ is declared in `pyproject.toml`; mypy is configured for 3.12
 syntax (`[tool.mypy] python_version`) because some dependency stub files
-(numpy) require it — this doesn't affect the actual supported runtime
+(numpy) require it - this doesn't affect the actual supported runtime
 version, only what mypy parses in stub files.
 
 Never invoke `python`, `ruff`, `mypy`, `pytest`, `streamlit`, or `uvicorn`
-directly in this repo — always through `uv run` (or a `make` target, which
+directly in this repo - always through `uv run` (or a `make` target, which
 already does this). The Makefile learned this the hard way twice: every
 target used to call these tools bare (silently failing outside an activated
 venv), and separately `install` used to run plain `uv sync` without
@@ -96,23 +96,23 @@ would fail with "ruff: command not found."
 | `make test-integration` | `tests/integration/` only |
 | `make test-chaos` | `tests/chaos/` only |
 | `make test-golden` / `make data-check` | `tests/golden/` only (same thing, two names) |
-| `make test-property` | `tests/property/` only — Hypothesis property-based tests |
-| `make smoke` | `tests/smoke/` only — see §12 |
+| `make test-property` | `tests/property/` only - Hypothesis property-based tests |
+| `make smoke` | `tests/smoke/` only - see §12 |
 | `make coverage` | Full suite under `pytest-cov`; writes `htmlcov/index.html` |
-| `make ci` | `lint` + `test` — exactly what CI runs |
-| `make clean` | Removes caches (`__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `htmlcov`, `.coverage`) — never touches data or runtime state |
-| `make clean-data` | Removes regenerated pipeline outputs (`data/bronze`, `data/silver`, `data/gold`, `data/audit/*/*`), preserving every `.gitkeep` placeholder — never touches `data/raw/` source data |
+| `make ci` | `lint` + `test` - exactly what CI runs |
+| `make clean` | Removes caches (`__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `htmlcov`, `.coverage`) - never touches data or runtime state |
+| `make clean-data` | Removes regenerated pipeline outputs (`data/bronze`, `data/silver`, `data/gold`, `data/audit/*/*`), preserving every `.gitkeep` placeholder - never touches `data/raw/` source data |
 | `make download-backblaze` / `download-smartz` | Configurable raw-data download (§5.0) |
 | `make ingest-backblaze` / `ingest-smartz` / `ingest-synthetic-stub` | Bronze ingestion (§5) |
 | `make build-silver` / `build-features` / `build-labels` | Silver/Gold pipeline stages (§5) |
 | `make train` | Trains the model, chooses thresholds and action tiers, writes the evaluation report and model card (§5.12, §5.13). `TRAIN_ARGS` takes `--horizon-days N`, `--two-stage` and `--keep-work-dir`. SHAP only when `diagnostics.shap_enabled` (§5.1) |
 | `make experiment-model` | Compares modelling variants on a kept training run (§5.12, §5.13; `docs/pipeline_usage.md`) |
 | `make full-experiment` / `clean-kept` / `full-pipeline` | Train with kept arrays then run the experiment; remove kept work directories; ingest through plots |
-| `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (§5.7) — `train-lstm` requires `uv sync --extra torch` |
+| `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (§5.7) - `train-lstm` requires `uv sync --extra torch` |
 | `make score-fleet` | Batch-scores the current fleet with the latest MLflow run for `primary_horizon_days` (and that run's second-stage model and tier thresholds, when it has them); writes `data/audit/predictions/` (§5.8) |
 | `make evaluate-frozen` | Scores one sealed or external split, once, against a frozen run: `ARGS="--run-id <id> --split sealed\|external_smartz"`. Writes `data/audit/frozen_evaluations/` and refuses a repeat (§5.14) |
 | `make plots` | Renders performance plots (calibration, ROC curves, feature importance, failures by drive family, class imbalance, metric comparison; SHAP when enabled) to `data/audit/plots/` (§5.9) |
-| `make final-report` | `pipelines/generate_final_report.py` — aggregates chaos/latency/model reports, the goal status against `configs/model.yaml` and the plot list; runs `make plots` first |
+| `make final-report` | `pipelines/generate_final_report.py` - aggregates chaos/latency/model reports, the goal status against `configs/model.yaml` and the plot list; runs `make plots` first |
 | `make agent-demo` | One MAPE-K cycle against the hardcoded demo fleet (§6) |
 | `make dashboard` | Streamlit UI (§10) |
 | `make api` | FastAPI service (§10) |
@@ -129,14 +129,14 @@ output, so it's separate and never invoked by anything else automatically.
 Running" table for which `configs/*.yaml` settings need a real value
 (e.g. `download.backblaze.quarters`) versus which ones are safe defaults.
 Nothing needs to change to run `make smoke`/`make agent-demo`/the
-synthetic-data walkthrough (§12.1) — this section is about how config
+synthetic-data walkthrough (§12.1) - this section is about how config
 loading works in code, not what to set.
 
-`src/config.py` defines three dataclasses — `AgentSettings`,
-`GuardrailSettings`, `ModelSettings` — each with a `.load()` classmethod that
+`src/config.py` defines three dataclasses - `AgentSettings`,
+`GuardrailSettings`, `ModelSettings` - each with a `.load()` classmethod that
 reads the corresponding `configs/*.yaml` file. This is the **only** correct
 way to get a threshold into running code. Do not hardcode a second copy of
-`configs/agent.yaml`'s `action_thresholds` somewhere else — that was a real
+`configs/agent.yaml`'s `action_thresholds` somewhere else - that was a real
 bug this codebase had until it was fixed (thresholds silently diverging from
 the YAML).
 
@@ -150,13 +150,13 @@ settings.min_confidence_for_destructive_action  # 0.80
 
 Functions that need config values (`make_plan_node`, `build_guardrail_evaluator`)
 accept them as keyword arguments defaulting to `None`, and resolve from
-`.load()` lazily inside the function body — never at import time, and never
+`.load()` lazily inside the function body - never at import time, and never
 as a mutable default argument. This keeps tests able to override individual
 values without needing the YAML files present, and keeps a stale config
 object from being cached across calls.
 
 `GuardrailSettings.prediction_threshold` is deliberately sourced from
-`action_thresholds["migrate"]`, not `["drain"]` — it's the lowest p_fail at
+`action_thresholds["migrate"]`, not `["drain"]` - it's the lowest p_fail at
 which *any* destructive tier can be proposed, and setting it any tighter
 would make `PRED_THRESHOLD` block every legitimate migrate action.
 
@@ -247,7 +247,7 @@ Each stage is a thin `pipelines/*.py` script that reads YAML config, calls
 into `src/<stage>/`, and writes Parquet + a JSON report under `data/audit/`.
 The actual logic lives in `src/`, is unit-tested independently of the
 pipeline scripts, and never touches disk paths directly (paths are passed
-in) — so you can call `build_silver(...)`, `compute_labels(...)`, etc. from
+in) - so you can call `build_silver(...)`, `compute_labels(...)`, etc. from
 a notebook or a different orchestrator without going through `pipelines/`.
 
 **Leakage rules are enforced structurally, not by convention.** Every
@@ -257,7 +257,7 @@ forward from `date` to `date + horizon_days` (`src/labels/labeling.py`); an
 ambiguous or right-censored outcome produces `label = None`, never a
 default `0` (`src/labels/labeling.py::compute_labels_for_horizon`). If
 you're adding a new feature or label rule, follow the same
-partition-by-drive_id / no-future-data pattern — the golden dataset test
+partition-by-drive_id / no-future-data pattern - the golden dataset test
 (`tests/golden/`) and leakage-focused unit tests
 (`tests/unit/test_labels.py`) are there to catch regressions, but they can't
 catch a leakage bug in logic they don't exercise, so add a test alongside
@@ -266,7 +266,7 @@ any new rule.
 **Gold labels schema validation** (`src/labels/schema_validation.py`,
 docs/project_plan.md Phase 1 "Data validation: Pandera with Polars
 backend, or native Polars schema checks + pytest"): `pandera` was a
-declared but entirely unused dependency — `src/preprocess/
+declared but entirely unused dependency - `src/preprocess/
 quality_checks.py` already covers the "native Polars checks" half of
 that either/or for bronze/silver invariants (null dates, duplicate
 drive-day-attribute rows, capacity, failure-date ordering), but nothing
@@ -300,17 +300,17 @@ hand-built test fixture).
 **Cross-vendor SMART harmonization** (`src/preprocess/smart_mapping.py`):
 SMART attribute IDs are standardized by spec (ID 5 is always "Reallocated
 Sector Count"), but the *column name* a source uses for "the raw value of
-attribute 5" varies — Backblaze uses `smart_5_raw`, SMART-Z is expected to
+attribute 5" varies - Backblaze uses `smart_5_raw`, SMART-Z is expected to
 use `smart_5_normalized` (`SOURCE_COLUMN_TEMPLATES`, best-effort until real
-SMART-Z files are ingested — verify and adjust the template then).
+SMART-Z files are ingested - verify and adjust the template then).
 `melt_smart_attributes` melts each `source_dataset` value with its own
 template before concatenating, so a mixed Backblaze+SMART-Z Bronze frame
-harmonizes into the same canonical attribute names — this is what makes the
+harmonizes into the same canonical attribute names - this is what makes the
 cross-vendor generalization objective (`docs/dataset_strategy.md` section 2)
 actually reachable once real SMART-Z data exists, rather than SMART-Z rows
 silently having no SMART columns after harmonization.
 
-**Feature Family E — cross-vendor ratios and model-family z-scores**
+**Feature Family E - cross-vendor ratios and model-family z-scores**
 (`src/features/cross_vendor.py`, `docs/dataset_strategy.md` section 10.5):
 `add_attribute_ratios` computes vendor-agnostic ratios
 (`pending_to_reallocated_ratio`, `reallocated_per_capacity`,
@@ -321,7 +321,7 @@ whichever priority SMART attributes a given build actually has.
 `add_model_family_zscores` re-expresses each attribute's `{window}d_mean`
 rolling feature as a z-score relative to its own `model_family` (not the
 whole fleet), because "some drive models naturally report higher error
-counts" — a drive that is unremarkable for its model should not look
+counts" - a drive that is unremarkable for its model should not look
 anomalous just because other models run cleaner. Both are wired into
 `pipelines/build_gold_features.py::build_gold_features` right after
 `add_lifecycle_features`, and both are registered in
@@ -331,7 +331,7 @@ other feature family.
 **Slope is a secant approximation, not least-squares** (`src/features/derivatives.py`):
 `slope_W = delta_W / W`. This is a documented, deliberate simplification for
 speed; if validation ever shows it matters, replace it with a proper rolling
-regression — the function signature won't need to change.
+regression - the function signature won't need to change.
 
 **Real data gap:** the ingestion/silver/gold/label pipelines are fully
 implemented and tested against synthetic fixtures, but nobody has run them
@@ -424,7 +424,7 @@ standalone `shap_feature_importance.json`, plus logs the latter as an MLflow
 artifact. This is the *global* (training-time) explainability story.
 
 **Not yet wired**: `top_contributing_features` (the *per-prediction*
-explainer) isn't called anywhere at serving time — the agent's lean-state
+explainer) isn't called anywhere at serving time - the agent's lean-state
 design (§6.1) keeps bulk feature vectors out of `AgentState`, so a real
 integration would need its own feature-vector lookup path (e.g. keyed by
 `drive_id` + `as_of` timestamp against the online feature store described in
@@ -437,7 +437,7 @@ and is ready to receive this once that lookup path is built.
 `src/models/model_card.py` (docs/project_plan.md Phase 6 Key Task 7 /
 Deliverables "Model card"): `build_model_card` assembles model details,
 intended use/out-of-scope, training data provenance (feature registry
-version, dataset version — see §5.3 below), the threshold policy and
+version, dataset version - see §5.3 below), the threshold policy and
 validation/test metrics, the SHAP top-20 global ranking, and known
 limitations into one dict; `render_model_card_markdown` renders it to a
 human-readable Markdown file. `pipelines/train_model.py` writes both
@@ -452,10 +452,10 @@ run (no version record exists yet to read back).
 
 `src/labels/dataset_version.py` (docs/dataset_strategy.md section 4,
 `audit/dataset_versions/`): every `make build-labels` run writes an
-immutable, timestamped record — `version_id` (a UTC timestamp), the
+immutable, timestamped record - `version_id` (a UTC timestamp), the
 feature-registry and model-config versions used, and a `sha256` content
 hash + row count + date range + per-split row counts for the gold
-features/labels files that went into it — to
+features/labels files that went into it - to
 `data/audit/dataset_versions/{version_id}.json`. `latest_dataset_version`
 reads the most recent one back (`version_id` sorts chronologically);
 `pipelines/train_model.py` calls it to stamp the model card with the
@@ -476,13 +476,13 @@ precision/recall:
   gap; `brier_score` is the mean squared error of the raw probabilities.
   Folded into `evaluate_at_threshold`'s return dict under `"calibration"`.
 - **Precision at top-K** (`precision_at_k` / `precision_at_k_fractions`):
-  out of the K highest-scored drive-days, what fraction actually failed —
+  out of the K highest-scored drive-days, what fraction actually failed -
   a ranking-quality metric independent of the chosen operating threshold.
   `evaluate_at_threshold` includes it for the top 1%/5%/10% of whatever
   population it's called on.
 - **Warning lead time** (`compute_warning_lead_time_days`): for drives
   with a genuine failure event (`event_type` in
-  `src/labels/event_types.py::FAILURE_EVENT_TYPES` — `pipelines/
+  `src/labels/event_types.py::FAILURE_EVENT_TYPES` - `pipelines/
   train_model.py` filters the test split to these before calling), the
   number of days before the actual failure that the score first crossed
   the operating threshold, aggregated as mean/median/min/max plus
@@ -503,7 +503,7 @@ than "what is the number?":
   `IsotonicCalibrator` fits a monotone map on the validation split and
   `make train` reports calibrated test metrics beside the raw ones
   (`test_calibrated_*` in MLflow). Because the map is non-decreasing it
-  never reorders anything, so **no decision changes** — thresholds and action
+  never reorders anything, so **no decision changes** - thresholds and action
   tiers are still chosen on the raw ranking. The fitted knots travel with the
   run in `frozen_spec.json`. Its limit is empirical: above a calibrated 0.5
   the bins hold too few rows to read (`docs/model_status_and_runbook.md`
@@ -514,7 +514,7 @@ than "what is the number?":
   `drive_level_metrics` counts them; `make train` reports it for the headline
   test operating point. `paired_difference_ci` resamples the same drives for
   two score vectors and returns the interval of the precision *difference*,
-  which is how the two-stage gain was judged — comparing two independent
+  which is how the two-stage gain was judged - comparing two independent
   intervals would hide the shared sampling noise that cancels in a paired
   draw.
 - **An append-only log of every test-split computation**
@@ -547,9 +547,9 @@ under a `tuned_` prefix.
 ### 5.6 Structured logging
 
 `src/logging_config.py` (docs/design_goal.md / docs/project_plan.md
-"Logging / audit: structlog / JSON logs" — "Per-decision rationale,
+"Logging / audit: structlog / JSON logs" - "Per-decision rationale,
 guardrail status, explainability... query-friendly, append-only"):
-`structlog` was a declared but entirely unused dependency — every pipeline
+`structlog` was a declared but entirely unused dependency - every pipeline
 script and `src/agent/demo.py` used plain `print()`, which can't be
 filtered, queried, or shipped to a log aggregator as structured events.
 `configure_logging(json_output=False)` sets up the process-wide structlog
@@ -608,7 +608,7 @@ training pipeline:
   installed. `tests/unit/test_sequences.py` has no such guard since
   `src/features/sequences.py` has no torch dependency.
 
-### 5.8 Batch fleet scoring — where `PredictionOutput`/`ActionProposal` are actually used
+### 5.8 Batch fleet scoring - where `PredictionOutput`/`ActionProposal` are actually used
 
 `data_contracts.schemas.PredictionOutput`, `ActionProposal`, and
 `DecisionAuditRecord` were declared but never imported anywhere in real
@@ -655,25 +655,25 @@ lean cycle state).
 
 `src/reporting/plots.py` (`make plots`, `pipelines/generate_performance_plots.py`):
 a pure visualization layer over the JSON reports `make train`/`make
-build-labels` already write — it computes nothing new, it just renders
+build-labels` already write - it computes nothing new, it just renders
 what's already in `data/audit/data_quality_reports/`. Uses matplotlib's
 headless `"Agg"` backend (set before `pyplot` is imported) since this
 always runs from a script, never an interactive session with a display.
 
 | Plot | Source report | Output |
 |---|---|---|
-| `plot_calibration_curve` | `model_evaluation_report.json`'s `validation_metrics`/`test_metrics.calibration` | `calibration_validation.png` / `calibration_test.png` — reliability diagram (mean predicted probability vs. observed fraction of positives per bin) |
-| `plot_metric_comparison` | same, `.auprc`/`.precision`/`.recall`/`.false_positive_rate`/`.false_negative_rate` | `metric_comparison.png` — validation vs. test bars |
+| `plot_calibration_curve` | `model_evaluation_report.json`'s `validation_metrics`/`test_metrics.calibration` | `calibration_validation.png` / `calibration_test.png` - reliability diagram (mean predicted probability vs. observed fraction of positives per bin) |
+| `plot_metric_comparison` | same, `.auprc`/`.precision`/`.recall`/`.false_positive_rate`/`.false_negative_rate` | `metric_comparison.png` - validation vs. test bars |
 | `plot_precision_at_k` | same, `.precision_at_top_{K}pct` | `precision_at_k_test.png` |
-| `plot_shap_feature_importance` | `shap_feature_importance.json` | `shap_feature_importance.png` — top-20 global SHAP bar chart |
-| `plot_class_imbalance` | `label_imbalance_report.json`'s `class_distribution` | `class_imbalance.png` — failure rate per split, grouped by horizon |
+| `plot_shap_feature_importance` | `shap_feature_importance.json` | `shap_feature_importance.png` - top-20 global SHAP bar chart |
+| `plot_class_imbalance` | `label_imbalance_report.json`'s `class_distribution` | `class_imbalance.png` - failure rate per split, grouped by horizon |
 
 Each plot's data comes from a report `pipelines/generate_performance_plots.py`
 checks for individually; a missing report (e.g. `make plots` run before
 `make train`) logs a clear warning and skips just that plot rather than
 failing the whole run. Plots are written to `data/audit/plots/`
 (gitignored like the rest of `data/audit/*/*`) and are safe to regenerate
-at any time — nothing else reads them back.
+at any time - nothing else reads them back.
 
 ---
 
@@ -692,7 +692,7 @@ with `pl.read_parquet` and concatenated them into one in-memory
 simultaneously as it worked through Silver's normalize → derive → gap
 detection → melt steps. Real fleet data has enough distinct
 `(drive_id, date)` rows that holding two or three full copies of it in
-memory at once is what actually exhausted 32GB — the synthetic fixture
+memory at once is what actually exhausted 32GB - the synthetic fixture
 (a handful of drives, ~1 year) never got big enough to expose it, and
 even the fixed-up eager version still didn't survive a real ~30M-row
 Backblaze export: a multi-column sort keyed partly on the string
@@ -711,7 +711,7 @@ no longer carries every drive-day column through the melt.
   one `LazyFrame` and sunk straight to Parquet (`data/silver/drive_day/`,
   now a real, persistent Silver output, not a temp file) via
   `LazyFrame.sink_parquet`, which streams the computation *and* the
-  output in row-group-sized batches — unlike `.collect(engine="streaming")`,
+  output in row-group-sized batches - unlike `.collect(engine="streaming")`,
   which still has to land the whole result in memory as one `DataFrame`
   once it's done, `sink_parquet` never does.
 - `build_drive_metadata` then `scan_parquet`s that file lazily rather
@@ -742,10 +742,10 @@ no longer carries every drive-day column through the melt.
   `pipelines/build_gold_features.py` reads `drive_day/part.parquet`
   alongside `canonical_telemetry/part.parquet` and passes it through.
 - Only `drive_metadata` (one row per drive) is still ever a real
-  in-memory `DataFrame` — it's inherently tiny regardless of fleet size,
+  in-memory `DataFrame` - it's inherently tiny regardless of fleet size,
   so there's nothing to gain by streaming it too.
 - Compute-side, `compute_telemetry_gaps` and `pivot_badness_wide` both
-  sort by `date` alone now, not `[drive_id, date]` — a global sort by
+  sort by `date` alone now, not `[drive_id, date]` - a global sort by
   `date` alone still guarantees every drive's own rows land in
   non-decreasing date order (all `.over("drive_id")`/
   `.rolling(group_by="drive_id")` window features need), without ever
@@ -779,7 +779,7 @@ before.
 
 **The cap (`src/resource_limits.py`, new).** Fixing the one known bug
 doesn't rule out a different pipeline, a bigger fleet, or a future
-regression doing the same thing — so every pipeline and service entry
+regression doing the same thing - so every pipeline and service entry
 point now also applies a hard, configurable ceiling on its own process's
 memory at startup, as a last line of defense: a bug degrades into a clean
 process abort instead of silently swapping the host to a crawl or taking
@@ -792,41 +792,41 @@ resource_limits:
 ```
 
 **Batched feature computation (`make build-features`).** The gold feature
-table is ~196 columns wide, which works out to ~950 bytes per row — about
+table is ~196 columns wide, which works out to ~950 bytes per row - about
 10GB for a single month of real Backblaze data (10.46M drive-days), before
 counting the intermediates each feature family allocates on top of it. No
 amount of join hygiene makes that fit under the cap, so
 `pipelines/build_gold_features.py` does not build it as one frame:
 
 1. `pivot_badness_wide` produces the wide (~22 column) frame as before.
-2. `_write_wide_batches` splits it into batches of whole drives — batch
+2. `_write_wide_batches` splits it into batches of whole drives - batch
    membership is `hash(drive_id) % n_batches`, so every row of a given
-   drive lands in exactly one batch — and spills each batch to its own
+   drive lands in exactly one batch - and spills each batch to its own
    temp Parquet file, then frees the pivoted frame.
 3. Each batch is read back and run through `build_gold_features`
    independently, and its result is written to a temp Parquet file and
    freed before the next batch starts.
 4. The output file is assembled with a `pyarrow.parquet.ParquetWriter`,
    one batch per row group, so the finished table is never held in memory
-   — not even once, at the end.
+   - not even once, at the end.
 
 **Why batching alone wasn't enough, and each batch is its own process.**
 Splitting into batches of whole drives bounds how much *live* data any one
-step holds — but on real data, even a single ~1.75M-row batch (1/6 of the
+step holds - but on real data, even a single ~1.75M-row batch (1/6 of the
 fleet) started crashing partway through its own feature computation, well
 under what that data volume should need. The reason: Polars is built on
-jemalloc (confirmed via `strings` on the compiled extension —
+jemalloc (confirmed via `strings` on the compiled extension -
 `_rjem_je_*` symbols, from the `tikv-jemallocator` crate), which on 64-bit
 Linux defaults to *retaining* freed virtual memory for reuse instead of
 returning it to the OS. `madvise(MADV_DONTNEED)` drops the physical pages
 (so RSS goes down), but the address-space mapping itself stays reserved.
-`RLIMIT_AS` — the cap this pipeline *used to* run under (now RSS-based, see below) — constrains
+`RLIMIT_AS` - the cap this pipeline *used to* run under (now RSS-based, see below) - constrains
 mapped address space, not resident memory, so within a single process it
 tracks the *high-water mark of everything that process has ever
 allocated*, not what's currently live. `del` and `gc.collect()` free the
 data but never lower that high-water mark. This is why every earlier
 round of narrowing joins and freeing intermediates bought progress to the
-next pipeline stage without ever eliminating the crash outright — the
+next pipeline stage without ever eliminating the crash outright - the
 cap wasn't tracking the size of any one step, it was accumulating across
 the whole run.
 
@@ -835,7 +835,7 @@ process unconditionally unmaps its entire address space, regardless of
 what the allocator inside it was retaining. So `_stage_prepare` (the
 canonical_long/drive_day read + pivot + batch split) and `_stage_batch`
 (one call per batch) each run in their own subprocess, invoked via
-`_run_stage` — `main()` re-invokes this same script with `--stage ...`.
+`_run_stage` - `main()` re-invokes this same script with `--stage ...`.
 The top-level orchestrator (`main()` with no `--stage`) never itself
 touches a large Polars frame, so its own address space stays flat
 regardless of how many batches there are, and each batch subprocess
@@ -858,7 +858,7 @@ batch files (one row per model family, so nothing needs materializing),
 and `add_model_family_zscores_from_stats` applies them per batch while
 the output file is being written. It joins with `nulls_equal=True`
 because `.over("model_family")` treats a null family as its own group
-rather than as unmatched — `test_model_family_zscores_from_global_stats_match_the_whole_fleet_computation`
+rather than as unmatched - `test_model_family_zscores_from_global_stats_match_the_whole_fleet_computation`
 pins that equivalence, including a null family and a single-row family
 (whose std is null, not `0.0`).
 
@@ -868,18 +868,18 @@ byte-for-byte identical across different batch counts (7 batches vs 3 vs
 1), i.e. the batch size genuinely does not affect the result. The 15
 z-score columns differ by at most 1 ULP of float32 (~1.2e-7 relative),
 because a per-family `group_by` aggregate accumulates its sum in a
-different order than `.over("model_family")` does — the same 1-ULP
+different order than `.over("model_family")` does - the same 1-ULP
 difference appears with a single batch, so it comes from the aggregation
 form, not from batching.
 
-`feature_batch_target_rows` (default 2,000,000 — roughly 2GB of feature
+`feature_batch_target_rows` (default 2,000,000 - roughly 2GB of feature
 table per batch) is the knob: lower it if `make build-features` still
 hits the cap, raise it for fewer, larger batches.
 
 `apply_memory_limit_from_config()` reads this value and starts a daemon
 watchdog thread that samples the process's **resident** memory (RSS, from
-`/proc/self/statm`) every 0.25s and stops the process — logging
-`memory_limit_exceeded`, exit code 86 — once RSS exceeds the cap. It's
+`/proc/self/statm`) every 0.25s and stops the process - logging
+`memory_limit_exceeded`, exit code 86 - once RSS exceeds the cap. It's
 called as the first thing in every pipeline's `main()` (right after
 `configure_logging()`), so the limit is in force before any data is
 loaded. Things to know before relying on it:
@@ -888,7 +888,7 @@ loaded. Things to know before relying on it:
   (`ulimit -v`), which limits *virtual address space*. That turned out to
   be the wrong quantity: jemalloc (Polars) keeps freed ranges mapped,
   glibc malloc reserves a 64MB arena per thread, and LightGBM/OpenMP and
-  Polars thread pools each reserve stacks — all address space that is
+  Polars thread pools each reserve stacks - all address space that is
   never touched. On real data, `make train` aborted on allocations of a
   few hundred KB while measured peak RSS was ~6–10GB under a 20GB cap,
   and the gap grows with core count. The historical notes above about
@@ -908,7 +908,7 @@ loaded. Things to know before relying on it:
   dependency overrides don't prevent that), so a call placed there would
   apply a real memory cap to the pytest process running the test suite,
   not to a real deployment. The API's entry point is
-  `pipelines/run_api.py` instead (now what `make api` runs) — it applies
+  `pipelines/run_api.py` instead (now what `make api` runs) - it applies
   the limit and then hands off to uvicorn, and it's never imported by
   tests. `src/dashboards/app.py` applies the limit directly at module
   level, since it's the opposite case: `tests/smoke/test_smoke.py` only
@@ -927,7 +927,7 @@ each time one step later after every fix, and finally on ~940KB requests.
 **Root cause: the cap measured the wrong thing.** The cap was `RLIMIT_AS`
 (virtual address space). Polars/jemalloc keep freed ranges mapped, glibc
 reserves an arena per thread, and LightGBM/OpenMP/Polars thread pools
-reserve stacks — address space that is never touched. Measured peak RSS at
+reserve stacks - address space that is never touched. Measured peak RSS at
 each crash was ~6–10GB under a 20GB cap. **Fix (`src/resource_limits.py`):
 the cap is now enforced on resident memory (RSS)** by a watchdog thread
 (§5.10), so only RAM actually in use counts. That alone is what made the
@@ -957,7 +957,7 @@ communicating through `.npy`/Parquet files in a scratch dir. This keeps the
 orchestrator small and frees each step's memory unconditionally on exit.
 
 **Disk, not RAM.** Scratch files (the joined frame is tens of GB) go to
-`resource_limits.scratch_dir`, default `<gold_dir>/../tmp` — not `/tmp`,
+`resource_limits.scratch_dir`, default `<gold_dir>/../tmp` - not `/tmp`,
 which was too small on the reference machine.
 
 **Measured on the real run** (peak RSS per stage, from temporary checkpoints since
@@ -1098,7 +1098,7 @@ threshold per agent action (warn / cordon / migrate / drain) from the
 drive-level **lift** each can tolerate (`threshold.action_tier_lift` in
 `configs/model.yaml`; placeholders 56.6 / 94.3 / 151.0 / 226.4, which are the
 earlier precision placeholders 15 / 25 / 40 / 60% converted at the validation
-failure rate — see §5.13). It reports
+failure rate - see §5.13). It reports
 validation and test precision and recall per tier (model card, log), writes
 `action_tiers.json` to the MLflow run, and `make score-fleet` uses those
 thresholds; a tier whose target is unreachable never fires, and older runs
@@ -1180,7 +1180,7 @@ with the base rate of whichever split it is measured on, so a per-tier
 precision target does not mean the same thing on validation, on test and on
 another fleet; lift (alerted-drive failure rate ÷ fleet failure rate) does.
 `make train` converts each tier's lift target into a precision target at the
-*validation* drive-level failure rate — where the conversion is exact — then
+*validation* drive-level failure rate - where the conversion is exact - then
 tunes the threshold as before, and reports test lift beside test precision.
 `threshold.action_tier_lift`'s current values reproduce the former precision
 targets on validation, so adopting lift was not meant to move any threshold.
@@ -1206,8 +1206,8 @@ period left. So one window is sealed off entirely.
 
 **The split** (`src/labels/splits.py::add_chronological_split`). Rows dated
 on or after `configs/model.yaml`'s `splits.sealed_start` get
-`split="sealed"`. Nothing in training reads that split — `make train`
-extracts only `train`/`validation`/`test` — and `make build-labels` assigns
+`split="sealed"`. Nothing in training reads that split - `make train`
+extracts only `train`/`validation`/`test` - and `make build-labels` assigns
 it before the drive-level and vendor holdouts run. `sealed_start: null`
 disables it. `split="external_smartz"` (§5, "SMART-Z is an external
 validation split") is sealed in the same spirit, by source rather than by
@@ -1219,7 +1219,7 @@ carrying the model type, horizon, feature list, drive threshold, per-tier
 thresholds and the fitted calibrator; `evaluate_frozen` loads that run's
 model (plus its Stage 2, if it has one), rebuilds the split's matrix with
 `train_model`'s own row-group reader, scores it, and reports drive-level
-metrics, per-tier metrics, a bootstrap interval and the calibrated curve —
+metrics, per-tier metrics, a bootstrap interval and the calibrated curve -
 all at the thresholds training already fixed.
 
 ```bash
@@ -1230,7 +1230,7 @@ make evaluate-frozen ARGS="--run-id 0ee06c01ff2a427ca76011fb1afb8ce3 --split sea
 `data/audit/frozen_evaluations/{split}__{run_id}.json`, and the script exits
 with an error if that file already exists, because a second look at a sealed
 split is a second comparison. If you genuinely need to re-run one (a bug in
-the scoring path, say), delete the file deliberately — the refusal is there
+the scoring path, say), delete the file deliberately - the refusal is there
 to make that a decision rather than an accident.
 
 **The run must be frozen before the data it is scored on arrives.** This is
@@ -1244,14 +1244,14 @@ the sealed quarter would quietly turn it into another validation set.
 
 ### 6.1 State (`state.py`)
 
-`AgentState` is a `TypedDict` and deliberately thin — ids, small dicts,
+`AgentState` is a `TypedDict` and deliberately thin - ids, small dicts,
 booleans. **Nothing in it may be a raw enum or other non-JSON-safe object**:
 LangGraph checkpoints this state via a JSON/msgpack serializer, and passing
 it a `FeatureMaturity` enum instance directly produces a
 "will be blocked in a future version" warning today and a hard failure
 later. If you write a new predictor or node that puts a Pydantic model or
 enum into state, normalize it to a plain string/int/float/bool/dict/list
-first — see `_normalize_prediction_summary` in `nodes.py` for the pattern.
+first - see `_normalize_prediction_summary` in `nodes.py` for the pattern.
 
 ### 6.2 Dependencies (`deps.py`)
 
@@ -1260,7 +1260,7 @@ first — see `_normalize_prediction_summary` in `nodes.py` for the pattern.
 | Field | Type | Real implementation lives in |
 |---|---|---|
 | `fleet_state_provider` | `() -> dict` | `src/simulator/fleet.py::FleetSimulator.snapshot`, or a real fleet API client |
-| `predictor` | `(dict) -> dict` | Phase 5 model inference (not yet wired to a real model — see §11) |
+| `predictor` | `(dict) -> dict` | Phase 5 model inference (not yet wired to a real model - see §11) |
 | `guardrail_evaluator` | `(dict) -> dict` | `src/guardrails/adapter.py::build_guardrail_evaluator` |
 | `post_action_guardrail_evaluator` | `(dict, dict) -> dict` | `src/guardrails/adapter.py::build_post_action_guardrail_evaluator` |
 | `executor` | `(dict) -> dict` | `src/simulator/actions.py::apply_action` |
@@ -1268,8 +1268,8 @@ first — see `_normalize_prediction_summary` in `nodes.py` for the pattern.
 | `action_ledger` | `ActionLedger` protocol | `InMemoryActionLedger` (tests) or `SqliteActionLedger` (real use) |
 
 **`Executor`'s contract**: its return dict *must* include `drive_id` and
-`proposed_action` alongside `success`/`compensating_action_triggered`/`error`
-— the post-action guardrail check needs both, and a test executor that omits
+`proposed_action` alongside `success`/`compensating_action_triggered`/`error` -
+the post-action guardrail check needs both, and a test executor that omits
 them will raise `KeyError` inside the Validate node, not silently pass.
 `src/simulator/actions.py::apply_action` satisfies this contract; if you
 write your own executor (e.g. to hit a real fleet API), copy its return
@@ -1279,7 +1279,7 @@ shape.
 needs to survive a process restart.** The in-memory ledger is fine for a
 single test or a single `.invoke()` sequence within one process, but it
 defeats the entire purpose of idempotent action IDs the moment the process
-restarts — there is no way to tell, from a *fresh* in-memory ledger, that an
+restarts - there is no way to tell, from a *fresh* in-memory ledger, that an
 action already ran. `src/agent/demo.py::build_demo_dependencies` and
 `src/api/main.py`'s lifespan both use `SqliteActionLedger` backed by
 `configs/agent.yaml`'s `checkpoint.action_ledger_path`.
@@ -1294,7 +1294,7 @@ monitor → analyze → plan ─┬─(guardrail passed, non-HUMAN_REVIEW tier)�
 
 One `.invoke()` runs one cycle. "Return to Monitor for the next cycle" is
 modeled as the *caller* re-invoking with the same `thread_id`, not an
-internal graph edge — this keeps each checkpointed step small.
+internal graph edge - this keeps each checkpointed step small.
 
 **`human_review` genuinely pauses the graph**, using LangGraph's native
 `interrupt()`/`Command(resume=...)` mechanism (`make_human_review_node` in
@@ -1309,7 +1309,7 @@ second = app.invoke(
 ```
 
 `app.invoke(...)`'s mypy overload resolution is overly strict about this
-exact (and LangGraph-recommended) calling pattern — see the two
+exact (and LangGraph-recommended) calling pattern - see the two
 `# type: ignore[call-overload]` comments in `src/agent/orchestrator.py` for
 why they're there and why they're safe to keep.
 
@@ -1323,7 +1323,7 @@ that thread via the checkpoint, so re-invoking the same thread after a
 **Hysteresis & cooldown** (`hysteresis.py`): `configs/agent.yaml`'s
 `hysteresis_cycles_required`/`cooldown_seconds` are enforced here, not just
 loaded and ignored. Plan tracks a per-drive `consecutive_escalation_cycles`
-counter in `AgentState.drive_risk_state` (small counters, not telemetry —
+counter in `AgentState.drive_risk_state` (small counters, not telemetry -
 still lean) and caps an escalation tier (cordon/migrate/drain) at WARN until
 it's been proposed that many consecutive cycles; Execute records a
 `last_action_at` timestamp after any escalation-tier action, and Plan
@@ -1337,7 +1337,7 @@ test override.
 ### 6.4 Orchestrator (`orchestrator.py`)
 
 `AgentOrchestrator` is the only thing that should call `.invoke()` in
-production code — it's the glue between the compiled graph and the API's
+production code - it's the glue between the compiled graph and the API's
 `InMemoryAuditStore`:
 
 - `run_cycle(thread_id)`: invokes; if the result contains `"__interrupt__"`,
@@ -1351,17 +1351,17 @@ production code — it's the glue between the compiled graph and the API's
   actually resumes the LangGraph thread via `Command(resume=...)`.
 
 Both methods time their `.invoke()` call (`time.perf_counter()`) and surface
-`cycle_duration_seconds` in the outcome dict and the decision record —
+`cycle_duration_seconds` in the outcome dict and the decision record -
 docs/design_goal.md section 26's "< 5 minutes" target was previously
 unmeasured anywhere. A cycle exceeding `AgentSettings.target_cycle_time_seconds`
 (from `configs/agent.yaml`'s `loop.target_cycle_time_seconds`) prints a
 warning; it's a soft signal, not a hard failure.
 
-Every decision record includes `date` (the cycle's timestamp date — this
+Every decision record includes `date` (the cycle's timestamp date - this
 system doesn't yet track a prediction's "as of" drive-day separately from
 wall-clock time, so this is an approximation), `horizon_days` (from
 `ModelSettings.load().primary_horizon_days`), `safety_violation`, and
-`guardrail_severity` — these four fields are what
+`guardrail_severity` - these four fields are what
 `src/reliability/batch.py::resolve_final_trust_scores` needs to join a
 decision back to its resolved label later.
 
@@ -1370,18 +1370,18 @@ decision back to its resolved label later.
 ## 7. Guardrail engine (`src/guardrails/`)
 
 `configs/guardrails.yaml` is the catalog; `rules.py` implements every rule
-in it (11 rules — if you add a rule to the YAML, add the matching function
+in it (11 rules - if you add a rule to the YAML, add the matching function
 here, or the catalog and the code will silently diverge again). Each rule is
 a pure function `RuleContext -> GuardrailViolation | None`.
 
 ```text
 ALL_RULES (pre-action, run in Plan):
-  PRED_THRESHOLD, FEATURE_CONFIDENCE, TELEMETRY_FRESHNESS   — HARD
-  HARD_NO_LAST_NODE, HARD_QUORUM, HARD_MAX_DRAINS           — HARD
-  SOFT_HIGH_IO, OPS_MAINTENANCE, OPS_RATE_LIMIT             — SOFT
+  PRED_THRESHOLD, FEATURE_CONFIDENCE, TELEMETRY_FRESHNESS   - HARD
+  HARD_NO_LAST_NODE, HARD_QUORUM, HARD_MAX_DRAINS           - HARD
+  SOFT_HIGH_IO, OPS_MAINTENANCE, OPS_RATE_LIMIT             - SOFT
 
 POST_ACTION_RULES (run in Validate, after execution):
-  POST_DATA_INTEGRITY, POST_SERVICE_CONTINUITY              — HARD
+  POST_DATA_INTEGRITY, POST_SERVICE_CONTINUITY              - HARD
 ```
 
 `GuardrailEngine.evaluate(ctx)` runs `ALL_RULES`; `.evaluate_post_action(ctx)`
@@ -1389,7 +1389,7 @@ runs `POST_ACTION_RULES` against a `PostActionContext` (needs
 `data_integrity_ok`/`service_continuity_ok` from the validator's output, not
 the pre-action context). Both share `_run_rules`, which sorts violations
 hard-before-soft (the "safety > operational > efficiency" conflict
-resolution from the design doc is implemented as this sort order — a hard
+resolution from the design doc is implemented as this sort order - a hard
 violation always blocks regardless of how many soft ones also fired).
 
 `src/guardrails/adapter.py` bridges this typed engine to the agent's
@@ -1408,12 +1408,12 @@ default; `redis` reads `operational_state.redis_url`) unless a caller passes
 itself never changes either way.
 
 **Defense in depth, on purpose**: a low-confidence or stale-telemetry
-destructive action is caught *twice* — once at the Plan/action-tier layer
+destructive action is caught *twice* - once at the Plan/action-tier layer
 (`src/models/action_tiers.py::determine_action_tier` downgrades it to
 `cordon` before guardrails even run) and again at the guardrail layer
 (`FEATURE_CONFIDENCE`/`TELEMETRY_FRESHNESS`, in case the first layer is ever
 bypassed or misconfigured). `tests/chaos/test_chaos_scenarios.py` documents
-and exercises this explicitly — don't "simplify" it down to one layer.
+and exercises this explicitly - don't "simplify" it down to one layer.
 
 ---
 
@@ -1423,7 +1423,7 @@ and exercises this explicitly — don't "simplify" it down to one layer.
 (`DriveState`: HEALTHY → DEGRADED → PREDICTED_FAILURE → CORDONED/MIGRATED/
 DRAINED → REPLACED/RECOVERED, or → FAILED). `is_last_healthy_node_in_domain`
 and `quorum_ok_after_drain` mirror exactly what the guardrail engine's
-`HARD_NO_LAST_NODE`/`HARD_QUORUM` rules check — when wiring a real fleet
+`HARD_NO_LAST_NODE`/`HARD_QUORUM` rules check - when wiring a real fleet
 provider, these two methods (or their equivalents) are what feed those
 guardrails.
 
@@ -1446,7 +1446,7 @@ GuardrailMultiplier = 0 hard violation, 0.5 soft violation, 1.0 none
 ```
 
 - `checks.py`: `check_correctness`/`check_necessity`/`check_timeliness`
-  return `None` (never a default `0`/`1`) when the label is censored —
+  return `None` (never a default `0`/`1`) when the label is censored -
   callers must handle `None` explicitly, not coerce it.
 - `multipliers.py`: the two multipliers above, plus
   `guardrail_severity_from_violations` (worst-of a violation list) and
@@ -1454,7 +1454,7 @@ GuardrailMultiplier = 0 hard violation, 0.5 soft violation, 1.0 none
 - `trust_score.py`: `compute_provisional_trust_score` uses the model's own
   `p_fail` as a *necessity proxy* (true necessity/correctness/timeliness
   aren't knowable until the label horizon resolves).
-  `compute_final_trust_score` uses the real checks — **it vetoes on the
+  `compute_final_trust_score` uses the real checks - **it vetoes on the
   guardrail severity recorded at decision time, even if a human later
   approved and executed the action anyway.** This is intentional: trust
   score measures the automated decision's quality, not whether a human
@@ -1464,14 +1464,14 @@ GuardrailMultiplier = 0 hard violation, 0.5 soft violation, 1.0 none
 - `audit.py::build_provisional_assessment` merges pre-action and post-action
   guardrail violations before computing severity, and generates the
   human-readable explanation lines shown in the dashboard/audit trail.
-- `batch.py::resolve_final_trust_scores` is the "async evaluation" step —
+- `batch.py::resolve_final_trust_scores` is the "async evaluation" step -
   run it periodically against accumulated decisions once labels resolve; it
   joins on `(drive_id, date, horizon_days)` and silently skips anything
   without a matching non-censored label (they stay provisional-only until a
   later run finds one).
 - `drift.py`: PSI-based feature/prediction drift (`population_stability_index`,
   `build_drift_report`), with the conventional 0.1/0.25 thresholds and a
-  `retrain_recommended` flag. Not wired to any scheduled job yet — call it
+  `retrain_recommended` flag. Not wired to any scheduled job yet - call it
   from whatever retraining cadence you set up.
 
 ---
@@ -1480,7 +1480,7 @@ GuardrailMultiplier = 0 hard violation, 0.5 soft violation, 1.0 none
 
 `src/api/main.py`'s `lifespan` handler compiles the agent graph **once**,
 against `AgentSettings.load().checkpoint_path` (a real SQLite file, not
-`:memory:` — a paused thread must survive an API process restart). It
+`:memory:` - a paused thread must survive an API process restart). It
 defaults to `build_demo_dependencies()` (the same hardcoded two-drive demo
 fleet as `make agent-demo`); swap `app.state.orchestrator` for a real
 `AgentOrchestrator` (built with real `fleet_state_provider`/`predictor`) to
@@ -1488,8 +1488,8 @@ run against a real fleet/model.
 
 `src/api/store.py` has two layers. `InMemoryAuditStore` holds everything in
 process and is what the tests use. `SQLiteAuditStore` subclasses it and
-writes the audit-critical state through to SQLite — pending actions, their
-decisions, the decision trail and the guardrail violations — so those
+writes the audit-critical state through to SQLite - pending actions, their
+decisions, the decision trail and the guardrail violations - so those
 survive an API restart; it loads them back into memory at construction, so
 every read path keeps the in-memory behaviour exactly. `get_store()` (the
 FastAPI dependency) returns a process-wide `SQLiteAuditStore` at
@@ -1522,14 +1522,14 @@ heterogeneous fields (`guardrail_result`, `execution_result`, `None` for
 either) that don't map cleanly onto a single flat row schema, so
 `decisions_to_dataframe` JSON-serializes every non-scalar field to a string
 column (keeping it `None` where the field itself is `None`) before handing
-the frame to Polars' `write_csv`/`write_parquet` — this is what lets a
+the frame to Polars' `write_csv`/`write_parquet` - this is what lets a
 single export cover decisions from a mix of pending-review-only and
 fully-executed cycles without either format choking on inconsistent
 nested shapes.
 
 **DuckDB analytics** (`src/reliability/analytics.py`,
 docs/project_plan.md Phase 10 Key Task 3 "Read analytics from DuckDB"):
-`duckdb` was a declared but entirely unused dependency — every other read
+`duckdb` was a declared but entirely unused dependency - every other read
 path in this codebase goes through Polars or the in-memory
 `InMemoryAuditStore`. `failure_rate_by_model_family` is the one place it's
 used for real: it joins the gold features and labels Parquet files
@@ -1541,7 +1541,7 @@ failure-rate-by-model-family` exposes it; it returns `[]` before `make
 build-features`/`make build-labels` have been run, rather than erroring.
 
 `src/dashboards/app.py` reads these endpoints via `requests` (not covered by
-automated tests — Streamlit apps aren't meaningfully testable under pytest;
+automated tests - Streamlit apps aren't meaningfully testable under pytest;
 verified manually that `streamlit run` boots and serves the page). It is a
 separate process from the API by design (`API_BASE_URL` env var).
 
@@ -1568,7 +1568,7 @@ then build an `AgentDependencies` with real `executor`/`validator` (calling
 your real fleet's cordon/migrate/drain APIs, returning the same shape as
 `src/simulator/actions.py::apply_action`). Use `SqliteActionLedger`.
 
-**Add an API endpoint**: follow the existing pattern in `src/api/main.py` —
+**Add an API endpoint**: follow the existing pattern in `src/api/main.py` -
 depend on `get_store`/`get_orchestrator`, never reach into
 `app.state.orchestrator` directly from a route (tests override the
 dependency, not the module-level `app` object).
@@ -1578,18 +1578,18 @@ dependency, not the module-level `app` object).
 ## 12. Testing strategy
 
 ```text
-tests/unit/          one file per src module — pure functions, no I/O beyond tmp_path
+tests/unit/          one file per src module - pure functions, no I/O beyond tmp_path
 tests/integration/   agent+guardrails, agent+simulator, agent+API-store; real LangGraph graphs, InMemorySaver/SqliteSaver
 tests/chaos/         full-stack scenarios (stale telemetry, correlated failure, action timeout,
                       human-review SLA timeout) + guardrail latency benchmark (<500ms budget)
 tests/golden/        synthetic 100-healthy/100-failing dataset; regenerate via
                       tests/golden/generate_golden_dataset.py if the schema changes
-tests/property/       Hypothesis property-based tests — invariants (hysteresis streaks,
+tests/property/       Hypothesis property-based tests - invariants (hysteresis streaks,
                       trust-score bounds, calibration bin accounting) checked against
                       arbitrarily generated inputs, not just the hand-picked examples
                       tests/unit/ covers
 tests/smoke/         boots the real default wiring (build_demo_dependencies) end-to-end and
-                      walks every documented API endpoint once — "does the shipped system work at all"
+                      walks every documented API endpoint once - "does the shipped system work at all"
 ```
 
 Run everything: `make test`. Run one layer: `make test-unit` /
@@ -1598,13 +1598,13 @@ Run everything: `make test`. Run one layer: `make test-unit` /
 `.github/workflows/ci.yml` runs (`lint` + `test`), so you can reproduce a CI
 failure locally before pushing. `make coverage` runs the full suite under
 `pytest-cov` and writes an HTML report to `htmlcov/` (open
-`htmlcov/index.html`) — there's no enforced coverage threshold yet, this is
+`htmlcov/index.html`) - there's no enforced coverage threshold yet, this is
 a local diagnostic only.
 
 Every new module should get a same-named test file; every new cross-module
 behavior (agent talking to guardrails, guardrails talking to the simulator,
 API talking to the orchestrator) should get an integration test that
-exercises the *real* collaborators, not mocks of them — the codebase leans
+exercises the *real* collaborators, not mocks of them - the codebase leans
 heavily on real `GuardrailEngine`/`FleetSimulator`/`compiled_agent` instances
 in tests specifically to catch integration bugs that mocks would hide (this
 is how the "human review was a dead end" and "action ledger wasn't
@@ -1613,7 +1613,7 @@ persistent" bugs were actually caught).
 **The golden dataset tests a weaker guarantee than the name suggests.**
 `tests/golden/test_golden_dataset.py` only checks that
 `build_golden_dataset()` itself produces the right shape/labels and
-round-trips through Parquet — it does **not** run the golden data through
+round-trips through Parquet - it does **not** run the golden data through
 the real `src/features/*`/`src/labels/*` pipeline and diff against a
 checked-in expected-output snapshot. It currently provides zero protection
 against a silent change in feature/label values over time. If you need that
@@ -1623,7 +1623,7 @@ expected-output file.
 
 **Smoke tests never touch real project files.** `tests/smoke/test_smoke.py`
 calls `build_demo_dependencies(action_ledger=InMemoryActionLedger())` and
-uses the default `:memory:` LangGraph checkpoint — running `make smoke`
+uses the default `:memory:` LangGraph checkpoint - running `make smoke`
 repeatedly (including in CI) writes nothing to `mlflow/`. If you write a new
 test that calls `build_demo_dependencies()`, always pass an explicit
 in-memory `action_ledger` unless you specifically intend to exercise the
@@ -1633,7 +1633,7 @@ real persistent one.
 
 The automated suite (§12 above) is the fast, CI-safe way to know the
 system works. This section is for manually walking the *data pipeline*
-end-to-end yourself — either entirely offline with synthetic data, or
+end-to-end yourself - either entirely offline with synthetic data, or
 against real Backblaze/SMART-Z data.
 
 #### A. Synthetic data (fast, offline, no download)
@@ -1646,10 +1646,10 @@ make agent-demo   # one real MAPE-K cycle against a hardcoded 2-drive fleet, pri
 ```
 
 Both use the real guardrail engine, trust-score math, and LangGraph
-graph — just synthetic/hardcoded fleet data instead of a trained model's
+graph - just synthetic/hardcoded fleet data instead of a trained model's
 real predictions. `make smoke`/`make test` never write to `mlflow/`;
 `make agent-demo` does (it uses the real persistent `SqliteActionLedger`
-and checkpoint, by design — see `src/agent/demo.py`).
+and checkpoint, by design - see `src/agent/demo.py`).
 
 **Full data pipeline, bronze through a real trained model:**
 
@@ -1682,7 +1682,7 @@ day-count-proportional spread starves the smaller buckets of any failure
 at all - this is exactly what happened the first time `configs/model.yaml`'s
 defaults were changed without updating the stub to match, before this
 derivation existed. Since the trajectories are noise-free by design,
-expect a suspiciously perfect AUPRC (~1.0) — that confirms the *pipeline
+expect a suspiciously perfect AUPRC (~1.0) - that confirms the *pipeline
 plumbing* is correct, not that the model is any good; it isn't a
 substitute for validating against real data's actual noise and ambiguity.
 
@@ -1789,13 +1789,13 @@ Data / model:
   unscored, and SMART-Z has a split reserved but no data ingested, so
   stability over time and across vendors are both unmeasured (§5.14).
 - `predictor` is never backed by the trained Phase 5 model in `demo.py`/the
-  API's default wiring — it's a hardcoded two-drive fixture. Wiring a real
+  API's default wiring - it's a hardcoded two-drive fixture. Wiring a real
   MLflow-registered model in is the natural next step (see §11).
 - `src/reliability/batch.py` and `drift.py` aren't wired to any scheduled
-  job — they're ready to call, but nothing calls them periodically yet, and
+  job - they're ready to call, but nothing calls them periodically yet, and
   `drift.py`'s `retrain_recommended` flag doesn't trigger anything.
 - `src/agent/human_review_timeout.py` (SLA-overdue → safe-fallback logic) is
-  exercised only by `tests/chaos/test_chaos_scenarios.py` — nothing in the
+  exercised only by `tests/chaos/test_chaos_scenarios.py` - nothing in the
   running API/orchestrator periodically scans `store.list_pending_actions()`
   for overdue reviews and applies it. **A pending action left un-decided
   today sits in `pending_review` forever**, which is exactly the
@@ -1807,7 +1807,7 @@ Safety-critical defaults:
   when not wired**, not the conservative one:
   `is_last_healthy_node_in_domain` defaults to `False` (so `HARD_NO_LAST_NODE`
   can never fire) and `quorum_ok_after_action` defaults to `True` (so
-  `HARD_QUORUM` can never fire) — see `src/agent/nodes.py`'s `plan()` and
+  `HARD_QUORUM` can never fire) - see `src/agent/nodes.py`'s `plan()` and
   `src/guardrails/adapter.py`'s `evaluate()`. `src/agent/demo.py`'s fixture
   never populates either field, so **both of the two hardest safety
   guardrails are silently disabled** in the default demo/API wiring today,
@@ -1818,7 +1818,7 @@ Safety-critical defaults:
 
 Operational hardening still needed for production:
 
-- **No authentication on the FastAPI service at all** — every endpoint,
+- **No authentication on the FastAPI service at all** - every endpoint,
   including `/api/v1/actions/{id}/approve|reject`, is open to any caller who
   can reach the port. `operator_id`/`reason_code` are unverified free-text
   fields, not derived from an authenticated identity.

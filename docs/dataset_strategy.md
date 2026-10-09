@@ -61,7 +61,7 @@ The dataset and feature-engineering strategy must directly support the project�
 
 # 3. Datasets
 
-## 3.1 Backblaze Hard Drive Stats — Primary Training Dataset
+## 3.1 Backblaze Hard Drive Stats - Primary Training Dataset
 
 **Purpose:**
 Primary dataset for model training, baseline evaluation, threshold tuning, and feature engineering.
@@ -95,7 +95,7 @@ Millions of drive-days of production telemetry.
 
 ---
 
-## 3.2 SMART-Z — Cross-Vendor Validation Dataset
+## 3.2 SMART-Z - Cross-Vendor Validation Dataset
 
 **Purpose:**
 Evaluate model generalization across vendors, firmware behaviors, and SMART attribute implementations.
@@ -661,7 +661,7 @@ The feature pipeline is organized into seven feature families.
 
 ---
 
-## 10.1 Feature Family A — Time-Window Aggregates
+## 10.1 Feature Family A - Time-Window Aggregates
 
 These features reduce daily noise and establish the recent operating baseline.
 
@@ -692,7 +692,7 @@ A high standard deviation in an error-related attribute may indicate unstable ha
 
 ---
 
-## 10.2 Feature Family B — Derivatives and Rate of Change
+## 10.2 Feature Family B - Derivatives and Rate of Change
 
 Failure is a process. These features capture how quickly a drive is degrading.
 
@@ -739,7 +739,7 @@ A drive with 100 reallocated sectors that has been stable for a month is very di
 
 ---
 
-## 10.3 Feature Family C — Threshold Crossings and Event Counts
+## 10.3 Feature Family C - Threshold Crossings and Event Counts
 
 Averages can hide intermittent but dangerous events. These features detect spikes and fault events.
 
@@ -790,7 +790,7 @@ A sudden appearance of pending sectors or uncorrectable errors is often more dan
 
 ---
 
-## 10.4 Feature Family D — Missingness, Staleness, and Feature Confidence
+## 10.4 Feature Family D - Missingness, Staleness, and Feature Confidence
 
 Missing telemetry is not harmless silence. A failing drive may stop reporting SMART data because its reporting agent crashes or the drive becomes unresponsive.
 
@@ -838,7 +838,7 @@ This prevents the agent from performing high-risk actions based on stale or inco
 
 ---
 
-## 10.5 Feature Family E — Cross-Vendor Harmonization and Model-Relative Features
+## 10.5 Feature Family E - Cross-Vendor Harmonization and Model-Relative Features
 
 SMART attributes differ across vendors. These features improve portability to SMART-Z.
 
@@ -891,7 +891,7 @@ Some drive models naturally report higher error counts. Model-relative features 
 
 ---
 
-## 10.6 Feature Family F — Drive Metadata and Lifecycle Context
+## 10.6 Feature Family F - Drive Metadata and Lifecycle Context
 
 Hardware failure follows a bathtub curve: higher risk when drives are very new or very old.
 
@@ -924,7 +924,7 @@ A small increase in reallocated sectors may be more concerning on a relatively n
 
 ---
 
-## 10.7 Feature Family G — Sequence Features for LSTM Branch
+## 10.7 Feature Family G - Sequence Features for LSTM Branch
 
 For the optional deep-learning branch, features must be structured as sequences.
 
@@ -1129,7 +1129,7 @@ Accuracy is therefore a misleading metric.
 ## Primary evaluation metric
 
 ```text
-AUPRC — Area Under the Precision-Recall Curve
+AUPRC - Area Under the Precision-Recall Curve
 ```
 
 ## Secondary metrics
@@ -1242,7 +1242,7 @@ The LSTM branch should be compared against the tree-based baseline, not assumed 
 
 These rules are mandatory.
 
-## Rule 1 — No future data in features
+## Rule 1 - No future data in features
 
 All rolling windows must use only current and past observations.
 
@@ -1255,7 +1255,7 @@ features[t] must not use data from t + 1 or later
 
 ---
 
-## Rule 2 — Partition by drive
+## Rule 2 - Partition by drive
 
 All window operations must be partitioned by drive:
 
@@ -1268,7 +1268,7 @@ This prevents one drive’s history from leaking into another drive’s windows.
 
 ---
 
-## Rule 3 — Labels must respect time
+## Rule 3 - Labels must respect time
 
 A label for date `t` may only depend on events occurring after `t` and within the horizon.
 
@@ -1278,13 +1278,13 @@ label[t] depends on events in (t, t + N]
 
 ---
 
-## Rule 4 — Censored rows must not become automatic negatives
+## Rule 4 - Censored rows must not become automatic negatives
 
 If the future cannot be observed, the row should be censored or excluded, not labeled healthy by default.
 
 ---
 
-## Rule 5 — SMART-Z must remain external unless explicitly stated
+## Rule 5 - SMART-Z must remain external unless explicitly stated
 
 SMART-Z should not contaminate Backblaze training unless running a controlled cross-dataset training experiment.
 

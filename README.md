@@ -166,7 +166,7 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
 | `docs/dataset_strategy.md` | Datasets, preprocessing, labeling, feature engineering, leakage prevention, and feature governance |
 | `docs/project_plan.md` | Phase-wise execution plan, milestones, deliverables, tools, and exit criteria |
 | `docs/developer_guide.md` | How the implemented codebase is organized, how the pieces fit together, and how to extend it |
-| `docs/user_guide.md` | How to run, operate, and approve/reject decisions from the system — no code-reading required |
+| `docs/user_guide.md` | How to run, operate, and approve/reject decisions from the system - no code-reading required |
 | `docs/adr/0001-training-memory-isolation.md` | Why `make train` runs as four processes, and the debugging history behind it |
 
 ---
@@ -423,31 +423,31 @@ pip install -e .
 
 ### Configure Before Running
 
-Everything the code reads lives in `configs/*.yaml` — there are no
+Everything the code reads lives in `configs/*.yaml` - there are no
 hardcoded fallbacks for the settings below, so review these before your
 first real run. Full reference: `docs/developer_guide.md` §4. Nothing
 here needs to change to run `make smoke`, `make agent-demo`, or the
-synthetic-data walkthrough (§14) — only real-data / production settings.
+synthetic-data walkthrough (§14) - only real-data / production settings.
 
 | File | Setting | When you must set it |
 |---|---|---|
-| `configs/data.yaml` | `download.backblaze.quarters` (or `start_quarter`/`end_quarter`) | Before `make download-backblaze` — empty by default, nothing downloads until you configure a time period |
-| `configs/data.yaml` | `download.smartz.url` | Before `make download-smartz` — SMART-Z has no public bulk-download API; request access first |
-| `configs/data.yaml` | `sources.backblaze.start_date` / `end_date` | Optional — restricts which already-downloaded raw CSVs `make ingest-backblaze` processes (and therefore how much data `make build-silver` has to handle in one run), independent of which quarters you've downloaded. Unset (default) ingests everything downloaded |
-| `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | Before `make train` against real data whose date range doesn't overlap the defaults — an empty split raises a clear error naming which one. The synthetic stub (§14) derives its own date range from these same values, so it stays correct automatically if you change them |
+| `configs/data.yaml` | `download.backblaze.quarters` (or `start_quarter`/`end_quarter`) | Before `make download-backblaze` - empty by default, nothing downloads until you configure a time period |
+| `configs/data.yaml` | `download.smartz.url` | Before `make download-smartz` - SMART-Z has no public bulk-download API; request access first |
+| `configs/data.yaml` | `sources.backblaze.start_date` / `end_date` | Optional - restricts which already-downloaded raw CSVs `make ingest-backblaze` processes (and therefore how much data `make build-silver` has to handle in one run), independent of which quarters you've downloaded. Unset (default) ingests everything downloaded |
+| `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | Before `make train` against real data whose date range doesn't overlap the defaults - an empty split raises a clear error naming which one. The synthetic stub (§14) derives its own date range from these same values, so it stays correct automatically if you change them |
 | `configs/model.yaml` | `primary_horizon_days` | The label horizon `make train`, `make score-fleet` and the agent use. 30 days by default; `test_end` must be at least this many days before the last date in the data |
 | `configs/model.yaml` | `splits.purge_label_window` / `validation_after_train_only` | Both `true` by default: training stops one horizon before `train_end`, and validation holds only later dates. See `docs/model_status_and_runbook.md` section 4.4 |
-| `configs/model.yaml` | `splits.sealed_start` | Dates from here on are labelled `split=sealed` and read by no training, validation or test step — only by `make evaluate-frozen`, once. Set it (or `null` it) to match your own data period |
+| `configs/model.yaml` | `splits.sealed_start` | Dates from here on are labelled `split=sealed` and read by no training, validation or test step - only by `make evaluate-frozen`, once. Set it (or `null` it) to match your own data period |
 | `configs/model.yaml` | `model.two_stage.enabled` | Second-stage model that re-ranks the first model's highest-scoring drive-days; `true` by default |
 | `configs/model.yaml` | `model.type` (`lightgbm` \| `xgboost`) | Only if you want XGBoost instead of the LightGBM default |
 | `configs/model.yaml` | `mlflow.tracking_uri` / `experiment_name` | Only if you want runs logged somewhere other than the local `sqlite:///mlflow/mlflow.db` default |
-| `configs/model.yaml` | `hyperparameter_search.enabled` / `smote_comparison.enabled` | Optional — both default to `false` so `make train` stays fast and deterministic |
+| `configs/model.yaml` | `hyperparameter_search.enabled` / `smote_comparison.enabled` | Optional - both default to `false` so `make train` stays fast and deterministic |
 | `configs/agent.yaml` | `action_thresholds`, `human_review.*_sla_hours` | Only to change the default risk-tier cutoffs / SLA clock before a real deployment |
-| `configs/guardrails.yaml` | `operational_state.backend` (`in_memory` \| `redis`) + `redis_url` | Only for a multi-instance deployment where drain/rate-limit counters must be shared — a single process is correct with the `in_memory` default |
+| `configs/guardrails.yaml` | `operational_state.backend` (`in_memory` \| `redis`) + `redis_url` | Only for a multi-instance deployment where drain/rate-limit counters must be shared - a single process is correct with the `in_memory` default |
 | `configs/features.yaml` | `sequences.*` | Only if using the optional LSTM branch (`make build-sequences` / `train-lstm`) |
 
 Every `pipelines/*.py` script and CLI flag that reads one of these prints
-a clear, actionable error if something required is missing — none of
+a clear, actionable error if something required is missing - none of
 them silently fall back to guessed values.
 
 `configs/data.yaml`'s `resource_limits.max_memory_gb` (default `20`) is
@@ -463,7 +463,7 @@ Alongside it, `resource_limits.feature_batch_target_rows` (default
 `2000000`) sets how many rows `make build-features` processes at a time.
 The gold feature table is ~196 columns (~10GB for one month of real
 Backblaze data), so it is built in batches of whole drives and written
-to Parquet one batch at a time — peak memory follows this batch size,
+to Parquet one batch at a time - peak memory follows this batch size,
 not the size of your dataset. Batching is on whole drives and so does
 not change the resulting features; lower it if `build-features` still
 hits the memory cap.
@@ -496,10 +496,10 @@ The project uses a `Makefile` for reproducible pipeline execution.
 | `make test` | Run the full test suite (unit + integration + chaos + golden + property + smoke) |
 | `make test-unit` / `test-integration` / `test-chaos` / `test-golden` / `test-property` / `smoke` | Run one test layer only |
 | `make coverage` | Run the suite under pytest-cov; writes `htmlcov/index.html` |
-| `make ci` | `lint` + `test` — what CI runs |
+| `make ci` | `lint` + `test` - what CI runs |
 | `make clean` | Remove caches (never data or runtime state) |
 | `make clean-data` | Remove regenerated pipeline outputs, preserving `.gitkeep` placeholders (never raw source data) |
-| `make download-backblaze` / `download-smartz` | Configurable raw-data download — see §14 |
+| `make download-backblaze` / `download-smartz` | Configurable raw-data download - see §14 |
 | `make ingest-backblaze` | Ingest Backblaze raw data into Bronze |
 | `make ingest-smartz` | Ingest SMART-Z raw data into Bronze |
 | `make ingest-synthetic-stub` | Land the synthetic placeholder dataset into Bronze |
@@ -519,8 +519,8 @@ The project uses a `Makefile` for reproducible pipeline execution.
 | `make api` | Launch FastAPI approval service |
 
 Full details on every target: `docs/developer_guide.md` §3.1. For a
-step-by-step walkthrough of running all of this end-to-end — with
-synthetic data (fast, offline) or real Backblaze/SMART-Z data — see
+step-by-step walkthrough of running all of this end-to-end - with
+synthetic data (fast, offline) or real Backblaze/SMART-Z data - see
 **§14** below, or `docs/developer_guide.md` §12.1.
 
 Example:
@@ -549,7 +549,7 @@ make smoke        # one real MAPE-K cycle + every documented API endpoint, in-me
 make agent-demo   # one real MAPE-K cycle against a hardcoded 2-drive fleet, printed live
 ```
 
-Full data pipeline, bronze through a real trained model — this genuinely
+Full data pipeline, bronze through a real trained model - this genuinely
 completes end-to-end:
 
 ```bash
@@ -565,8 +565,8 @@ make plots           # renders calibration/SHAP/imbalance plots -> data/audit/pl
 The synthetic stub reads `configs/model.yaml`'s own `train_end`/
 `validation_end`/`test_end` and generates real degrading failure
 trajectories spread across all three, so every split has both real
-failures and healthy drives to learn from — this stays correct even if
-you change those dates. Expect a suspiciously perfect AUPRC (~1.0) — the
+failures and healthy drives to learn from - this stays correct even if
+you change those dates. Expect a suspiciously perfect AUPRC (~1.0) - the
 trajectories are noise-free by design, so this confirms the pipeline
 plumbing works, not that the model is good. Clean up with `make
 clean-data` between runs.
@@ -589,7 +589,7 @@ make plots          # renders calibration/SHAP/imbalance plots -> data/audit/plo
 compressed and expands to several GB of CSV. Check `df -h` before
 configuring more than one or two quarters.
 
-`make score-fleet`'s output is a standalone batch report — it is *not*
+`make score-fleet`'s output is a standalone batch report - it is *not*
 wired into `make agent-demo`/`make api`, which always run against the
 hardcoded demo fleet (see `docs/developer_guide.md` §5.8 for why).
 
@@ -622,7 +622,7 @@ Agent Analyze node
 ### Primary Evaluation Metric
 
 ```text
-AUPRC — Area Under the Precision-Recall Curve
+AUPRC - Area Under the Precision-Recall Curve
 ```
 
 ### Target Operating Point
@@ -639,8 +639,8 @@ quarter and the cross-vendor set can each be scored against it once:
 | Operating point | Precision on the real fleet (0.18% of drives fail) | Same alerts, test set with 15% failing |
 |---|---|---|
 | 10.5% of failing drives caught (primary threshold) | **49.6%**, 95% CI [41.5%, 58.8%] | 99.0% |
-| 20.0% caught | 39.7% | — |
-| 32.4% caught | 28.7% | — |
+| 20.0% caught | 39.7% | - |
+| 32.4% caught | 28.7% | - |
 
 Precision depends on how rare failures are in the test set; the last column
 restates the measured catch rate and false-alarm rate for a test set like
@@ -648,8 +648,8 @@ those most published results use. An alerted drive is about 283 times more
 likely to fail than a random one, and fewer than 1 healthy drive in 5,000 is
 alerted. The interval is a bootstrap over whole drives.
 
-Full results — including the per-tier breakdown, the drive counts and the
-warning lead time, which come from the run immediately before the freeze —
+Full results - including the per-tier breakdown, the drive counts and the
+warning lead time, which come from the run immediately before the freeze -
 plus the eleven approaches tried and the limitations:
 `docs/system_summary.md` and `docs/model_status_and_runbook.md`.
 
@@ -808,7 +808,7 @@ GET  /api/v1/guardrails/violations
 genuinely resume the paused LangGraph thread, not just update a record. The
 approval queue, decision trail and guardrail violations are written through
 to SQLite, so they survive a restart. No authentication exists on any
-endpoint yet — see `docs/developer_guide.md` §13 "Known gaps" before exposing
+endpoint yet - see `docs/developer_guide.md` §13 "Known gaps" before exposing
 this beyond local/trusted use.
 
 Launch API:
@@ -903,7 +903,7 @@ The system is evaluated in a simulated operational environment with guardrails, 
 
 Known gaps worth knowing before you rely on any of it:
 
-- The live agent loop is **not** driven by the trained model — it runs against
+- The live agent loop is **not** driven by the trained model - it runs against
   a hardcoded demonstration fleet, and uses the hand-picked cutoffs in
   `configs/agent.yaml` rather than the tier thresholds training derives.
 - In that default wiring, the two fleet-topology guardrails ("never the last

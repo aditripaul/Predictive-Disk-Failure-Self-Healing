@@ -146,8 +146,8 @@ step reads it. SMART-Z rows are sealed the same way, as
 
 To score one of them, you need a training run that was frozen *before* that
 data arrived. `make train` logs everything such an evaluation needs as a
-`frozen_spec.json` artifact on the run — the feature list, the drive
-threshold, the per-tier thresholds and the fitted calibrator — so nothing is
+`frozen_spec.json` artifact on the run - the feature list, the drive
+threshold, the per-tier thresholds and the fitted calibrator - so nothing is
 re-chosen at evaluation time:
 
 ```bash
