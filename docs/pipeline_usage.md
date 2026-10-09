@@ -52,7 +52,13 @@ splits:
   train_end: "2026-04-15"         # Q1 + Q2 settings (the repo default)
   validation_end: "2026-05-10"
   test_end: "2026-05-31"
+  sealed_start: "2026-07-01"      # read only by `make evaluate-frozen`
 ```
+
+`sealed_start` holds a final window back from every modelling choice. Set it
+to a date your data actually reaches (or `null` to disable it); rows from
+there on are labelled `split=sealed` and are scored once, later, by
+`make evaluate-frozen` (section 2.5).
 
 `make train` applies these dates when it extracts each split: training uses
 rows dated at least one horizon (30 days) before `train_end`, validation uses
@@ -102,7 +108,7 @@ when you are done with the arrays.
 
 Expect it to take well over an hour on the Q1 data, and longer for Q1 and Q2.
 
-### 2.3 Trial runs and the experiment tool
+### 2.4 Trial runs and the experiment tool
 
 One command runs the whole comparison (clears old kept directories, trains
 with the arrays kept, then runs the per-family, false-alarm and persistence
@@ -131,7 +137,34 @@ make experiment-model EXPERIMENT_ARGS="--variants reg_spw xgboost --skip-baselin
 Delete the kept work directories afterwards with `make clean-kept`
 (it removes `data/tmp/train_model_frame_*` and nothing else).
 
-### 2.4 Where the outputs go
+### 2.5 Scoring a sealed or external split, once
+
+`configs/model.yaml`'s `splits.sealed_start` (2026-07-01 by default) labels
+every row from that date on `split=sealed`. No training, validation or test
+step reads it. SMART-Z rows are sealed the same way, as
+`split=external_smartz`.
+
+To score one of them, you need a training run that was frozen *before* that
+data arrived. `make train` logs everything such an evaluation needs as a
+`frozen_spec.json` artifact on the run — the feature list, the drive
+threshold, the per-tier thresholds and the fitted calibrator — so nothing is
+re-chosen at evaluation time:
+
+```bash
+make evaluate-frozen ARGS="--run-id <mlflow run id> --split sealed"
+make evaluate-frozen ARGS="--run-id <mlflow run id> --split external_smartz"
+```
+
+It writes `data/audit/frozen_evaluations/<split>__<run id>.json` and **refuses
+to run again** for the same split and run, because a second look is a second
+comparison. It needs an assembled frame to read the split's rows from, so run
+`make train TRAIN_ARGS=--keep-work-dir` first (or pass `--frame`).
+
+Options: `--run-id` (required), `--split` (`sealed` or `external_smartz`),
+`--n-boot` (bootstrap draws, default 1000), `--frame` (otherwise the newest
+`data/tmp/train_model_frame_*/frame.parquet`).
+
+### 2.6 Where the outputs go
 
 | Output | Location |
 |---|---|
@@ -143,9 +176,12 @@ Delete the kept work directories afterwards with `make clean-kept`
 | Model card | `data/audit/model_cards/v<version>_h<horizon>d.md` |
 | Fleet predictions | `data/audit/predictions/<date>.json` |
 | MLflow runs | `mlflow/mlflow.db` |
+| Frozen-split results | `data/audit/frozen_evaluations/<split>__<run id>.json` |
+| Log of every test-split computation | `data/audit/test_access_log.jsonl` (append-only) |
+| Approval queue and decision trail | `data/audit/audit.sqlite` (the running API; `AUDIT_DB_PATH` overrides) |
 | Kept training arrays | `data/tmp/train_model_frame_*` (only with `--keep-work-dir`) |
 
-### 2.5 Resource limits
+### 2.7 Resource limits
 
 Every pipeline process is capped at `resource_limits.max_memory_gb`
 (`configs/data.yaml`, default 20). The cap is enforced on resident memory: a
@@ -258,6 +294,7 @@ Expect it to take well over an hour on Q1 alone.
 |---|---|
 | `make experiment-model` | See above. |
 | `make build-sequences`, `make train-lstm` | Optional LSTM branch. Needs `uv sync --extra torch` first. |
+| `make evaluate-frozen` | Scores one sealed or external split, once, against a frozen run (section 2.5). `ARGS="--run-id <id> --split sealed"`. |
 | `make final-report` | Writes `data/audit/data_quality_reports/final_evaluation_report.json`: the model's drive-level results and action tiers, a goal-status section (target met or not, and the gap), the data period, and the chaos, latency and crash-recovery test results. Runs those tests, so it takes a few minutes. |
 | `make agent-demo` | Runs the decision-agent demo once. |
 | `make api` / `make dashboard` | Starts the FastAPI service / the Streamlit dashboard. |
@@ -346,5 +383,6 @@ before it replaces that step. That work has not started.
 
 - `docs/model_status_and_runbook.md`: results, the memory design, the goal
   assessment and open items.
-- `docs/developer_guide.md` sections 5.10–5.12: memory cap, how `make train` fits
-  in RAM, and the experiment tool.
+- `docs/developer_guide.md` sections 5.10–5.14: memory cap, how `make train`
+  fits in RAM, the experiment tool, the current evaluation rules and second
+  stage, and the sealed split and frozen evaluation.

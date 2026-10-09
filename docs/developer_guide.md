@@ -110,6 +110,7 @@ would fail with "ruff: command not found."
 | `make full-experiment` / `clean-kept` / `full-pipeline` | Train with kept arrays then run the experiment; remove kept work directories; ingest through plots |
 | `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (§5.7) — `train-lstm` requires `uv sync --extra torch` |
 | `make score-fleet` | Batch-scores the current fleet with the latest MLflow run for `primary_horizon_days` (and that run's second-stage model and tier thresholds, when it has them); writes `data/audit/predictions/` (§5.8) |
+| `make evaluate-frozen` | Scores one sealed or external split, once, against a frozen run: `ARGS="--run-id <id> --split sealed\|external_smartz"`. Writes `data/audit/frozen_evaluations/` and refuses a repeat (§5.14) |
 | `make plots` | Renders performance plots (calibration, ROC curves, feature importance, failures by drive family, class imbalance, metric comparison; SHAP when enabled) to `data/audit/plots/` (§5.9) |
 | `make final-report` | `pipelines/generate_final_report.py` — aggregates chaos/latency/model reports, the goal status against `configs/model.yaml` and the plot list; runs `make plots` first |
 | `make agent-demo` | One MAPE-K cycle against the hardcoded demo fleet (§6) |
@@ -492,6 +493,36 @@ precision/recall:
 
 All three are written to `model_evaluation_report.json` and surfaced in
 the model card (§5.2).
+
+Three further pieces answer "how much should I trust this number?" rather
+than "what is the number?":
+
+- **Calibrated probabilities** (`src/models/calibration.py`). The training
+  objective class-weights positives, so a raw score is a ranking, not a
+  probability: 0.9 does not mean 90% of such drive-days fail.
+  `IsotonicCalibrator` fits a monotone map on the validation split and
+  `make train` reports calibrated test metrics beside the raw ones
+  (`test_calibrated_*` in MLflow). Because the map is non-decreasing it
+  never reorders anything, so **no decision changes** — thresholds and action
+  tiers are still chosen on the raw ranking. The fitted knots travel with the
+  run in `frozen_spec.json`. Its limit is empirical: above a calibrated 0.5
+  the bins hold too few rows to read (`docs/model_status_and_runbook.md`
+  section 1.3).
+- **Bootstrap intervals** (`src/models/uncertainty.py`).
+  `drive_level_bootstrap_ci` resamples whole **drives**, not drive-days, so a
+  drive's many near-identical rows move together, matching how
+  `drive_level_metrics` counts them; `make train` reports it for the headline
+  test operating point. `paired_difference_ci` resamples the same drives for
+  two score vectors and returns the interval of the precision *difference*,
+  which is how the two-stage gain was judged — comparing two independent
+  intervals would hide the shared sampling noise that cancels in a paired
+  draw.
+- **An append-only log of every test-split computation**
+  (`src/models/access_log.py`, `data/audit/test_access_log.jsonl`). Each look
+  at test is another comparison, and reporting the best of many inflates the
+  apparent result. `record_test_access` writes one line per look, with the
+  git SHA, so the number of comparisons is a recorded fact that a reader can
+  discount for. `make train` and every `experiment_model` variant call it.
 
 ### 5.5 Optuna hyperparameter search
 
@@ -1064,8 +1095,10 @@ the training window.
 
 **Action tiers.** Instead of one 95% target, `make train` derives a score
 threshold per agent action (warn / cordon / migrate / drain) from the
-drive-level precision each can tolerate (`threshold.action_tier_lift`
-in `configs/model.yaml`; placeholders: 15 / 25 / 40 / 60%). It reports
+drive-level **lift** each can tolerate (`threshold.action_tier_lift` in
+`configs/model.yaml`; placeholders 56.6 / 94.3 / 151.0 / 226.4, which are the
+earlier precision placeholders 15 / 25 / 40 / 60% converted at the validation
+failure rate — see §5.13). It reports
 validation and test precision and recall per tier (model card, log), writes
 `action_tiers.json` to the MLflow run, and `make score-fleet` uses those
 thresholds; a tier whose target is unreachable never fires, and older runs
@@ -1141,6 +1174,17 @@ Stage 1 is still logged as the run's `model`; Stage 2 is logged as
 describe Stage 1. The live agent loop does not use the trained model at all
 yet (§13), so it is unaffected.
 
+**Action-tier targets are lift, not precision**
+(`src/models/threshold.py::precision_targets_from_lift`). Precision moves
+with the base rate of whichever split it is measured on, so a per-tier
+precision target does not mean the same thing on validation, on test and on
+another fleet; lift (alerted-drive failure rate ÷ fleet failure rate) does.
+`make train` converts each tier's lift target into a precision target at the
+*validation* drive-level failure rate — where the conversion is exact — then
+tunes the threshold as before, and reports test lift beside test precision.
+`threshold.action_tier_lift`'s current values reproduce the former precision
+targets on validation, so adopting lift was not meant to move any threshold.
+
 **Experiment tool additions** (`pipelines/experiment_model.py`):
 
 | Flag / variant | What it measures |
@@ -1150,6 +1194,49 @@ yet (§13), so it is unaffected.
 | `xgboost_aft`, `xgboost_aft_spw` | survival model (`src/models/survival.py`): XGBoost accelerated failure time on each train row's time to failure, scored on the same binary label |
 | `--anomaly-stage` | isolation forest fitted on healthy rows: the anomaly score alone, an anomaly-filter-then-classify cascade, and the score as an extra feature |
 | `reg_spw_old_features`, `reg_spw_no_lifetime`, `reg_spw_no_secondary` | feature-group ablations on the same rows |
+
+---
+
+### 5.14 The sealed split and the single-shot frozen evaluation
+
+Everything above chooses something on validation and reports it on test. Do
+that often enough and test stops being a held-out set: the access log in
+§5.4 records how often, but recording is not the same as having an untouched
+period left. So one window is sealed off entirely.
+
+**The split** (`src/labels/splits.py::add_chronological_split`). Rows dated
+on or after `configs/model.yaml`'s `splits.sealed_start` get
+`split="sealed"`. Nothing in training reads that split — `make train`
+extracts only `train`/`validation`/`test` — and `make build-labels` assigns
+it before the drive-level and vendor holdouts run. `sealed_start: null`
+disables it. `split="external_smartz"` (§5, "SMART-Z is an external
+validation split") is sealed in the same spirit, by source rather than by
+date.
+
+**The evaluation** (`pipelines/evaluate_frozen.py`, `make evaluate-frozen`).
+It re-chooses *nothing*. `make train` logs a `frozen_spec.json` artifact
+carrying the model type, horizon, feature list, drive threshold, per-tier
+thresholds and the fitted calibrator; `evaluate_frozen` loads that run's
+model (plus its Stage 2, if it has one), rebuilds the split's matrix with
+`train_model`'s own row-group reader, scores it, and reports drive-level
+metrics, per-tier metrics, a bootstrap interval and the calibrated curve —
+all at the thresholds training already fixed.
+
+```bash
+make evaluate-frozen ARGS="--run-id 0ee06c01ff2a427ca76011fb1afb8ce3 --split sealed"
+```
+
+**It is single-shot by construction.** The result is written to
+`data/audit/frozen_evaluations/{split}__{run_id}.json`, and the script exits
+with an error if that file already exists, because a second look at a sealed
+split is a second comparison. If you genuinely need to re-run one (a bug in
+the scoring path, say), delete the file deliberately — the refusal is there
+to make that a decision rather than an accident.
+
+**The run must be frozen before the data it is scored on arrives.** This is
+the part no code can enforce. `docs/model_status_and_runbook.md` section 1.1
+names the frozen run and says not to retrain it; retraining and then scoring
+the sealed quarter would quietly turn it into another validation set.
 
 ---
 
@@ -1399,11 +1486,20 @@ fleet as `make agent-demo`); swap `app.state.orchestrator` for a real
 `AgentOrchestrator` (built with real `fleet_state_provider`/`predictor`) to
 run against a real fleet/model.
 
-`InMemoryAuditStore` (`store.py`) is explicitly a stand-in for Redis (hot
-state) + DuckDB/Postgres (durable audit trail) — nothing here persists to
-disk. If you need the audit trail to survive an API restart, that's the
-next thing to build; the store's interface is small enough to reimplement
-against a real backend without touching `main.py`.
+`src/api/store.py` has two layers. `InMemoryAuditStore` holds everything in
+process and is what the tests use. `SQLiteAuditStore` subclasses it and
+writes the audit-critical state through to SQLite — pending actions, their
+decisions, the decision trail and the guardrail violations — so those
+survive an API restart; it loads them back into memory at construction, so
+every read path keeps the in-memory behaviour exactly. `get_store()` (the
+FastAPI dependency) returns a process-wide `SQLiteAuditStore` at
+`AUDIT_DB_PATH`, default `data/audit/audit.sqlite`.
+
+What still does not survive a restart: the last fleet snapshot and the latest
+prediction list, deliberately, since every `run-cycle` rebuilds both. The
+class is still a stand-in for the Redis (hot state) + DuckDB/Postgres
+(durable trail) split the design docs describe, and its interface is small
+enough to reimplement against those without touching `main.py`.
 
 Endpoints:
 
@@ -1686,8 +1782,12 @@ Data / model:
 - The repository ships no data. The pipeline has been run end to end on real
   Backblaze Q1 + Q2 2026 data (results in `docs/model_status_and_runbook.md`);
   SMART-Z has not been evaluated.
-- The model does not reach the precision target on the real fleet (46% at
-  9.7% recall against a 90% target). `docs/system_summary.md` section 4.
+- The model does not reach the precision target on the real fleet (49.6% at
+  10.5% recall against a 90% target, 95% CI [41.5%, 58.8%]).
+  `docs/system_summary.md` section 4.
+- Neither sealed evaluation has been run: the Q3 2026 quarter is sealed but
+  unscored, and SMART-Z has a split reserved but no data ingested, so
+  stability over time and across vendors are both unmeasured (§5.14).
 - `predictor` is never backed by the trained Phase 5 model in `demo.py`/the
   API's default wiring — it's a hardcoded two-drive fixture. Wiring a real
   MLflow-registered model in is the natural next step (see §11).
@@ -1733,10 +1833,14 @@ Operational hardening still needed for production:
   any exception inside `predictor`/`executor`/`validator`/`guardrail_evaluator`
   produces a raw unhandled-exception 500. `_decide()` only catches
   `KeyError`/`ValueError`; anything else also leaks a raw 500.
-- `InMemoryAuditStore` doesn't persist across an API restart (only the
-  LangGraph checkpoint and action ledger do) — the entire audit trail an
-  incident review would need is lost on restart.
+- The audit trail now persists (`SQLiteAuditStore`, §10), but nothing prunes
+  or rotates it, and the fleet-state/prediction caches are still
+  process-local by design.
 - No containerization (no Dockerfile/compose), no `.env`/secrets-management
   pattern, no health-check endpoint (`GET /health`), no CORS/rate-limiting.
+- `SQLiteAuditStore` writes on the request thread with no lock of its own; it
+  relies on SQLite's own locking, which is correct for one process but is not
+  the concurrency story a multi-instance deployment needs (the same caveat as
+  the in-memory check-then-act above).
 - No coverage threshold is enforced anywhere (`pytest-cov` is installed but
   only invoked via the local-only `make coverage`, not in CI).

@@ -121,6 +121,13 @@ fleet. The response tells you whether the cycle **completed** (something was
 decided, possibly executed) or is **pending_review** (blocked, waiting on a
 human).
 
+There are two further read-only endpoints that the dashboard does not
+surface: `GET /api/v1/audit/decisions/export?format=csv|parquet` downloads
+the whole decision trail as a file, and
+`GET /api/v1/analytics/failure-rate-by-model-family?horizon_days=30` reports
+the observed failure rate per drive model family straight from the gold
+Parquet files (empty until the data pipeline has been run).
+
 **Check what's waiting for your approval:**
 
 ```bash
@@ -270,18 +277,27 @@ drives), predicting failure within 30 days:
   the warning level about 1 in 10 do. Drive failure is rare (roughly 1 drive
   in 570 over the test period), so even a very selective model raises more
   false alarms than true ones at the lenient levels.
-- **An alert still means a lot.** An alerted drive is about 263 times more
-  likely to fail than a typical drive, and only about 1 healthy drive in
+- **An alert still means a lot.** An alerted drive is about 283 times more
+  likely to fail than a typical drive, and fewer than 1 healthy drive in
   5,000 is alerted at the primary threshold.
-- **It does not catch every failure.** The strictest levels catch under 10%
+- **It does not catch every failure.** The strictest levels catch about 10%
   of failing drives; the warning level catches about 60%. Many drives fail
   with no warning in their SMART readings.
 - **Warnings come about 14 days before the failure** (median).
+- **The figures have real uncertainty.** Only 621 drives failed in the test
+  period, so the precision at the primary threshold is 49.6% with a 95%
+  confidence range of roughly 42% to 59%. Treat it as "about half", not as a
+  precise number, and expect it to move on a different fleet or period.
 
 This is why a low score only warns, why migrate and drain need the highest
 scores plus the safety checks in §7, and why uncertain cases are sent to a
 person. The measured figures and how they were obtained are in
 `docs/system_summary.md`.
+
+One thing these numbers are **not**: a statement about generalization. They
+come from one fleet, one six-month period and one three-week test window. A
+later quarter is deliberately sealed and has not been scored yet, and the
+second (cross-vendor) data set has not been evaluated at all.
 
 ---
 

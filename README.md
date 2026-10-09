@@ -168,6 +168,7 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
 | `docs/project_plan.md` | Phase-wise execution plan, milestones, deliverables, tools, and exit criteria |
 | `docs/developer_guide.md` | How the implemented codebase is organized, how the pieces fit together, and how to extend it |
 | `docs/user_guide.md` | How to run, operate, and approve/reject decisions from the system — no code-reading required |
+| `docs/adr/0001-training-memory-isolation.md` | Why `make train` runs as four processes, and the debugging history behind it |
 
 ---
 
@@ -180,12 +181,19 @@ project-root/
 ├── pyproject.toml
 │
 ├── docs/
+│   ├── system_summary.md          # start here
+│   ├── project_report.md
+│   ├── model_status_and_runbook.md
+│   ├── feature_engineering.md
+│   ├── pipeline_usage.md
+│   ├── developer_guide.md
+│   ├── user_guide.md
 │   ├── design_goal.md
 │   ├── dataset_strategy.md
 │   ├── project_plan.md
-│   ├── developer_guide.md
-│   └── user_guide.md
+│   └── adr/
 │
+
 ├── configs/
 │   ├── data.yaml
 │   ├── features.yaml
@@ -206,20 +214,30 @@ project-root/
 │   ├── guardrails/
 │   ├── reliability/
 │   ├── simulator/
+│   ├── reporting/
 │   ├── api/
 │   └── dashboards/
 │
-├── pipelines/
-│   ├── ingest_backblaze.py
+├── pipelines/                     # one script per stage; each is a make target
+│   ├── download_backblaze.py / download_smartz.py
+│   ├── ingest_backblaze.py / ingest_smartz.py / ingest_synthetic_stub.py
 │   ├── build_silver.py
 │   ├── build_gold_features.py
 │   ├── build_labels.py
-│   └── train_model.py
+│   ├── train_model.py
+│   ├── experiment_model.py
+│   ├── evaluate_frozen.py         # single-shot scoring of a sealed split
+│   ├── score_fleet.py
+│   ├── build_sequences.py / train_lstm.py   # optional LSTM branch
+│   ├── generate_performance_plots.py / generate_final_report.py
+│   ├── run_api.py
+│   └── spike_duckdb_extract.py    # measurement spike, not a pipeline
 │
 ├── tests/
 │   ├── unit/
 │   ├── integration/
 │   ├── golden/
+│   ├── property/
 │   ├── chaos/
 │   └── smoke/
 │
@@ -421,6 +439,7 @@ synthetic-data walkthrough (§14) — only real-data / production settings.
 | `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | Before `make train` against real data whose date range doesn't overlap the defaults — an empty split raises a clear error naming which one. The synthetic stub (§14) derives its own date range from these same values, so it stays correct automatically if you change them |
 | `configs/model.yaml` | `primary_horizon_days` | The label horizon `make train`, `make score-fleet` and the agent use. 30 days by default; `test_end` must be at least this many days before the last date in the data |
 | `configs/model.yaml` | `splits.purge_label_window` / `validation_after_train_only` | Both `true` by default: training stops one horizon before `train_end`, and validation holds only later dates. See `docs/model_status_and_runbook.md` section 4.4 |
+| `configs/model.yaml` | `splits.sealed_start` | Dates from here on are labelled `split=sealed` and read by no training, validation or test step — only by `make evaluate-frozen`, once. Set it (or `null` it) to match your own data period |
 | `configs/model.yaml` | `model.two_stage.enabled` | Second-stage model that re-ranks the first model's highest-scoring drive-days; `true` by default |
 | `configs/model.yaml` | `model.type` (`lightgbm` \| `xgboost`) | Only if you want XGBoost instead of the LightGBM default |
 | `configs/model.yaml` | `mlflow.tracking_uri` / `experiment_name` | Only if you want runs logged somewhere other than the local `sqlite:///mlflow/mlflow.db` default |
@@ -494,6 +513,7 @@ The project uses a `Makefile` for reproducible pipeline execution.
 | `make full-pipeline` | Ingest through plots, including the model experiment |
 | `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (`train-lstm` needs `uv sync --extra torch`) |
 | `make score-fleet` | Batch-score the current fleet with the latest trained model |
+| `make evaluate-frozen` | Score one sealed or external split, once, against a frozen training run: `ARGS="--run-id <id> --split sealed"`. Refuses a second evaluation of the same split and run |
 | `make plots` | Render performance plots (calibration, ROC curves, feature importance, failures by drive family, class imbalance; SHAP when enabled) to `data/audit/plots/` |
 | `make final-report` | Aggregate chaos/latency/model reports, the goal status and the plots into a final evaluation report |
 | `make agent-demo` | Run a minimal LangGraph agent demo |
@@ -615,19 +635,25 @@ later set to 90% precision at ≥ 10% recall (`configs/model.yaml`
 
 ### Measured Result (Backblaze Q1 + Q2 2026, 30-day horizon, per drive, test)
 
-| Operating point | Precision on the real fleet (0.18% of drives fail) | Same alerts, test set with 15% failing | 50% failing |
-|---|---|---|---|
-| 2.9% of failing drives caught, 22 false alarms | 45.0% | 98.8% | 99.8% |
-| 9.7% caught, 70 false alarms (primary threshold) | 46.2% | 98.9% | 99.8% |
-| 20.8% caught, 164 false alarms | 44.0% | 98.7% | 99.8% |
-| 33.3% caught, 506 false alarms | 29.0% | 97.6% | 99.6% |
+The model of record is a frozen training run, kept unchanged so the sealed
+quarter and the cross-vendor set can each be scored against it once:
 
-Precision depends on how rare failures are in the test set; the last two
-columns restate the measured catch rate and false-alarm rate for test sets
-like those most published results use. An alerted drive is about 263 times
-more likely to fail than a random one. Full results, the approaches tried and
-the limitations: `docs/system_summary.md` and
-`docs/model_status_and_runbook.md`.
+| Operating point | Precision on the real fleet (0.18% of drives fail) | Same alerts, test set with 15% failing |
+|---|---|---|
+| 10.5% of failing drives caught (primary threshold) | **49.6%**, 95% CI [41.5%, 58.8%] | 99.0% |
+| 20.0% caught | 39.7% | — |
+| 32.4% caught | 28.7% | — |
+
+Precision depends on how rare failures are in the test set; the last column
+restates the measured catch rate and false-alarm rate for a test set like
+those most published results use. An alerted drive is about 283 times more
+likely to fail than a random one, and fewer than 1 healthy drive in 5,000 is
+alerted. The interval is a bootstrap over whole drives.
+
+Full results — including the per-tier breakdown, the drive counts and the
+warning lead time, which come from the run immediately before the freeze —
+plus the eleven approaches tried and the limitations:
+`docs/system_summary.md` and `docs/model_status_and_runbook.md`.
 
 ---
 
@@ -774,14 +800,18 @@ GET  /api/v1/actions/pending
 POST /api/v1/actions/{action_id}/approve
 POST /api/v1/actions/{action_id}/reject
 GET  /api/v1/audit/decisions
+GET  /api/v1/audit/decisions/export?format=csv|parquet
+GET  /api/v1/analytics/failure-rate-by-model-family?horizon_days=N
 GET  /api/v1/reliability/trust-trend
 GET  /api/v1/guardrails/violations
 ```
 
 `POST /api/v1/agent/run-cycle` runs one MAPE-K decision cycle; approve/reject
-genuinely resume the paused LangGraph thread, not just update a record. No
-authentication exists on any endpoint yet — see `docs/developer_guide.md`
-§13 "Known gaps" before exposing this beyond local/trusted use.
+genuinely resume the paused LangGraph thread, not just update a record. The
+approval queue, decision trail and guardrail violations are written through
+to SQLite, so they survive a restart. No authentication exists on any
+endpoint yet — see `docs/developer_guide.md` §13 "Known gaps" before exposing
+this beyond local/trusted use.
 
 Launch API:
 
@@ -801,15 +831,21 @@ uvicorn src.api.main:app --reload
 
 The project uses a layered testing strategy.
 
-| Test Type | Purpose |
-|---|---|
-| Unit tests | Feature logic, labels, guardrails, trust score |
-| Integration tests | LangGraph nodes, simulator API, FastAPI queue |
-| Golden-dataset tests | Regression testing for feature engineering |
-| Replay tests | Checkpoint recovery and duplicate-action prevention |
-| Chaos tests | Missing telemetry, multi-drive failures, action crashes |
-| Cross-dataset tests | SMART-Z generalization |
-| Human-review tests | Approval, rejection, timeout paths |
+445 tests run in CI, all passing, alongside `ruff` and `mypy`. One further
+test is skipped unless the optional PyTorch extra is installed.
+
+| Test layer | Count | Purpose |
+|---|---:|---|
+| Unit | 408 | Feature logic, labels, model and evaluation code, guardrail rules, trust score, API |
+| Integration | 16 | Real LangGraph graphs with the real guardrail engine and simulator; crash-recovery replay; approval and rejection paths |
+| Property-based | 10 | Invariants of hysteresis, trust score and calibration accounting, over generated inputs |
+| Chaos | 5 | Stale telemetry, correlated multi-drive failure, action timeout, human-review SLA timeout, guardrail latency budget |
+| Golden-dataset | 3 | A fixed synthetic dataset, for feature-pipeline regression |
+| Smoke | 3 | The real default wiring, end to end, plus every documented API endpoint |
+
+Cross-dataset (SMART-Z) evaluation is **not** among these: the split and the
+harmonization code exist, but no SMART-Z data has been ingested, so there is
+nothing to assert yet. See `docs/model_status_and_runbook.md` section 1.4.
 
 Run tests:
 
@@ -839,8 +875,8 @@ make test
 
 | Metric | Target |
 |---|---:|
-| Prediction precision | ≥ 95% originally, later ≥ 90% (not met: 46% on the real fleet at the primary threshold; see §15) |
-| Prediction recall | 35–50% originally, later ≥ 10% (9.7% at the primary threshold) |
+| Prediction precision | ≥ 95% originally, later ≥ 90% (not met: 49.6% on the real fleet at the primary threshold, 95% CI [41.5%, 58.8%]; see §15) |
+| Prediction recall | 35–50% originally, later ≥ 10% (10.5% at the primary threshold) |
 | Loop cycle time | < 5 minutes |
 | Guardrail evaluation latency | < 500 ms |
 | Hard-guardrail compliance | 100% |
@@ -866,6 +902,25 @@ It does **not** currently include:
 - fully autonomous production operation without supervision.
 
 The system is evaluated in a simulated operational environment with guardrails, human oversight, and auditability.
+
+Known gaps worth knowing before you rely on any of it:
+
+- The live agent loop is **not** driven by the trained model — it runs against
+  a hardcoded demonstration fleet, and uses the hand-picked cutoffs in
+  `configs/agent.yaml` rather than the tier thresholds training derives.
+- In that default wiring, the two fleet-topology guardrails ("never the last
+  healthy node", "keep quorum") receive no node or replication state, and
+  their defaults are permissive, so they cannot fire. Wire real topology data
+  in before enabling DRAIN anywhere but a demo.
+- The FastAPI service has no authentication, no rate limiting and no health
+  endpoint, and nothing sweeps the approval queue for reviews that have
+  missed their SLA.
+- SMART-Z has a split reserved for it but has not been evaluated, and the
+  sealed quarter has not been scored, so neither cross-vendor nor
+  across-time stability has been measured.
+
+The full list, with the reasoning behind each, is in
+`docs/developer_guide.md` §13.
 
 ---
 

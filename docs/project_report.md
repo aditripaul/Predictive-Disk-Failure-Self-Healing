@@ -24,10 +24,11 @@ rule is broken.
 The pipeline was run end to end on real Backblaze data: 62.6 million
 drive-days from 363,548 drives over the first half of 2026. Measured per
 drive, on a later time period than the model was trained on, the model catches
-9.7% of failing drives at 46% precision at its primary threshold, and 62% of
-failing drives at 10% precision at its most lenient action level. An alerted
-drive is about 260 times more likely to fail than a typical drive, and about 1
-healthy drive in 5,000 is alerted.
+10.5% of failing drives at 49.6% precision at its primary threshold (95%
+confidence interval 41.5% to 58.8%), and about 62% of failing drives at 10%
+precision at its most lenient action level. An alerted drive is about 283
+times more likely to fail than a typical drive, and fewer than 1 healthy
+drive in 5,000 is alerted.
 
 The project's original target of 95% precision was not met. Eleven modelling
 approaches were tested; two raised precision (a 30-day prediction window and
@@ -87,8 +88,8 @@ whether a system can act safely on predictions that are uncertain.
 
 | Objective | Target | Outcome |
 |---|---|---|
-| Prediction precision, per drive, real fleet | at least 95% (later 90%) | **Not met.** 46.2% at the primary threshold |
-| Prediction recall | 35-50% (later at least 10%) | 9.7% at the primary threshold; 33.3% at 29.0% precision; 62.5% at the warn level |
+| Prediction precision, per drive, real fleet | at least 95% (later 90%) | **Not met.** 49.6% at the primary threshold, 95% CI [41.5%, 58.8%] |
+| Prediction recall | 35-50% (later at least 10%) | 10.5% at the primary threshold; 32.4% at 28.7% precision; about 62% at the warn level |
 | Pipeline runs on real fleet data within a memory cap | 20 GB | **Met.** Two quarters, 62.6 million drive-days |
 | Guardrail evaluation latency | under 500 ms | **Met** in test: every one of 2,000 evaluations under the budget |
 | Hard-guardrail compliance in simulation | 100% | **Met** in the integration and chaos tests |
@@ -97,7 +98,8 @@ whether a system can act safely on predictions that are uncertain.
 | Human review of blocked or uncertain actions | approve and reject paths work | **Met** in the integration tests |
 | Every decision audited with a trust score | all | **Met** |
 | Live agent driven by the trained model | yes | **Not done.** The model scores the fleet in batch; the agent runs on a demonstration fleet |
-| Second data source (SMART-Z) | evaluated | **Not done.** Supported in code, not evaluated |
+| Second data source (SMART-Z) | evaluated | **Not done.** Supported in code, with a split reserved for it; no result yet |
+| A final period held back from every modelling choice | yes | **Met.** Q3 2026 is sealed and has not been read; it is scored once, against the frozen run |
 
 ---
 
@@ -256,7 +258,18 @@ their first-stage score, so the lenient action levels are unaffected.
 All thresholds are chosen on validation at the drive level and then applied
 unchanged to test. The primary threshold is the most precise point that
 still catches 10% of failing drives. Each action tier has its own threshold,
-set from the precision that action can tolerate.
+set from the **lift** that action can tolerate - how many times more likely
+an alerted drive must be to fail than a drive picked at random. Lift is used
+rather than precision because precision depends on the failure rate of
+whichever split it is measured on, while lift does not, so a target
+expressed in lift carries from validation to test and from one fleet to
+another.
+
+A monotone isotonic map, fitted on validation, is reported beside the raw
+scores so that a number presented as a probability means what it says; it
+leaves every decision unchanged, because a monotone map preserves ranking.
+Above a calibrated probability of about 0.5 the bins hold too few drives to
+be read with confidence.
 
 ---
 
@@ -269,7 +282,17 @@ set from the precision that action can tolerate.
 - **Later data only.** The test period follows the validation period, which
   follows training.
 - **Thresholds from validation.** No number in this report was obtained by
-  tuning on test.
+  tuning on test, and every computation that touched the test split is
+  recorded in an append-only log, so the number of comparisons behind a
+  reported figure is a fact rather than a recollection.
+- **Headline numbers carry an interval.** Test precision and recall are given
+  with a 1000-draw bootstrap interval that resamples whole drives, and the
+  second stage was judged by a paired interval on shared drives rather than
+  by comparing two point estimates.
+- **A final period is sealed.** Q3 2026 is labelled `sealed` and is read by no
+  training, validation or test step. It is scored once, against a model frozen
+  before it arrived, so there is one untouched period left to test stability
+  over time.
 - **Precision is reported with its failure rate.** Precision depends on how
   common failures are among the drives judged. For catch rate *r*,
   false-alarm rate *f* and failure rate *p*,
@@ -307,10 +330,32 @@ failing and 353,328 healthy drives.
 
 ### 8.1 Precision and recall
 
+**The model of record** is a frozen training run
+(`0ee06c01ff2a427ca76011fb1afb8ce3`), kept unchanged so that the sealed
+quarter and the cross-vendor set can each be scored against it exactly once:
+
+| Operating point | Precision, real fleet (0.18% fail) | Failing drives caught | At 15% failing | Lift |
+|---|---|---|---|---|
+| **Primary threshold** | **49.6%**, 95% CI [41.5%, 58.8%] | **10.5%** | 99.0% | 283 |
+| Broader | 39.7% | 20.0% | - | - |
+| Broadest | 28.7% | 32.4% | - | - |
+
+At 621 failing drives a point estimate cannot distinguish a real difference
+from sampling noise, which is why the interval is quoted with it.
+
+The breakdown that follows - drive counts, action tiers and warning lead
+time - comes from the run immediately before the freeze, on the same data
+build, the same split dates and the same test drives. The two runs differ
+only because the raw `failure` flag was dropped from the feature list between
+them: that column marks the failure day itself, so it was a label in disguise
+and had to go, and although it was all zeros in this data and carried no
+signal, removing it shifted the model's column sampling and so the fitted
+trees. Nothing about the data or the evaluation changed.
+
 | Operating point | Failing drives caught | Healthy drives alerted | Precision, real fleet (0.18% fail) | At 15% failing | At 50% failing | Lift |
 |---|---|---|---|---|---|---|
 | Strictest | 18 (2.9%) | 22 (0.006%) | 45.0% | 98.8% | 99.8% | 256 |
-| **Primary threshold** | **60 (9.7%)** | **70 (0.020%)** | **46.2%** | **98.9%** | **99.8%** | **263** |
+| Primary threshold | 60 (9.7%) | 70 (0.020%) | 46.2% | 98.9% | 99.8% | 263 |
 | Broader | 129 (20.8%) | 164 (0.046%) | 44.0% | 98.7% | 99.8% | 251 |
 | Broadest | 207 (33.3%) | 506 (0.143%) | 29.0% | 97.6% | 99.6% | 165 |
 
@@ -319,7 +364,13 @@ chosen at random.
 
 ### 8.2 Action tiers
 
-| Tier | Precision target on validation | Test precision | Test recall |
+Each tier's threshold is chosen on validation from a **lift** target
+(56.6 / 94.3 / 151.0 / 226.4 times the fleet failure rate) rather than a
+precision target, because precision moves with the base rate of whichever
+split it is measured on and lift does not. At the validation failure rate
+those targets are equivalent to the precisions in the first column below.
+
+| Tier | Equivalent precision target on validation | Test precision | Test recall |
 |---|---|---|---|
 | Warn | 15% | 9.9% | 62.5% |
 | Cordon | 25% | 17.4% | 51.2% |
@@ -358,14 +409,16 @@ drives.
 | 8 | **30-day horizon in place of 14 days** | **Gain: 33.6% to 46.3% precision near 10% recall, same test period** |
 | 9 | Survival model (time to failure) | Same as the classifier (0.216 against 0.213) |
 | 10 | Anomaly detection (isolation forest), alone, as a filter, as a feature | Alone far worse (24% against 46%); the others within noise |
-| 11 | **Second-stage model** | **Gain: 42.4% to 47.7% at the primary threshold, averaged over five seeds and positive in all five** |
+| 11 | **Second-stage model** | **Gain: at matched recall on the same drives, 38.9% to 49.6% precision - a gap of 10.7 points, 95% CI [3.2, 18.5]. A five-seed repeat had shown the gain in every seed (42.4% to 47.7%)** |
 
 The second-stage gain was first seen in single runs, where it rested on about
 fifteen drives. It was adopted only after a five-seed repeat showed it in
-every seed at the 10% and 20% operating points. The same repeat showed that
-the single model alone varies between 40.9% and 43.6% from seed to seed, a
-useful measure of how much weight a difference of two points between single
-runs deserves.
+every seed at the 10% and 20% operating points, and it was then measured
+directly: comparing the two models at matched recall on the same bootstrap
+resamples of drives gives a gap whose interval excludes zero. The same
+five-seed repeat showed that the single model alone varies between 40.9% and
+43.6% from seed to seed, a useful measure of how much weight a difference of
+two points between single runs deserves.
 
 ---
 
@@ -376,12 +429,15 @@ automated tests, not on real hardware.
 
 | Test layer | Tests | What it covers |
 |---|---|---|
-| Unit | 389 | Features, labels, model code, guardrail rules, trust score, API |
+| Unit | 408 | Features, labels, model code, guardrail rules, trust score, API |
 | Property-based | 10 | Invariants of hysteresis, trust score and metrics over generated inputs |
 | Golden data | 3 | Feature pipeline against a fixed reference data set |
 | Integration | 16 | Full decision cycles with the real guardrail engine and simulator |
 | Chaos | 5 | Stale telemetry, correlated multi-drive failure, action timeout, human-review timeout, guardrail latency |
 | Smoke | 3 | End-to-end start-up |
+
+445 tests in total, all passing, with `ruff` and `mypy` clean. One further
+test is skipped unless the optional PyTorch extra is installed.
 
 Behaviours demonstrated by these tests:
 
@@ -427,7 +483,7 @@ aside, a model trained only on the hard cases separates them slightly better.
 Published studies commonly report precision above 90%. They are usually
 measured on one drive model, with random splits, and on test sets with far
 more failures than a fleet contains. On a test set with 15% failing drives
-this model's alerts are 98.9% precise at the primary threshold. The two
+this model's alerts are 99.0% precise at the primary threshold. The two
 statements are consistent: they describe the same alerts judged against
 different populations. This report gives the real-fleet figure first because
 it is what an operator would experience.
@@ -452,12 +508,21 @@ by rules that do not depend on the model and, where needed, by a person.
 - **Two fleet-safety guardrails need real topology data.** The last-healthy-
   node and quorum rules are implemented and tested, but the demonstration
   wiring supplies no node or replication state, so they cannot fire there.
-- **Simulation only.** No action touches real hardware. The API has no
-  authentication, and its audit store does not survive a restart.
+- **Simulation only.** No action touches real hardware, and the API has no
+  authentication of any kind. The approval queue, decision trail and
+  guardrail violations are written through to SQLite and survive a restart;
+  the last fleet snapshot and prediction list are not, since each cycle
+  rebuilds them. Nothing sweeps the queue for reviews that have missed their
+  SLA, so the safe-fallback logic that exists is never triggered in the
+  running service.
 - **One data source and one half-year.** All results are Backblaze drives
   from January to June 2026, with a single three-week test period. The
-  five-seed test shows the second-stage gain does not depend on training
-  randomness; it does not show how results would vary in another period.
+  bootstrap interval covers sampling across drives and the five-seed test
+  covers training randomness; neither shows how results would vary in another
+  period. The sealed quarter exists to answer that and has not been scored.
+- **No cross-vendor result.** SMART-Z has a split reserved for it and the
+  harmonization code to read it, but it has not been evaluated, so
+  generalization beyond Backblaze is unmeasured.
 - **Validation precision exceeds test precision**, and only about half of the
   difference is explained.
 - **Action-tier precision targets are placeholders.** They should be set from
@@ -470,8 +535,8 @@ by rules that do not depend on the model and, where needed, by a person.
 
 1. Drive the live agent from the trained model, with the trained tier
    thresholds and real topology data for the fleet-safety guardrails.
-2. Evaluate on a further quarter, both to test stability over time and to
-   allow a 60- to 90-day horizon.
+2. Score the sealed quarter against the frozen run, once, to test stability
+   over time, and use a further quarter to allow a 60- to 90-day horizon.
 3. Add signals beyond daily SMART: I/O latency, error logs and workload.
 4. Set tier targets from operational cost, and measure the precision of
    actions taken after human review.
@@ -489,9 +554,9 @@ telemetry to an audited action, and ran it on a real fleet of 363,548 drives.
 It did not reach its precision target, and the evidence indicates that the
 target is not reachable from daily SMART data at real fleet failure rates:
 eleven approaches were tried, and the two that helped moved precision at the
-primary threshold from about 34% to about 46%. The model is nonetheless
-strongly informative, with alerts 260 times more likely than chance to be
-right and a false-alarm rate of 1 in 5,000.
+primary threshold from about 34% to about 50%. The model is nonetheless
+strongly informative, with alerts about 283 times more likely than chance to
+be right and fewer than 1 healthy drive in 5,000 alerted.
 
 The more durable result is the design. Because safety rests on graduated
 actions, independent guardrails, human approval, rollback and audit, the
@@ -535,6 +600,12 @@ make score-fleet
 make final-report              # runs make plots first
 ```
 
+Scoring a sealed or external split, once, against a frozen run:
+
+```bash
+make evaluate-frozen ARGS="--run-id <mlflow run id> --split sealed"
+```
+
 Model comparisons, on arrays kept from a training run:
 
 ```bash
@@ -544,7 +615,13 @@ make full-experiment FULL_EXPERIMENT_ARGS="--variants reg_spw xgboost xgboost_af
 Outputs: the evaluation report and final report under
 `data/audit/data_quality_reports/`, the model card under
 `data/audit/model_cards/`, plots under `data/audit/plots/`, fleet scores
-under `data/audit/predictions/`.
+under `data/audit/predictions/`, frozen-split results under
+`data/audit/frozen_evaluations/`, and the log of test-split computations at
+`data/audit/test_access_log.jsonl`.
+
+The real-data runs were made on a separate machine, so this repository's
+MLflow store does not contain the frozen run; `docs/model_status_and_runbook.md`
+section 1.1 is the record for it.
 
 ## Appendix B. Key settings
 
@@ -552,12 +629,15 @@ under `data/audit/predictions/`.
 |---|---|
 | Horizon | 30 days |
 | Splits | train to 2026-04-15 (rows to 2026-03-16), validation to 2026-05-10, test to 2026-05-31 |
+| Sealed window | from 2026-07-01; read only by the single-shot frozen evaluation |
+| Frozen run | `0ee06c01ff2a427ca76011fb1afb8ce3`, git commit `748a8c3`, dataset version `20261007T035648063409Z` |
 | Training rows | 5,000,295 used of 22,844,327 |
 | Features | 213 |
 | First stage | LightGBM, 220 trees, 31 leaves, at least 200 rows per leaf, L2 10, learning rate 0.05 |
 | Second stage | LightGBM, 38 trees, at least 50 rows per leaf; candidates above first-stage score 0.830 |
 | Class weighting | square root of the healthy-to-failing ratio |
 | Memory cap | 20 GB resident per process |
+| Action-tier targets | lift 56.6 / 94.3 / 151.0 / 226.4 (warn / cordon / migrate / drain) |
 
 ## Appendix C. Where to find more
 
@@ -570,3 +650,4 @@ under `data/audit/predictions/`.
 | Code structure and known gaps | `docs/developer_guide.md` |
 | Operating the system | `docs/user_guide.md` |
 | Original goals and plan | `docs/design_goal.md`, `docs/project_plan.md`, `docs/dataset_strategy.md` |
+| Why training runs as four processes | `docs/adr/0001-training-memory-isolation.md` |

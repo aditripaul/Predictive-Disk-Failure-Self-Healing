@@ -1,11 +1,12 @@
 # Model status, results and runbook
 
-> **Current state (2026-10-07).** Read Section 1 and Section 4.4 first. The
-> pipeline runs on **Q1 + Q2 2026** with a **30-day horizon** and corrected
-> split dates. Sections 3, 4, 4.1 and 5 are the earlier record (Q1 only,
-> 14-day horizon, five SMART attributes, the 95% target) and are kept because
-> the lessons in them still hold. For a shorter overview see
-> `docs/system_summary.md`.
+> **Current state (2026-10-09).** Read Section 1 first. The pipeline runs on
+> **Q1 + Q2 2026** with a **30-day horizon** and corrected split dates, and
+> the model of record is the frozen run in Section 1.1. Section 4 is the
+> measurement record in the order it was produced; Section 5 holds the
+> lessons from the earlier Q1-only, 14-day work, which still apply. For a
+> shorter overview see `docs/system_summary.md`, and for the written-up
+> version `docs/project_report.md`.
 
 This document records what was run on real Backblaze data, what was learned,
 what is still open, and how to run the pipeline end to end. Numbers are
@@ -14,79 +15,125 @@ measured on real data, it says so.
 
 ## 1. Where things stand
 
-- **The pipeline runs end to end on real Q1 + Q2 2026 data** (62.6 million
-  drive-days, 363,548 drives) within the 20 GB memory cap: ingest, silver,
-  features, labels, training, fleet scoring, plots and the final report.
-- **Current result** (frozen run below; per drive, test, 30-day horizon,
-  two-stage model): 49.6% precision at 10.5% recall at the primary threshold
-  (95% CI [41.5%, 58.8%], 1000-draw drive bootstrap), 39.7% at 20.0%, 28.7%
-  at 32.4%. An alerted drive is about 283 times likelier to fail than a
-  random one. The same alerts show 99.0% precision on a test set where 15%
-  of drives fail, the kind most published results use. Numbers moved from
-  the previous record (46.2% / 9.7%) because removing the raw `failure`
-  flag from the features (an all-zero column; see below) shifted LightGBM's
-  column sampling and so the fitted trees, even though the column carried
-  no signal. The evaluated test population itself did not change.
-- **The stated goal is not met.** It was 95% precision at 35-50% recall, then
-  90% at >= 10% recall, both on the real fleet. Section 7.
-- **Frozen model for the sealed and SMART-Z evaluations.** MLflow run
-  `0ee06c01ff2a427ca76011fb1afb8ce3` (experiment in `configs/model.yaml`,
-  store `sqlite:///mlflow/mlflow.db`), trained at git commit `748a8c3`,
-  dataset version `20261007T035648063409Z`, Q1 + Q2 2026 data. Its artifacts
-  include `frozen_spec.json`. Do not retrain this model after Q3 data arrives:
-  a retrain would silently change what the sealed quarter tests. (An earlier
-  run, `c9845215896e47a397317cadd3983b6d` at commit `313bacb`, trained to
-  bit-identical metrics; superseded only because it predates the CI and
-  matched-recall fields below, not because the model changed.)
-- **The two-stage gain is real, not noise.** Paired bootstrap, same drives for
-  both models at matched test recall (0.1047): stage 1 alone scores 0.389
-  precision, the two-stage model 0.496 - a gap of 0.107, 95% CI [0.032, 0.185].
-  The interval excludes 0. This replaces the five-seed average (42.4% to
-  47.7%) as the quoted result for the two-stage model, since it is a direct
-  significance test rather than an average of point estimates. One seed only;
-  the five-seed result still stands as corroborating evidence.
-- **Calibration caveat.** The calibrated test curve is close to the diagonal
-  up to about 0.5. Above that the bins hold 21 to 70 rows, so their observed
-  rates are noisy. Do not quote calibrated probabilities above 0.5.
-- **Cross-vendor result: pending.** The SMART-Z split (`split=external_smartz`)
-  is built by `build_labels`. `make evaluate-frozen ARGS="--run-id <id> --split
-  external_smartz"` scores the frozen run on it, once, and writes
-  `data/audit/frozen_evaluations/`. No result exists until that runs on data
-  that includes SMART-Z. Until then, generalization beyond Backblaze is
-  unmeasured.
-- **Sealed final quarter (Q3 2026).** Rows dated on or after `splits.sealed_start`
-  (2026-07-01, `configs/model.yaml`) are labeled `split=sealed`. No training,
-  validation or test step reads them. Scored once with `make evaluate-frozen`,
-  using a run frozen before the Q3 data arrived. The result file refuses a
-  second evaluation of the same split and run.
-- **Action tiers are set in lift.** `threshold.action_tier_lift` (56.6 / 94.3 /
-  151.0 / 226.4) replaces the precision targets. On validation they reproduce
-  the former precision targets, so the thresholds shouldn't move. Test lift
+The pipeline runs end to end on real Q1 + Q2 2026 data (62.6 million
+drive-days, 363,548 drives) within the 20 GB memory cap: ingest, silver,
+features, labels, training, fleet scoring, plots and the final report.
+**The stated goal is not met.** It was 95% precision at 35-50% recall, then
+90% at >= 10% recall, both per drive on the real fleet (Section 7).
+
+### 1.1 The current model
+
+Frozen MLflow run `0ee06c01ff2a427ca76011fb1afb8ce3` (experiment named in
+`configs/model.yaml`, store `sqlite:///mlflow/mlflow.db`), trained at git
+commit `748a8c3`, dataset version `20261007T035648063409Z`, Q1 + Q2 2026
+data, 30-day horizon, two-stage model. Per drive, on test, with thresholds
+chosen on validation. Test holds 621 failing and 353,328 healthy drives.
+
+| Operating point | Precision, real fleet (0.18% fail) | Recall | Precision at 15% failing |
+|---|---|---|---|
+| **Primary threshold** | **49.6%**, 95% CI [41.5%, 58.8%] | **10.5%** | 99.0% |
+| Broader | 39.7% | 20.0% | - |
+| Broadest | 28.7% | 32.4% | - |
+
+- At the primary threshold an alerted drive is about **283 times** likelier
+  to fail than a random one, and fewer than 1 healthy drive in 5,000 is
+  alerted.
+- The interval is a 1000-draw bootstrap over whole drives
+  (`src/models/uncertainty.py`), so a drive's many near-identical rows are
+  resampled together.
+- The 15% column restates the measured catch rate and false-alarm rate for a
+  test set in which 15% of drives fail, the kind most published results use.
+  It is arithmetic on the measured rates, not a separate experiment.
+- The logged quantities are those rates, the lift and the interval. The drive
+  counts they imply on this test population are 65 of 621 failing drives
+  caught and 66 of 353,328 healthy drives alerted at the primary threshold.
+- **Do not retrain this run.** It is what the sealed quarter and SMART-Z are
+  scored against (Section 1.4), and a retrain would silently change what
+  those evaluations test. Its artifacts include `frozen_spec.json`, which
+  carries the thresholds, the feature list and the calibrator, so nothing is
+  re-chosen at evaluation time. (An earlier run,
+  `c9845215896e47a397317cadd3983b6d` at commit `313bacb`, trained to
+  bit-identical metrics; it is superseded only because it predates the
+  interval and matched-recall fields, not because the model changed.)
+
+These numbers moved from the previous record (46.2% precision at 9.7% recall,
+Section 4.5) because the raw `failure` flag was dropped from the feature
+list. That column marks the failure day itself, so it is a label in disguise
+and had to go. It was all zeros in the frame, so it carried no signal, but
+removing it shifted LightGBM's column sampling and so the fitted trees. The
+evaluated test population did not change. Section 4.5 holds the fuller
+breakdown: the per-tier results, the drive counts at four operating points
+and the warning lead time all come from that run.
+
+### 1.2 The two-stage gain is real, not noise
+
+Paired bootstrap over the same resampled drives, both models at matched test
+recall (0.1047): stage 1 alone scores 0.389 precision and the two-stage model
+0.496 - a gap of **0.107, 95% CI [0.032, 0.185]**. The interval excludes 0.
+This is the result to quote for the second stage, replacing the five-seed
+average (42.4% to 47.7%), because it is a direct significance test rather
+than an average of point estimates. It rests on one seed; the five-seed
+result (Section 4.5) stands as corroborating evidence.
+
+### 1.3 Calibration
+
+The raw score is class-weighted and is not a failure probability: a score of
+0.9 does not mean 90% of such drive-days fail. A monotone isotonic
+calibrator fitted on validation (`src/models/calibration.py`) reports
+calibrated test metrics beside the raw ones (`test_calibrated_*` in MLflow)
+and is stored in `frozen_spec.json`. Decisions are unchanged, because a
+monotone map preserves ranking.
+
+**Caveat.** The calibrated test curve is close to the diagonal up to about
+0.5. Above that the bins hold 21 to 70 rows, so their observed rates are
+noisy. **Do not quote calibrated probabilities above 0.5.**
+
+### 1.4 Sealed, and not yet measured
+
+- **Sealed final quarter (Q3 2026).** Rows dated on or after
+  `splits.sealed_start` (2026-07-01, `configs/model.yaml`) are labeled
+  `split=sealed`, and no training, validation or test step reads them. They
+  are scored once, by `make evaluate-frozen`, with a run frozen before the Q3
+  data arrived. The result file refuses a second evaluation of the same split
+  and run.
+- **Cross-vendor result: pending.** The SMART-Z split
+  (`split=external_smartz`) is built by `build_labels`, and
+  `make evaluate-frozen ARGS="--run-id <id> --split external_smartz"` scores
+  the frozen run on it once, writing `data/audit/frozen_evaluations/`. No
+  result exists until that runs on data that includes SMART-Z, so
+  generalization beyond Backblaze is unmeasured.
+- **Every look at test is recorded.** Each test-split computation appends a
+  line to `data/audit/test_access_log.jsonl` (`src/models/access_log.py`), so
+  the number of comparisons behind a reported gain is a fact rather than a
+  recollection.
+
+### 1.5 What moved the number, and what did not
+
+- **Moved it:** fixing the training collapse (Section 5.2), and the 30-day
+  horizon (34% to 46% near 10% recall on the same test period). The second
+  stage then added about 5 points at the primary threshold (Sections 1.2 and
+  4.5) and is now the default.
+- **Did not:** hyperparameters, XGBoost, per-family models, a second quarter
+  of data, more SMART attributes and features, persistence rules, a survival
+  model, anomaly detection (Sections 4.1 to 4.3 and 5).
+
+### 1.6 Two conventions these numbers depend on
+
+- **Action tiers are set in lift, not precision.**
+  `threshold.action_tier_lift` (56.6 / 94.3 / 151.0 / 226.4) replaces the
+  earlier per-tier precision targets, because precision moves with the base
+  rate and lift does not. On validation they reproduce the former targets
+  (0.15 / 0.25 / 0.40 / 0.60), so the thresholds should not move. Test lift
   is reported beside test precision.
 - **Evaluated base rates differ from the label report.** The split date
   windows (`configs/model.yaml`, `splits`) decide which rows are scored. Test
-  keeps dates up to 2026-05-31. Its last 30 days are censored for healthy
+  keeps dates up to 2026-05-31, and its last 30 days are censored for healthy
   drives, so the label table keeps only the failing drives' positives there.
   The label report's test rate (0.150%) therefore counts positives the
   evaluation never scores. The rate the evaluation scores is 0.094% on test
   and 0.132% on validation (`data_build.evaluated_failure_rate` in the
-  evaluation report). Quote the evaluated rate. Precision depends on it, so
-  compare models on drive-level lift, not raw precision, across splits.
-- **Raw `failure` flag excluded from features.** It marks the failure day
-  itself. It was all zeros in the frame, so this changes no result.
-- **Calibration:** the raw score is class-weighted and is not a failure
-  probability. A monotone isotonic calibrator, fitted on validation, now
-  reports calibrated test metrics beside the raw ones (`test_calibrated_*`
-  in MLflow). Decisions are unchanged, because the map preserves ranking.
-  These numbers come from the next local run, not from this document.
-- **What moved precision:** fixing the training collapse (Section 5.2) and
-  the 30-day horizon (34% to 46% near 10% recall on the same test period).
-- **What did not:** hyperparameters, XGBoost, per-family models, a second
-  quarter of data, more SMART attributes and features, persistence rules, a
-  survival model, anomaly detection (Sections 4.1 to 4.3, 5).
-- **Second modest gain:** the two-stage model. Over five seeds it raised
-  precision at the primary threshold from 42.4% to 47.7% at the same recall
-  (Section 4.5). It is now the default.
+  evaluation report). Quote the evaluated rate, and compare models across
+  splits on drive-level lift rather than on raw precision.
 
 ## 2. How to run the pipeline
 
@@ -96,7 +143,7 @@ measured on real data, it says so.
 make install
 ```
 
-### 2.2 Q1 + Q2 2026 (the repository default, and the current results)
+### 2.2 Q1 + Q2 2026 (the repository default, and the reported results)
 
 `configs/data.yaml` ingests 2026-01-01 to 2026-06-30. `configs/model.yaml`
 uses a 30-day horizon with `train_end: "2026-04-15"`, `validation_end:
@@ -215,8 +262,13 @@ move the other heavy steps (join, validation and test extraction, silver and
 gold) to DuckDB one at a time, each checked for exact equality first. If it
 is not clearly lower, keep the Polars pipeline and the RSS watchdog.
 
-## 4. Model results (Q1 2026, 14-day horizon)
+## 4. Model results, in the order they were measured
 
+Sections 4.1 to 4.5 run chronologically, each building on the baseline
+recorded immediately below; 4.5 is the most recent full breakdown, and
+Section 1.1 is the frozen run that superseded it.
+
+**Q1 2026, 14-day horizon - the first working model.**
 All drive-level numbers use the per-drive rule in Section 5.1. The validation
 split chooses thresholds; the test split reports them.
 
@@ -249,84 +301,6 @@ for each tier's precision target:
 
 Validation-chosen thresholds lose precision on test, and the drain tier
 reaches only about 5% recall. Set tier targets with that shrinkage in mind.
-
-## 5. What we learned
-
-### 5.1 Evaluation is per drive, not per drive-day
-
-A failing drive contributes about 14 near-identical positive rows (one per day
-in its 14-day window), so row-level precision counts it many times.
-`src/models/evaluation.py::drive_level_metrics` evaluates per drive:
-
-- A **failing** drive is *caught* if any day inside its warning window scores
-  at or above the threshold.
-- A **healthy** drive is a *false alarm* if any of its rows does.
-
-Row-level metrics are still reported next to these.
-
-### 5.2 The early-stopping bug and the collapse
-
-- **The first real run was broken:** one tree, leaf values about 1e7, and a
-  SHAP additivity failure. The full negative/positive class ratio
-  (`is_unbalance`) was part of the cause.
-- **Fixed by regularization and early stopping on average precision.** With
-  those in place, `is_unbalance` trains normally (549 trees, test drive AUPRC
-  0.154), so the class-weight choice is second order.
-- **A bug in our own fix:** early stopping was watching the unweighted
-  `binary_logloss` as well. Class weighting makes logloss worse by design, so
-  training stopped after about 13 trees (validation AUPRC 0.0005). The
-  experiment script did not show this because it used sample weights. Fixed
-  in commit `9cae7ca`: only average precision is monitored, and the weight is
-  applied as per-row sample weights.
-
-Lesson: an experiment must use exactly the code path the pipeline uses.
-
-### 5.3 Which settings matter
-
-| Factor | Effect on test drive AUPRC |
-|---|---|
-| Regularization + early stopping | Large (the difference between a collapsed model and a working one) |
-| Positive weight power (0.25 / 0.5 / 0.75 / full ratio) | Within noise (0.148–0.161) |
-| Tree size (15 / 31 / 63 leaves) | Within noise |
-| Stronger regularization | Within noise (0.165) |
-| Drop identity features (drive age, capacity) | Lowers AUPRC; not harmful, not helpful |
-| Per-drive sample weights | No gain (0.145) |
-| XGBoost, same weights/regularization/early stopping | Lower (0.096–0.109) |
-
-The plateau is about 0.12–0.17 test drive AUPRC across all variants.
-
-### 5.4 False alarms
-
-On validation at the 35%-recall operating point, 296 healthy drives alerted.
-Breakdown (lift = share among alerts ÷ share among all healthy drives):
-
-- **Still active:** 239 drives, lift 0.8× (ordinary drives).
-- **Removed without a recorded failure:** 36 drives, lift 21×.
-- **Failed later:** 21 drives, lift 200×. Their failures came 15–60 days after
-  the first alert, so these are arguably early warnings the 14-day label
-  missed.
-
-About 19% of "false alarms" are plausibly early warnings; the rest are genuine
-false alarms.
-
-### 5.5 Persistence rules did not help
-
-Requiring the score to stay high over 3–7 days (rolling mean, min or median)
-lowered precision at every recall level. The false alarms are drives whose
-SMART signals stay elevated, not one-day spikes.
-
-### 5.6 Model family does not change the ceiling
-
-XGBoost (depth 6 and 8) did no better than LightGBM. The precision ceiling is
-in the data, not the model type.
-
-### 5.7 The 30-day horizon result is not valid yet
-
-A 30-day run showed validation drive AUPRC 0.37 (53% precision at 35% recall),
-but its test split had only 2,862 rows, all positive. The data ends
-2026-03-31, and the test window was sized for 14 days, so every healthy row
-after 2026-03-01 lost its label. Treat 30 days as promising but unproven until
-the splits end at least 30 days before the data does.
 
 ### 4.1 Per drive family (2026-10-06 build, top 3 families)
 
@@ -513,7 +487,7 @@ Drive level, test, thresholds chosen on validation.
   failure, 2 failed 31-60 days later. On validation 41 of 345 failed later.
 - **Persistence rules** again lowered precision at every setting.
 
-### 4.4 Changes after the 30-day run, and the current results (2026-10-06)
+### 4.4 Changes after the 30-day run: the enforced split rules (2026-10-06)
 
 Decisions taken after Section 4.3, all in `configs/model.yaml` and
 `pipelines/train_model.py`. The results at the end of this section are the
@@ -673,8 +647,10 @@ both models' sampling, not the test drives):
 **Adopted.** The pipeline model was then trained with the second stage
 (`make train TRAIN_ARGS=--two-stage`, seed 0; 220 + 38 trees; 9,454 candidate
 train rows, 5,262 positive; candidate threshold 0.830), and
-`model.two_stage.enabled` is now `true`. **These are the project's current
-figures** (test, drive level, thresholds from validation):
+`model.two_stage.enabled` is now `true`. **This run is the detailed
+breakdown the reader-facing documents cite for counts, action tiers and
+warning lead time**; the frozen run in Section 1.1 superseded its headline
+precision and recall (test, drive level, thresholds from validation):
 
 | Validation recall target | Two stage (current model) | First model alone, same run | At 15% failing | At 50% failing | Lift |
 |---|---|---|---|---|---|
@@ -705,6 +681,84 @@ figures** (test, drive level, thresholds from validation):
   scored 363,548 drives and proposed an action for 3,973. `make final-report`
   passed its chaos, guardrail-latency and crash-recovery sections.
 
+## 5. What we learned
+
+### 5.1 Evaluation is per drive, not per drive-day
+
+A failing drive contributes about 14 near-identical positive rows (one per day
+in its 14-day window), so row-level precision counts it many times.
+`src/models/evaluation.py::drive_level_metrics` evaluates per drive:
+
+- A **failing** drive is *caught* if any day inside its warning window scores
+  at or above the threshold.
+- A **healthy** drive is a *false alarm* if any of its rows does.
+
+Row-level metrics are still reported next to these.
+
+### 5.2 The early-stopping bug and the collapse
+
+- **The first real run was broken:** one tree, leaf values about 1e7, and a
+  SHAP additivity failure. The full negative/positive class ratio
+  (`is_unbalance`) was part of the cause.
+- **Fixed by regularization and early stopping on average precision.** With
+  those in place, `is_unbalance` trains normally (549 trees, test drive AUPRC
+  0.154), so the class-weight choice is second order.
+- **A bug in our own fix:** early stopping was watching the unweighted
+  `binary_logloss` as well. Class weighting makes logloss worse by design, so
+  training stopped after about 13 trees (validation AUPRC 0.0005). The
+  experiment script did not show this because it used sample weights. Fixed
+  in commit `9cae7ca`: only average precision is monitored, and the weight is
+  applied as per-row sample weights.
+
+Lesson: an experiment must use exactly the code path the pipeline uses.
+
+### 5.3 Which settings matter
+
+| Factor | Effect on test drive AUPRC |
+|---|---|
+| Regularization + early stopping | Large (the difference between a collapsed model and a working one) |
+| Positive weight power (0.25 / 0.5 / 0.75 / full ratio) | Within noise (0.148–0.161) |
+| Tree size (15 / 31 / 63 leaves) | Within noise |
+| Stronger regularization | Within noise (0.165) |
+| Drop identity features (drive age, capacity) | Lowers AUPRC; not harmful, not helpful |
+| Per-drive sample weights | No gain (0.145) |
+| XGBoost, same weights/regularization/early stopping | Lower (0.096–0.109) |
+
+The plateau is about 0.12–0.17 test drive AUPRC across all variants.
+
+### 5.4 False alarms
+
+On validation at the 35%-recall operating point, 296 healthy drives alerted.
+Breakdown (lift = share among alerts ÷ share among all healthy drives):
+
+- **Still active:** 239 drives, lift 0.8× (ordinary drives).
+- **Removed without a recorded failure:** 36 drives, lift 21×.
+- **Failed later:** 21 drives, lift 200×. Their failures came 15–60 days after
+  the first alert, so these are arguably early warnings the 14-day label
+  missed.
+
+About 19% of "false alarms" are plausibly early warnings; the rest are genuine
+false alarms.
+
+### 5.5 Persistence rules did not help
+
+Requiring the score to stay high over 3–7 days (rolling mean, min or median)
+lowered precision at every recall level. The false alarms are drives whose
+SMART signals stay elevated, not one-day spikes.
+
+### 5.6 Model family does not change the ceiling
+
+XGBoost (depth 6 and 8) did no better than LightGBM. The precision ceiling is
+in the data, not the model type.
+
+### 5.7 A horizon needs a test window that ends before the data does
+
+A 30-day run showed validation drive AUPRC 0.37 (53% precision at 35% recall),
+but its test split had only 2,862 rows, all positive. The data ends
+2026-03-31, and the test window was sized for 14 days, so every healthy row
+after 2026-03-01 lost its label. Treat 30 days as promising but unproven until
+the splits end at least 30 days before the data does.
+
 ## 6. The experiment tool
 
 ```bash
@@ -729,14 +783,14 @@ Thresholds are always chosen on validation and applied to test.
 
 **Neither goal is met on the real fleet.** The original goal was 95%
 precision at 35-50% recall per drive; it was later set to 90% at >= 10%
-recall (`configs/model.yaml` `threshold`). The current model gives 46.2% at
-9.7% recall and 29.0% at 33.3% (Section 4.5). At the validation threshold for
-95% precision it flags a single test drive.
+recall (`configs/model.yaml` `threshold`). The frozen model gives 49.6% at
+10.5% recall and 28.7% at 32.4% (Section 1.1). At the validation threshold
+for 95% precision it flags a single test drive.
 
 The limit is how rare failures are, not the false-alarm rate: at the primary
-threshold only 70 of 353,328 healthy drives are alerted (about 1 in 5,000),
-but only 621 drives fail. On a test set where 15% of drives fail the same
-alerts are 98.9% precise (Section 4.5). The paper we reviewed (Amram et al.,
+threshold fewer than 1 healthy drive in 5,000 is alerted, but only 621 drives
+fail out of 353,949. On a test set where 15% of drives fail the same alerts
+are 99.0% precise (Section 1.1). The paper we reviewed (Amram et al.,
 2021) reports about 44% precision at a 12% false-alarm rate on one drive
 model with random splits and about 15% positives, so it does not support a
 95% real-fleet target either.
@@ -799,6 +853,19 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 - **Longer windows** (60 and 90 days) and "days since an error counter first
   became nonzero".
 
+**Closed since (2026-10-07 to 2026-10-09):**
+
+- **Uncertainty on the headline numbers.** `src/models/uncertainty.py`
+  reports a drive-level bootstrap interval for test precision and recall, and
+  a paired interval for the two-stage gap (Sections 1.1, 1.2).
+- **Calibrated probabilities** beside the raw scores (Section 1.3).
+- **A sealed final quarter and a single-shot frozen evaluation**
+  (`pipelines/evaluate_frozen.py`, Section 1.4).
+- **An append-only log of every test-split computation** (Section 1.4).
+- **Action-tier targets expressed as lift** rather than precision
+  (Section 1.6).
+- **The raw `failure` flag excluded from the feature list** (Section 1.1).
+
 **Model and evaluation:**
 
 - **Validation precision is still above test** after the split fix (56.7%
@@ -809,7 +876,10 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   "unseen drives" report would use them.
 - **Per-drive-family results** are in Section 4.1. The top three families were
   tested; the other families were not scored (too few failures).
-- **Tier targets** are placeholders (15 / 25 / 40 / 60%).
+- **Tier targets** are still placeholders. They are now expressed as lift
+  (56.6 / 94.3 / 151.0 / 226.4, Section 1.6), which makes them comparable
+  across splits, but the numbers themselves should come from the real cost of
+  a false alarm per action, not from the precisions they were converted from.
 - **The live agent loop** (`src/agent/nodes.py`) is not driven by the trained
   model and uses the hand-picked cutoffs in `configs/agent.yaml`, not the
   trained tier thresholds.
@@ -823,6 +893,11 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   false alarms.
 - **Branches:** current work is on `adi_dev`; `main` holds the state before
   the 30-day default and the split fix.
+- **The frozen run is not in this repository's MLflow store.** The real-data
+  runs were made on the data machine, so `mlflow/mlflow.db` here ends at
+  2026-10-06 and `data/audit/` holds no report for run `0ee06c01`. Section 1.1
+  is the record for it. Re-running `make train` locally will not reproduce
+  that run; it would produce a new one.
 
 ## 9. Reference: key config values
 
@@ -838,6 +913,7 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 | `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | 2026-04-15 / 2026-05-10 / 2026-05-31 | Split boundaries |
 | `configs/model.yaml` | `splits.purge_label_window` | true | Training stops one horizon before `train_end` |
 | `configs/model.yaml` | `splits.validation_after_train_only` | true | Validation holds only dates after `train_end` |
+| `configs/model.yaml` | `splits.sealed_start` | 2026-07-01 | Rows from here on are `split=sealed`; only `make evaluate-frozen` reads them (Section 1.4) |
 | `configs/model.yaml` | `model.two_stage.enabled` | true | Second-stage model (Section 4.5) |
 | `configs/model.yaml` | `threshold.action_tier_lift` | 56.6 / 94.3 / 151.0 / 226.4 | Per-action lift targets (= former precision 0.15 / 0.25 / 0.40 / 0.60 at the validation rate) |
 | `configs/model.yaml` | `diagnostics.shap_enabled` | false | SHAP is slow on real data and fails its additivity check with extreme leaves |
@@ -849,8 +925,12 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 
 - `docs/project_report.md`: the full project report.
 - `docs/system_summary.md`: the short overview for a reviewer.
-- `docs/developer_guide.md` section 5.10–5.13: the memory cap, how
-  `make train` fits in RAM, the model experiment workflow, and the current
-  evaluation rules and second stage.
+- `docs/feature_engineering.md`: what the model sees, and why.
+- `docs/developer_guide.md` sections 5.10 to 5.14: the memory cap, how
+  `make train` fits in RAM, the model experiment workflow, the current
+  evaluation rules and second stage, and the frozen-run evaluation.
 - `docs/pipeline_usage.md`: every command and option.
-- `docs/dataset_strategy.md` and `docs/project_plan.md`: the original goals.
+- `docs/adr/0001-training-memory-isolation.md`: why `make train` runs as four
+  processes, and the debugging history behind it.
+- `docs/design_goal.md`, `docs/dataset_strategy.md` and
+  `docs/project_plan.md`: the original goals, kept as written.

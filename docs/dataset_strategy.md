@@ -3,13 +3,16 @@
 ## AI-Based Autonomous System Validation & Reliability Checker
 ### Predictive Disk-Failure Self-Healing Agent for Server Fleets
 
-> **Status note (2026-10-06).** This document records the original design
-> and targets and is kept as written. What was built and measured is in
-> `docs/system_summary.md` and `docs/model_status_and_runbook.md`. In
+> **Status note (2026-10-09).** This document records the original design
+> and targets and is kept as written, as the record of what was planned. What
+> was built and measured is in `docs/system_summary.md`,
+> `docs/project_report.md` and `docs/model_status_and_runbook.md`. In
 > particular: the prediction target stated here (95% precision at 35-50%
-> recall) is not met on real data (46% precision at 9.7% recall on the real
-> fleet, 30-day horizon), the primary horizon is now 30 days, and only
-> Backblaze data has been evaluated.
+> recall) is not met on real data (49.6% precision at 10.5% recall on the
+> real fleet, 30-day horizon, 95% CI [41.5%, 58.8%]); the primary horizon is
+> now 30 days; per-action thresholds are set from lift rather than precision;
+> and only Backblaze data has been evaluated, with a final quarter sealed and
+> not yet scored.
 
 **Document role:**
 This document is the single source of truth for dataset selection, data preprocessing, labeling, feature engineering, data quality, leakage prevention, and ML-readiness for the project.

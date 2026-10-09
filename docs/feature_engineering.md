@@ -1,6 +1,7 @@
 # Feature engineering: what the model sees, and why
 
-Status as of 2026-10-06. This describes the feature set in the code. The
+Status as of 2026-10-09; the feature set itself has not changed since
+2026-10-06. This describes the feature set in the code. The
 attributes and features marked **new** were added that day and have since
 been run on real data (Q1 + Q2 2026): **they made no measurable difference**.
 The models with and without them are within 0.01 drive-level AUPRC of each
@@ -17,10 +18,12 @@ Related: `docs/model_status_and_runbook.md` (results, goal status) and
 
 ## 1. The problem the features have to solve
 
-Failures are rare. About 300 of 345,000 drives fail in a three-week test
-window. At the goal's operating point the model may raise only a handful of
-false alarms across the whole fleet, so a feature is useful only if it
-separates a failing drive from the many healthy drives that also show errors.
+Failures are rare. In the current two-quarter build, 621 of 353,949 drives
+fail in the three-week test window - about 1 in 570. (Earlier numbers in this
+document come from the one-quarter build, where it was about 300 of 345,000.)
+At the goal's operating point the model may raise only a handful of false
+alarms across the whole fleet, so a feature is useful only if it separates a
+failing drive from the many healthy drives that also show errors.
 
 Two facts from the measurements shape every choice below:
 
@@ -215,6 +218,12 @@ builds are not meaningful.
   encoded differently by some vendors.
 - **The label is partly defined by a feature.** Backblaze marks a drive failed
   when it is removed, and one removal reason is SMART 187 turning positive.
+- **The raw `failure` flag is excluded from the feature list**
+  (`src/models/features.py::NON_FEATURE_COLUMNS`). It marks the failure day
+  itself, so it is a label in disguise. It was all zeros in the assembled
+  frame, so dropping it removed no signal - but it did change the model's
+  column sampling, and so the fitted trees
+  (`docs/model_status_and_runbook.md` section 1.1).
 
 ## 8. Where each piece lives
 
