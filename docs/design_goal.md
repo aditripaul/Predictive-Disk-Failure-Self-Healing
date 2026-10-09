@@ -7,8 +7,7 @@
 > objectives below, O2's prediction target is the one not met, and O1 is
 > Backblaze-only: SMART-Z is harmonized in code but has never been evaluated.
 > O3 to O6 were met in simulation. Measured outcomes:
-> `docs/system_summary.md`, `docs/project_report.md` and
-> `docs/model_status_and_runbook.md`.
+> `docs/system_summary.md` and `docs/model_status_and_runbook.md`.
 
 ---
 

@@ -5,8 +5,7 @@
 > the model of record is the frozen run in Section 1.1. Section 4 is the
 > measurement record in the order it was produced; Section 5 holds the
 > lessons from the earlier Q1-only, 14-day work, which still apply. For a
-> shorter overview see `docs/system_summary.md`, and for the written-up
-> version `docs/project_report.md`.
+> shorter overview see `docs/system_summary.md`.
 
 This document records what was run on real Backblaze data, what was learned,
 what is still open, and how to run the pipeline end to end. Numbers are
@@ -957,7 +956,6 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 
 ## 10. Related documents
 
-- `docs/project_report.md`: the full project report.
 - `docs/system_summary.md`: the short overview for a reviewer.
 - `docs/feature_engineering.md`: what the model sees, and why.
 - `docs/developer_guide.md` sections 5.10 to 5.14: the memory cap, how

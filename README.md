@@ -158,7 +158,6 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
 
 | Document | Purpose |
 |---|---|
-| `docs/project_report.md` | The project report: problem, design, data, method, results, discussion, limitations |
 | `docs/system_summary.md` | **Start here.** What was built, how one decision flows through it, measured results, limitations |
 | `docs/model_status_and_runbook.md` | Every result measured on real data, what was learned, how to reproduce it, open items |
 | `docs/pipeline_usage.md` | Commands for each pipeline stage, training options and the model experiment tool |
@@ -182,7 +181,6 @@ project-root/
 │
 ├── docs/
 │   ├── system_summary.md          # start here
-│   ├── project_report.md
 │   ├── model_status_and_runbook.md
 │   ├── feature_engineering.md
 │   ├── pipeline_usage.md

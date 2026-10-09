@@ -216,7 +216,6 @@ were still in service when the data ended.
 
 | Topic | Document |
 |---|---|
-| The full project report | `docs/project_report.md` |
 | All measured results, run history, how to reproduce | `docs/model_status_and_runbook.md` |
 | What the model sees and why | `docs/feature_engineering.md` |
 | Commands for every pipeline stage | `docs/pipeline_usage.md` |
