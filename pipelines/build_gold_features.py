@@ -222,13 +222,67 @@ def build_gold_features(wide: pl.DataFrame, features_config: dict) -> pl.DataFra
         gold,
         available_attributes,
         recency_tau_hours=features_config["feature_confidence"]["recency_tau_hours"],
+        expected_cadence_days=features_config["feature_confidence"].get("expected_cadence_days", 1),
         expected_by_model=expected_by_model,
     )
     _log_stage(
         "feature_confidence_added", t0, row_count=gold.height, column_count=len(gold.columns)
     )
+    _check_confidence_is_attainable(gold)
 
     return gold
+
+
+#: Floor the agent applies to destructive actions
+#: (configs/agent.yaml feature_confidence.min_confidence_for_destructive_action).
+DEFAULT_DESTRUCTIVE_FLOOR = 0.80
+AGENT_CONFIG_PATH = Path("configs/agent.yaml")
+
+
+def _destructive_floor() -> float:
+    try:
+        agent_config = yaml.safe_load(AGENT_CONFIG_PATH.read_text())
+        return float(agent_config["feature_confidence"]["min_confidence_for_destructive_action"])
+    except (OSError, KeyError, TypeError, ValueError):
+        return DEFAULT_DESTRUCTIVE_FLOOR
+
+
+def _check_confidence_is_attainable(gold: pl.DataFrame) -> None:
+    """Fail the build if NO drive-day could ever clear the destructive-action floor.
+
+    Twice now a multiplicative factor in `feature_confidence` has silently
+    pinned the whole fleet below that floor: an attribute-coverage denominator
+    counting another vendor attributes, and a recency term charging the normal
+    daily cadence as staleness (ADR 0002). Both were invisible to the unit and
+    chaos tests, which build synthetic drives with ideal values, and silent in
+    operation - the guardrail fires, the action routes to human review, the
+    audit trail looks healthy, and the agent can never act. Only real data
+    shows it, so the assertion lives here.
+
+    Zero is the only value treated as a defect: a genuinely stale or
+    attribute-poor fleet can legitimately have a low share, so anything above
+    zero is logged for inspection rather than failed. See
+    scripts/check_confidence_distribution.py for the per-factor breakdown."""
+    floor = _destructive_floor()
+    if "feature_confidence" not in gold.columns or gold.height == 0:
+        return
+    confidence = gold["feature_confidence"]
+    attainable = int((confidence >= floor).sum())
+    highest = float(confidence.max() or 0.0)
+    logger.info(
+        "feature_confidence_attainable",
+        destructive_floor=floor,
+        drive_days_at_or_above_floor=attainable,
+        share_at_or_above_floor=round(attainable / gold.height, 6),
+        max_feature_confidence=round(highest, 6),
+    )
+    if attainable == 0:
+        raise ValueError(
+            f"No drive-day reaches the destructive-action floor of {floor}: the agent "
+            f"could never cordon, migrate or drain anything. Highest feature_confidence "
+            f"in this build is {highest:.4f}. Run "
+            f"scripts/check_confidence_distribution.py to see which factor binds."
+        )
 
 
 def _load_configs() -> tuple[dict, dict]:

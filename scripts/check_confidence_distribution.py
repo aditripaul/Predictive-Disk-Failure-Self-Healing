@@ -103,13 +103,19 @@ def compare(gold_path: Path, attributes: list[str], floor: float = FLOOR) -> dic
         for f in factors
     }
     # A factor whose fleet-wide MAXIMUM is already below the floor makes the
-    # floor unreachable on its own, whatever the other two do.
+    # floor unreachable on its own. But the factors can be anti-correlated -
+    # recency reaches 1.0 only on a drive's first day, exactly when 30-day
+    # coverage is 1/30 - so no factor need be individually capped for the
+    # PRODUCT to be unreachable. The product's own maximum is the real answer.
     binding = [f for f, v in by_factor.items() if v["max"] is not None and v["max"] < floor]
+    highest = lf.select(pl.col("feature_confidence").max().alias("m")).collect()["m"][0]
 
     return {
         "gold_path": str(gold_path),
         "factors": by_factor,
         "factors_below_floor_at_their_maximum": binding,
+        "max_feature_confidence": highest,
+        "floor_attainable_anywhere": bool(highest is not None and highest >= floor),
         "floor": floor,
         "priority_attributes": present,
         "priority_attributes_absent_from_gold": missing,
@@ -134,6 +140,16 @@ def _print(report: dict) -> None:
     print(f"{'factor':<30}{'median':>10}{'p95':>10}{'max':>10}")
     for name, v in report["factors"].items():
         print(f"{name:<30}{v['median']:>10.4f}{v['p95']:>10.4f}{v['max']:>10.4f}")
+    print(
+        f"{'feature_confidence (product)':<30}{'':>10}{'':>10}"
+        f"{report['max_feature_confidence']:>10.4f}"
+    )
+    if not report["floor_attainable_anywhere"]:
+        print(
+            f"  !! NO drive-day anywhere reaches {report['floor']}: the agent could never"
+            f" cordon, migrate or drain. The factors need not each be capped for their"
+            f" product to be - check which ones sit below 1.0 above."
+        )
     if report["factors_below_floor_at_their_maximum"]:
         for name in report["factors_below_floor_at_their_maximum"]:
             print(

@@ -119,13 +119,19 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
 
 ### 1.6 Found by the attribute screen (2026-10-09)
 
-- **Guardrails could not act on ~2/3 of the fleet (fixed in code, needs a
-  rebuild).** `attribute_coverage_factor` divided by every priority attribute,
-  including Seagate's `smart_187`/`smart_188` (~32% coverage), so non-Seagate
-  drive-days were capped at 0.60 against the 0.80 destructive-action floor
-  whatever their telemetry quality - cordon, migrate and drain were
-  structurally impossible there. Coverage is now scored against the attributes
-  each drive MODEL reports.
+- **Guardrails could not act on ANY of the fleet (both causes fixed, needs a
+  rebuild).** Two multiplicative factors in `feature_confidence` each pinned
+  it below the 0.80 destructive-action floor. (1) `attribute_coverage_factor`
+  divided by every priority attribute, including Seagate's
+  `smart_187`/`smart_188` (~32% coverage), capping non-Seagate drive-days at
+  0.60; it is now scored against the attributes each drive MODEL reports.
+  (2) `recency_factor` charged the normal daily telemetry cadence as a full
+  day of staleness, capping every drive-day at exp(-24/48) = 0.6065; it now
+  charges only the time beyond `expected_cadence_days`. Measured on the
+  rebuilt gold table, 0.0% of 62,565,487 drive-days cleared the floor even
+  after fix (1), which is how (2) was found. `build_gold_features` now fails
+  outright if no drive-day can reach the floor, and
+  `scripts/check_confidence_distribution.py` reports the per-factor breakdown.
 - **`smart_196` (reallocation event count) is now a priority attribute.** It
   out-separates four of the five existing ones (0.306) at double the coverage
   of `smart_187`, reaching the drives where the Seagate attributes are null.

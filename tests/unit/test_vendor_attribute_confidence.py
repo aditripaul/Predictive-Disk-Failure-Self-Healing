@@ -10,6 +10,7 @@ complete and fresh their telemetry was.
 """
 
 import datetime as dt
+import math
 
 import polars as pl
 import pytest
@@ -149,3 +150,59 @@ def test_guardrail_no_longer_blocks_a_healthy_non_seagate_drive():
     blocked = GuardrailEngine().evaluate(_drain_ctx(0.60))
     assert [v for v in blocked.violations if v.rule_id == "FEATURE_CONFIDENCE"]
     assert blocked.passed is False
+
+
+def _daily(days_since_last: int, coverage: float = 1.0) -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "drive_id": ["A"],
+            "drive_model": [SEAGATE],
+            "date": [dt.date(2026, 1, 10)],
+            "telemetry_coverage_30d": [coverage],
+            "days_since_last_telemetry": [days_since_last],
+            **{a: [1.0] for a in PRIORITY},
+        }
+    )
+
+
+def test_healthy_daily_telemetry_clears_the_destructive_floor():
+    """The second bug in ADR 0002: the normal daily cadence was charged as a
+    full day of staleness, capping every drive-day at exp(-24/48) = 0.6065
+    against a 0.80 floor, which no coverage could lift."""
+    out = add_feature_confidence(_daily(days_since_last=1), PRIORITY)
+    assert out["recency_factor"][0] == pytest.approx(1.0)
+    assert out["feature_confidence"][0] >= 0.80
+
+
+def test_a_real_telemetry_gap_still_lowers_confidence():
+    out = add_feature_confidence(_daily(days_since_last=3), PRIORITY)
+    # 3 days against a 1-day cadence is 2 days of real staleness.
+    assert out["recency_factor"][0] == pytest.approx(math.exp(-48.0 / 48.0))
+    assert out["feature_confidence"][0] < 0.80
+
+
+def test_a_drives_first_day_is_not_charged_staleness():
+    """days_since_last_telemetry is fill_null(0) on a drive's first row; it has
+    no previous reading, so there is nothing to be stale against."""
+    out = add_feature_confidence(_daily(days_since_last=0), PRIORITY)
+    assert out["recency_factor"][0] == pytest.approx(1.0)
+
+
+def test_interval_column_still_reports_the_true_gap():
+    """Recency is charged on the excess, but the reported interval must stay
+    the real one - src/models/serving.py surfaces it."""
+    out = add_feature_confidence(_daily(days_since_last=3), PRIORITY)
+    assert out["hours_since_last_telemetry"][0] == pytest.approx(72.0)
+
+
+def test_the_build_refuses_a_fleet_that_can_never_act():
+    """The guard that would have caught both bugs. Unit fixtures use ideal
+    values, so only a check against real output catches a fleet-wide cap."""
+    from pipelines.build_gold_features import _check_confidence_is_attainable
+
+    blocked = pl.DataFrame({"feature_confidence": [0.6065, 0.5, 0.033]})
+    with pytest.raises(ValueError, match="could never cordon, migrate or drain"):
+        _check_confidence_is_attainable(blocked)
+
+    # One actionable drive-day is enough to prove the floor is reachable.
+    _check_confidence_is_attainable(pl.DataFrame({"feature_confidence": [0.6065, 0.95]}))

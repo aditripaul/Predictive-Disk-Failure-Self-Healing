@@ -133,6 +133,42 @@ populated. In operation it is silent — the guardrail fires, the action routes
 to human review, the audit trail looks healthy — while the system is unable to
 act autonomously on most of the fleet, which is the project's whole purpose.
 
+### A second, larger cap in the same formula
+
+Found by running `scripts/check_confidence_distribution.py` on the rebuilt
+gold table after the fix above. With `attribute_coverage_factor` now 1.00 for
+nearly every model, **0.0% of 62,565,487 drive-days still reached the 0.80
+floor** - so the first fix was real but not sufficient, and the earlier claim
+that the agent could not act on "about two thirds" of the fleet was wrong. It
+could not act on **any** of it.
+
+`src/preprocess/telemetry_gaps.py` defines
+`days_since_last_telemetry = date - date.shift(1).over("drive_id")`: the
+interval BETWEEN consecutive readings. That is the right quantity for
+`telemetry_gap_flag` and `stale_telemetry_flag`, which use it. But
+`add_feature_confidence` consumed it as the AGE of the current reading:
+
+    hours_since_last = days_since_last_telemetry * 24.0   # = 24 for daily data
+    recency_factor   = exp(-24 / 48) = 0.6065
+
+Every gold row is a reading taken on its own date, so its age is zero. The
+formula charged a full day of staleness for perfectly fresh daily telemetry.
+
+The two surviving factors are also anti-correlated, which makes the 0% result
+structural rather than marginal:
+
+| recency_factor | when | telemetry_coverage_30d | product |
+|---|---|---|---|
+| 0.6065 | every day after a drive's first | up to 1.0 | <= 0.6065 |
+| 1.0 | a drive's first day only (`fill_null(0)`) | 1/30 = 0.033 | 0.033 |
+
+Clearing 0.80 at recency 0.6065 would need coverage >= 1.32, and coverage is
+clipped at 1.0. No drive-day could satisfy both terms.
+
+Measured on the real build: `recency_factor` median 0.6065, p95 0.6065, max
+1.0 (the 363,548 first-day rows), `telemetry_coverage_30d` median 1.0,
+`attribute_coverage_factor` median 1.0.
+
 ## Decisions
 
 1. **`attribute_coverage_factor` is scored per drive model.**
@@ -153,14 +189,36 @@ act autonomously on most of the fleet, which is the project's whole purpose.
      they would otherwise become silent model inputs.
    - **The 0.80 floor is unchanged.** The bug was the denominator, not the
      threshold.
-2. **`smart_196` is ingested as a priority attribute** (`reallocation_event_count`),
+2. **Recency charges only the time beyond the expected cadence.**
+   `expected_cadence_days: 1` (`configs/features.yaml`, daily in both
+   Backblaze and SMART-Z), and
+   `recency_factor = exp(-max(0, days_since_last - cadence) * 24 / tau)`. A
+   reading one day after the previous one is fresh and scores 1.0; a three-day
+   gap is charged two days and scores exp(-48/48) = 0.37, so it stays blocked.
+   The 0.80 floor becomes meaningful instead of unreachable and needs no
+   change. `hours_since_last_telemetry` keeps reporting the true interval,
+   because `src/models/serving.py` surfaces it.
+   - Not done, and a genuinely different quantity: at serving time the age of
+     the latest reading relative to `as_of` is what matters, and `serving.py`
+     currently reads the feature-table column rather than computing it against
+     the decision time. For a live agent that distinction matters; for an
+     offline daily-snapshot build it does not.
+3. **The gold build refuses a fleet that can never act.**
+   `_check_confidence_is_attainable` fails `build_gold_features` when NO
+   drive-day reaches the floor, and logs the share and maximum otherwise. Two
+   bugs of this exact shape - a multiplicative factor silently pinning the
+   whole fleet below the floor - got through because every unit and chaos
+   fixture builds drives with ideal values. Only real data exposes it. Zero is
+   the sole failing value, since a genuinely stale fleet may legitimately have
+   a low share.
+4. **`smart_196` is ingested as a priority attribute** (`reallocation_event_count`),
    on the measured separation above. `smart_22` (helium, sep 0.169 over the
    34% helium fleet) is **not done**: it is the first attribute whose raw value
    is *inverted* (lower helium is worse), and
    `src/preprocess/smart_mapping.py` currently documents direction
    normalization as identity for every onboarded counter. Onboarding it needs
    that path built and tested, which belongs in its own change.
-3. **Per-family operating points: not done.** The guardrail's instinct was
+5. **Per-family operating points: not done.** The guardrail's instinct was
    sound even though its mechanism was wrong — prediction quality genuinely
    differs by family (pooled drive-level AUPRC 0.303 Seagate, 0.217 HGST,
    0.207 Toshiba), consistent with `smart_187`/`188` availability though not

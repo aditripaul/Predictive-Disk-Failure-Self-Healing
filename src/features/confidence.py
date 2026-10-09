@@ -2,7 +2,15 @@
 (docs/dataset_strategy.md section 10.4 / 14).
 
 feature_confidence = telemetry_coverage_30d x recency_factor x attribute_coverage_factor
-recency_factor      = exp(-hours_since_last_telemetry / tau)
+recency_factor      = exp(-max(0, days_since_last - cadence) x 24 / tau)
+
+`days_since_last_telemetry` is the interval BETWEEN consecutive readings, not
+the age of the current one - every row here IS a reading taken on its own
+date, so its age is zero. Charging that interval as staleness capped the whole
+fleet at exp(-24/48) = 0.6065 against a 0.80 floor, which no amount of
+coverage could lift (coverage is clipped at 1.0, and the only rows with
+recency 1.0 were drives' first days, where 30-day coverage is 1/30). Recency
+therefore charges only the time beyond the expected cadence. ADR 0002.
 
 `attribute_coverage_factor` is scored against the attributes the drive's MODEL
 reports, not against every priority attribute in the fleet. Vendors publish
@@ -21,6 +29,10 @@ import polars as pl
 from src.features.cross_vendor import expected_attribute_column
 
 DEFAULT_RECENCY_TAU_HOURS = 48.0
+#: Telemetry cadence in both supported sources is daily, so a reading one day
+#: after the previous one is fresh (configs/features.yaml
+#: feature_confidence.expected_cadence_days).
+DEFAULT_EXPECTED_CADENCE_DAYS = 1
 
 
 def add_feature_confidence(
@@ -28,6 +40,7 @@ def add_feature_confidence(
     attributes: list[str],
     *,
     recency_tau_hours: float = DEFAULT_RECENCY_TAU_HOURS,
+    expected_cadence_days: int = DEFAULT_EXPECTED_CADENCE_DAYS,
     expected_by_model: pl.DataFrame | None = None,
     model_column: str = "drive_model",
 ) -> pl.DataFrame:
@@ -42,8 +55,14 @@ def add_feature_confidence(
     vendor does not publish. Without it, every attribute counts for every
     drive - the original behaviour, kept for callers that have no model
     table (and because a fleet of one vendor needs no correction)."""
+    # Kept as the true interval between readings, which is what
+    # src/models/serving.py reports. Recency is charged on the EXCESS over the
+    # expected cadence, so healthy daily telemetry is not penalised.
     hours_since_last = pl.col("days_since_last_telemetry") * 24.0
-    recency_factor = (-hours_since_last / recency_tau_hours).exp()
+    stale_hours = (pl.col("days_since_last_telemetry") - expected_cadence_days).clip(
+        lower_bound=0
+    ) * 24.0
+    recency_factor = (-stale_hours / recency_tau_hours).exp()
 
     n_attrs = len(attributes)
     expected_columns: list[str] = []

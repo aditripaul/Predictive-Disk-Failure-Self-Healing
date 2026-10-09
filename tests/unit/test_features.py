@@ -242,7 +242,9 @@ def test_add_feature_confidence_matches_formula():
         }
     )
     out = add_feature_confidence(df, ["reallocated_sector_count"], recency_tau_hours=48.0)
-    expected_recency = _recency_factor_scalar(48.0, tau=48.0)
+    # 2 days between readings against a 1-day cadence is 1 day of real
+    # staleness, so 24h is charged, not 48h (ADR 0002).
+    expected_recency = _recency_factor_scalar(24.0, tau=48.0)
     assert abs(out["recency_factor"][0] - expected_recency) < 1e-9
     assert out["attribute_coverage_factor"][0] == 1.0
     assert abs(out["feature_confidence"][0] - 0.5 * expected_recency * 1.0) < 1e-9

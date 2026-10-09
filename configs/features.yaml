@@ -46,6 +46,12 @@ spike_thresholds:
 
 feature_confidence:
   recency_tau_hours: 48
+  # Telemetry arrives once a day in both Backblaze and SMART-Z, so a reading
+  # one day after the previous one is perfectly fresh and must score 1.0.
+  # Recency charges only the time BEYOND this cadence. Before that, every
+  # drive-day was charged a full 24h of staleness, capping the whole fleet at
+  # exp(-24/48) = 0.6065 against a 0.80 destructive-action floor. ADR 0002.
+  expected_cadence_days: 1
 
 # Sequence tensors for the optional LSTM branch (docs/dataset_strategy.md
 # section 10.7 Feature Family G). Only consumed by `make build-sequences`
