@@ -247,6 +247,16 @@ def spatial_clustering(files: list[Path], failures: pl.DataFrame) -> dict:
         .with_columns(pl.col("failed").fill_null(0))
     )
 
+    # `pod_id` turned out to be the pod INDEX within a vault (~20 values), not a
+    # unique chassis, while `vault_id` matches a Backblaze vault (20 pods x ~60
+    # drives). The pair therefore identifies a physical chassis - the grain at
+    # which "the drives beside this one" actually means that.
+    if "vault_id" in available and "pod_id" in available:
+        placement = placement.with_columns(
+            pl.concat_str([pl.col("vault_id"), pl.col("pod_id")], separator="/").alias("vault_pod")
+        )
+        available = [*available, "vault_pod"]
+
     overall = placement["failed"].mean()
     result: dict = {
         "available": available,
@@ -277,6 +287,10 @@ def spatial_clustering(files: list[Path], failures: pl.DataFrame) -> dict:
             "binomial_expected_variance": round(expected_var, 3),
             "variance_ratio": (round(observed_var / expected_var, 2) if expected_var > 0 else None),
             "max_group_failure_rate": round(float((counts / sizes).max()), 5),
+            # With only a handful of very large groups, a high ratio mostly
+            # reflects different drive models and age cohorts per group - which
+            # the model already has features for - rather than local clustering.
+            "interpretable": bool(grouped.height >= 30),
         }
     # Slot position is a within-chassis gradient, not a cohort: report the
     # failure rate by slot so a thermal/vibration trend would show up.
@@ -330,6 +344,7 @@ def _print_spatial(spatial: dict) -> None:
             f"var ratio={info['variance_ratio']}  "
             f"(observed {info['observed_variance']} vs binomial "
             f"{info['binomial_expected_variance']})"
+            f"{'' if info.get('interpretable') else '  [too few groups to read]'}"
         )
     print("  variance ratio >> 1 means failures cluster -> neighbour features have signal")
 
