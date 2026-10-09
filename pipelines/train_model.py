@@ -118,8 +118,11 @@ from src.models.logistic_regression_baseline import train_logistic_regression_ba
 from src.models.model_card import build_model_card, render_model_card_markdown
 from src.models.smote import apply_smote
 from src.models.threshold import (
+    DEFAULT_MIN_FAMILY_FAILING_DRIVES,
     precision_targets_from_lift,
+    resolve_family_thresholds,
     tune_action_tiers,
+    tune_action_tiers_by_family,
     tune_drive_level_threshold,
 )
 from src.models.training import (
@@ -358,6 +361,57 @@ def _stage_assemble(work_dir: Path, horizon_days: int | None = None) -> None:
             }
         )
     )
+
+
+def _per_family_vs_fleet(
+    plan: dict,
+    tier: str,
+    drive_ids: np.ndarray,
+    drive_models: np.ndarray,
+    y_true: np.ndarray,
+    y_scores: np.ndarray,
+    *,
+    fleet_threshold: float,
+) -> dict:
+    """One tier judged two ways on the same test drives: every drive at the
+    fleet-wide threshold, against each drive at its own family's threshold
+    (falling back to the fleet's where a family did not earn one).
+
+    Per-drive thresholds cannot go through `drive_level_metrics`, which takes a
+    single threshold, so the drive-level table is built once and each drive
+    compared with its own cut-off."""
+    labels, scores = drive_level_table(drive_ids, y_true, y_scores)
+    order = np.argsort(drive_ids, kind="stable")
+    by_drive: dict[object, object] = {}
+    for idx in order:
+        by_drive.setdefault(drive_ids[idx], drive_models[idx])
+    models_per_drive = np.array([by_drive[d] for d in sorted(by_drive)])
+
+    per_drive_threshold = np.array(
+        [
+            resolve_family_thresholds(plan, model, tier) or fleet_threshold
+            for model in models_per_drive
+        ],
+        dtype=float,
+    )
+    failing = labels == 1
+    out: dict = {"fleet_threshold": float(fleet_threshold)}
+    for name, flagged in (
+        ("fleet_wide", scores >= fleet_threshold),
+        ("per_family", scores >= per_drive_threshold),
+    ):
+        caught = int((flagged & failing).sum())
+        alarms = int(flagged.sum())
+        out[name] = {
+            "caught_drive_count": caught,
+            "alerted_drive_count": alarms,
+            "precision": caught / alarms if alarms else 0.0,
+            "recall": caught / int(failing.sum()) if failing.any() else 0.0,
+        }
+    out["recall_delta"] = out["per_family"]["recall"] - out["fleet_wide"]["recall"]
+    out["precision_delta"] = out["per_family"]["precision"] - out["fleet_wide"]["precision"]
+    out["families_with_own_threshold"] = len(plan.get("families", {}))
+    return out
 
 
 def _rate(split_meta: dict) -> float | None:
@@ -957,9 +1011,9 @@ def main() -> None:
             _log_stage("model_trained", t0, model_type=model_type, train_row_count=x_train.shape[0])
 
             val_scores = predict_proba_positive(model, x_val)
-            val_drive_ids = pl.read_parquet(work_dir / "validation_ids.parquet")[
-                "drive_id"
-            ].to_numpy()
+            val_ids = pl.read_parquet(work_dir / "validation_ids.parquet")
+            val_drive_ids = val_ids["drive_id"].to_numpy()
+            val_drive_models = val_ids["drive_model"].to_numpy()
 
             # Optional second stage (src/models/two_stage.py): a second model
             # re-ranks the rows Stage 1 scores highest. `model` stays Stage 1
@@ -1056,6 +1110,24 @@ def main() -> None:
             tier_targets = precision_targets_from_lift(tier_lift, float(val_drive_labels.mean()))
             tier_thresholds = tune_action_tiers(
                 val_drive_ids, y_val, val_scores, precision_targets=tier_targets
+            )
+            # The same fleet-wide threshold puts different drive models at very
+            # different operating points (ADR 0002), so each model that has
+            # enough failing validation drives also gets its own thresholds
+            # from the same lift targets. Reported against the fleet-wide ones
+            # on test below: tuning per family on few drives can fit the
+            # validation set rather than the family, so this has to be judged
+            # on test before it is used for anything.
+            results["action_tiers_by_family"] = tune_action_tiers_by_family(
+                val_drive_ids,
+                val_drive_models,
+                y_val,
+                val_scores,
+                lift_targets=tier_lift,
+                fleet_thresholds=tier_thresholds,
+                min_failing_drives=model_config["threshold"].get(
+                    "min_family_failing_drives", DEFAULT_MIN_FAMILY_FAILING_DRIVES
+                ),
             )
             # The model goal (precision >= 95%, recall 35-50%) is judged per
             # DRIVE, not per drive-day: a failing drive contributes ~horizon
@@ -1161,6 +1233,27 @@ def main() -> None:
                     }
                 )
                 for tier, threshold in tier_thresholds.items()
+            }
+
+            # Does tuning per family beat one fleet-wide threshold ON TEST?
+            # Each test drive is judged at its own family's threshold where
+            # that family earned one, and at the fleet threshold otherwise,
+            # then compared with judging every drive at the fleet threshold.
+            # Both are the same drives and the same scores, so the only
+            # difference is the threshold each drive is held to.
+            test_drive_models = test_ids["drive_model"].to_numpy()
+            results["action_tiers_by_family"]["test_comparison"] = {
+                tier: _per_family_vs_fleet(
+                    results["action_tiers_by_family"],
+                    tier,
+                    test_drive_ids,
+                    test_drive_models,
+                    y_test,
+                    test_scores,
+                    fleet_threshold=threshold,
+                )
+                for tier, threshold in tier_thresholds.items()
+                if threshold is not None
             }
 
             # Logistic Regression sanity baseline (docs/project_plan.md Phase 6

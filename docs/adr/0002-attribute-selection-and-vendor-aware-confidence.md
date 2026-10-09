@@ -218,8 +218,35 @@ Measured on the real build: `recency_factor` median 0.6065, p95 0.6065, max
    `src/preprocess/smart_mapping.py` currently documents direction
    normalization as identity for every onboarded counter. Onboarding it needs
    that path built and tested, which belongs in its own change.
-5. **Per-family operating points: not done.** The guardrail's instinct was
-   sound even though its mechanism was wrong - prediction quality genuinely
+5. **Per-family operating points: implemented 2026-10-09, unmeasured.**
+   `src/models/threshold.py::tune_action_tiers_by_family` gives each drive
+   model its own action-tier thresholds, tuned on that model's own validation
+   drives from the same lift targets, converted at that model's own failure
+   rate - so a tier keeps one meaning across a heterogeneous fleet instead of
+   averaging over it. A model needs at least
+   `threshold.min_family_failing_drives` (50) failing validation drives to
+   earn its own thresholds; below that it keeps the fleet-wide ones, because
+   recall moves in steps of 1/n on a family's curve and a threshold fitted to
+   a handful of drives is fitted to noise.
+   `resolve_family_thresholds` is the single lookup, so scoring, serving and
+   evaluation cannot drift apart on the fallback rule.
+
+   `train_model` now reports `action_tiers_by_family.test_comparison`: every
+   test drive judged at its own family's threshold against every test drive
+   judged at the fleet-wide one, same drives and same scores, with the recall
+   and precision deltas. **This has not been run on real data yet, so whether
+   it helps is unknown.** Tuning per family on 50 to 100 drives can fit the
+   validation set rather than the family, which is the same failure mode that
+   made the fleet-wide precision targets undershoot on test (0.15 target,
+   0.10 measured). The gate may well do more work than the gain.
+
+   Not done: the serving and agent sides still apply fleet-wide cut-offs. That
+   is blocked on a pre-existing gap - the agent is not driven by trained tier
+   thresholds at all - and should not be wired until the test comparison says
+   per-family thresholds are worth having.
+
+6. **Why per-family thresholds, and the evidence for them.** The guardrail's
+   instinct was sound even though its mechanism was wrong - prediction quality genuinely
    differs by family (pooled drive-level AUPRC 0.303 Seagate, 0.217 HGST,
    0.207 Toshiba), consistent with `smart_187`/`188` availability though not
    proof of it. The right way to express "require more confidence before

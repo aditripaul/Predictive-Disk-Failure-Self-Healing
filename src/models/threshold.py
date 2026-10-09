@@ -7,6 +7,8 @@ threshold available and flag it.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 from sklearn.metrics import precision_recall_curve
 
@@ -174,3 +176,101 @@ def resolve_action_thresholds(
         threshold = tier_thresholds.get(tier)
         resolved[tier] = UNREACHABLE_THRESHOLD if threshold is None else threshold
     return resolved
+
+
+#: A family needs at least this many FAILING validation drives before it earns
+#: its own thresholds. Below it, the family's drive-level curve is too coarse
+#: to tune on - recall moves in steps of 1/n - and a threshold fitted to a
+#: handful of drives is fitted to noise, so the family keeps the fleet-wide
+#: thresholds instead.
+DEFAULT_MIN_FAMILY_FAILING_DRIVES = 50
+
+
+def tune_action_tiers_by_family(
+    drive_ids: np.ndarray,
+    drive_models: np.ndarray,
+    y_true: np.ndarray,
+    y_scores: np.ndarray,
+    *,
+    lift_targets: dict[str, float],
+    fleet_thresholds: dict[str, float | None],
+    min_failing_drives: int = DEFAULT_MIN_FAMILY_FAILING_DRIVES,
+) -> dict[str, Any]:
+    """One set of action-tier thresholds per drive model, tuned on that
+    model's own validation drives, falling back to `fleet_thresholds`.
+
+    A single fleet-wide threshold puts different drive models at completely
+    different operating points, because their score distributions differ: on
+    the 2026-10-09 build the pooled model at one threshold sat at 0.733
+    precision / 0.129 recall on one model, 0.508 / 0.492 on another and
+    0.360 / 0.158 on a third, against 0.394 / 0.177 fleet-wide (ADR 0002).
+    Tuning per model equalises what each tier means instead of averaging it.
+
+    Each model's thresholds come from the same `lift_targets` as the fleet's,
+    converted to a precision target at THAT model's own validation failure
+    rate - so a model whose drives fail more often needs correspondingly more
+    precision for the same enrichment, and the tier keeps one meaning across
+    a heterogeneous fleet.
+
+    Tuning per model on few drives risks fitting the validation set rather
+    than the model, which is why `min_failing_drives` gates it and why the
+    result has to be judged on test (`pipelines/train_model.py` reports the
+    per-family and fleet-wide thresholds side by side on test). Expect the
+    gate, not the gain, to do most of the work here."""
+    labels, _ = drive_level_table(drive_ids, y_true, y_scores)
+    # drive_level_table collapses to one row per drive, sorted by drive id;
+    # map each drive to its model the same way so the arrays line up.
+    order = np.argsort(drive_ids, kind="stable")
+    by_drive: dict[Any, Any] = {}
+    for idx in order:
+        by_drive.setdefault(drive_ids[idx], drive_models[idx])
+    drive_order = np.array(sorted(by_drive))
+    models_per_drive = np.array([by_drive[d] for d in drive_order])
+
+    result: dict[str, Any] = {
+        "min_failing_drives": min_failing_drives,
+        "fleet_thresholds": dict(fleet_thresholds),
+        "families": {},
+        "skipped": {},
+    }
+    for model in np.unique(models_per_drive):
+        in_family = models_per_drive == model
+        failing = int(labels[in_family].sum())
+        if failing < min_failing_drives:
+            result["skipped"][str(model)] = {
+                "failing_validation_drives": failing,
+                "reason": "too few failing validation drives; keeps fleet thresholds",
+            }
+            continue
+        rows = np.isin(drive_models, [model])
+        family_failure_rate = float(labels[in_family].mean())
+        if not 0.0 < family_failure_rate < 1.0:
+            result["skipped"][str(model)] = {
+                "failing_validation_drives": failing,
+                "reason": "degenerate family failure rate",
+            }
+            continue
+        precision_targets = precision_targets_from_lift(lift_targets, family_failure_rate)
+        result["families"][str(model)] = {
+            "failing_validation_drives": failing,
+            "validation_failure_rate": family_failure_rate,
+            "precision_targets": precision_targets,
+            "thresholds": tune_action_tiers(
+                drive_ids[rows],
+                y_true[rows],
+                y_scores[rows],
+                precision_targets=precision_targets,
+            ),
+        }
+    return result
+
+
+def resolve_family_thresholds(plan: dict[str, Any], drive_model: str, tier: str) -> float | None:
+    """The threshold `tier` should use for `drive_model`: that family's own if
+    it earned one, otherwise the fleet-wide fallback. Keeping the lookup here
+    means scoring, serving and evaluation cannot drift apart on the fallback
+    rule."""
+    family = plan.get("families", {}).get(str(drive_model))
+    if family is not None and family["thresholds"].get(tier) is not None:
+        return family["thresholds"][tier]
+    return plan.get("fleet_thresholds", {}).get(tier)

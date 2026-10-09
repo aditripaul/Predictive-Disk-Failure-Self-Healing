@@ -91,6 +91,15 @@ threshold:
     cordon: 94.3
     migrate: 151.0
     drain: 226.4
+  # Per-family action tiers (docs/adr/0002): one fleet-wide threshold puts
+  # different drive models at very different operating points, so each model
+  # with at least this many FAILING validation drives also gets its own
+  # thresholds from the same lift targets, converted at that model's own
+  # failure rate. Below the gate a model keeps the fleet-wide thresholds -
+  # recall moves in steps of 1/n on a family's curve, so a threshold fitted to
+  # a handful of drives is fitted to noise. train_model reports the per-family
+  # and fleet-wide thresholds side by side on test; judge it there.
+  min_family_failing_drives: 50
 
 # Optuna-based hyperparameter search (docs/project_plan.md Phase 6
 # "Threshold tuning: Use Optuna. Subsample for search. Retrain best
