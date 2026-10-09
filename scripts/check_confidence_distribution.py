@@ -80,8 +80,36 @@ def compare(gold_path: Path, attributes: list[str], floor: float = FLOOR) -> dic
         .collect()
     )
 
+    # feature_confidence is a product of three factors; when the share above
+    # the floor is 0%, the useful question is which factor is binding.
+    factors = ["telemetry_coverage_30d", "recency_factor", "attribute_coverage_factor"]
+    factor_stats = (
+        lf.select(
+            [
+                stat(pl.col(f)).alias(f"{f}__{name}")
+                for f in factors
+                for name, stat in (
+                    ("median", lambda c: c.median()),
+                    ("p95", lambda c: c.quantile(0.95)),
+                    ("max", lambda c: c.max()),
+                )
+            ]
+        )
+        .collect()
+        .to_dicts()[0]
+    )
+    by_factor = {
+        f: {name: factor_stats[f"{f}__{name}"] for name in ("median", "p95", "max")}
+        for f in factors
+    }
+    # A factor whose fleet-wide MAXIMUM is already below the floor makes the
+    # floor unreachable on its own, whatever the other two do.
+    binding = [f for f, v in by_factor.items() if v["max"] is not None and v["max"] < floor]
+
     return {
         "gold_path": str(gold_path),
+        "factors": by_factor,
+        "factors_below_floor_at_their_maximum": binding,
         "floor": floor,
         "priority_attributes": present,
         "priority_attributes_absent_from_gold": missing,
@@ -101,6 +129,17 @@ def _print(report: dict) -> None:
     print(f"  min attribute_coverage      {o['min_attribute_coverage']}")
     if report["priority_attributes_absent_from_gold"]:
         print(f"  !! absent from gold: {report['priority_attributes_absent_from_gold']}")
+
+    print("\n== the three factors it multiplies")
+    print(f"{'factor':<30}{'median':>10}{'p95':>10}{'max':>10}")
+    for name, v in report["factors"].items():
+        print(f"{name:<30}{v['median']:>10.4f}{v['p95']:>10.4f}{v['max']:>10.4f}")
+    if report["factors_below_floor_at_their_maximum"]:
+        for name in report["factors_below_floor_at_their_maximum"]:
+            print(
+                f"  !! {name} never reaches {report['floor']} anywhere in the fleet, so the"
+                f" floor is unreachable regardless of the other two"
+            )
 
     print(f"\n{'drive_model':<28}{'drive-days':>13}{'pre-fix':>10}{'shipped':>10}{'attr cov':>10}")
     for row in report["by_model"]:
