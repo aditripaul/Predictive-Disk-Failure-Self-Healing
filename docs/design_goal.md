@@ -3,13 +3,12 @@
 ## AI-Based Autonomous System Validation & Reliability Checker
 ### Predictive Disk-Failure Self-Healing Agent for Server Fleets
 
-> **Status note (2026-10-06).** This document records the original design
-> and targets and is kept as written. What was built and measured is in
-> `docs/system_summary.md` and `docs/model_status_and_runbook.md`. In
-> particular: the prediction target stated here (95% precision at 35-50%
-> recall) is not met on real data (46% precision at 9.7% recall on the real
-> fleet, 30-day horizon), the primary horizon is now 30 days, and only
-> Backblaze data has been evaluated.
+> **The plan as written, before implementation, and kept that way.** Of the
+> objectives below, O2's prediction target is the one not met, and O1 is
+> Backblaze-only: SMART-Z is harmonized in code but has never been evaluated.
+> O3 to O6 were met in simulation. Measured outcomes:
+> `docs/system_summary.md`, `docs/project_report.md` and
+> `docs/model_status_and_runbook.md`.
 
 ---
 
