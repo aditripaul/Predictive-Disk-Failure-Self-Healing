@@ -216,12 +216,80 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
 make install
 ```
 
-### 2.2 Q1 + Q2 2026 (the repository default, and the reported results)
+### 2.2 Q3 2025 - Q2 2026, and the 60-day horizon experiment (the repository default)
 
-`configs/data.yaml` ingests 2026-01-01 to 2026-06-30. `configs/model.yaml`
-uses a 30-day horizon with `train_end: "2026-04-15"`, `validation_end:
-"2026-05-10"`, `test_end: "2026-05-31"`. The test period must end at least 30
-days before the data does.
+**Not yet run.** This is the configuration as it now stands in the repository;
+no results exist for it. Section 1.1's numbers come from the narrower window
+in Section 2.3.
+
+`configs/data.yaml` downloads `Q3_2025`, `Q4_2025`, `Q1_2026`, `Q2_2026` and
+ingests 2025-07-01 to 2026-06-30 - 365 days, roughly double the data the
+reported results were measured on. `configs/model.yaml` carries
+`horizons_days: [7, 14, 30, 60]` and `train_end: "2026-02-01"`,
+`validation_end: "2026-03-17"`, `test_end: "2026-05-01"`.
+
+The point of the wider window is the **60-day horizon**. Precision moves with
+the base rate, and lengthening the label raises it directly: 14 to 30 days
+took precision from about 33% to 46.3% at comparable recall (Sections 4.2 and
+4.3). A 60-day label roughly doubles the positive rate again. Holding the
+measured recall and false-alarm rate of the frozen run, that arithmetic
+implies about 65% precision - separability will degrade against it, but the
+14-to-30 result shows the net can come out positive.
+
+Four quarters rather than two is what makes 60 days testable at all. The test
+period has to end a full horizon before the data does (Section 5.7), and the
+purge window stops training a horizon before `train_end`, so on two quarters
+a 60-day horizon leaves too little of either.
+
+```bash
+make download-backblaze        # adds Q3/Q4 2025; Q1/Q2 2026 are skipped if present
+make clean-data clean-kept     # the window changed, so every derived table is stale
+make ingest-backblaze
+make build-silver
+make build-features
+make build-labels
+make train                                          # 30-day control
+make train TRAIN_ARGS="--horizon-days 60"           # 60-day treatment
+```
+
+Run **both**. The split boundaries are sized to serve either horizon, so the
+horizon is the only variable between the two runs, and the comparison that
+matters is between them - not against the frozen run, which used different
+data and different dates. Compare drive-level precision at matched recall
+with `precision_at_recall_level`, and read the paired bootstrap CI rather
+than the point estimates.
+
+Two caveats to carry into reading the result:
+
+- **The purge window is asymmetric.** At 30 days training rows run to
+  2026-01-02, at 60 days only to 2025-12-03, so the 60-day model trains on
+  about a month less data. If 60 days wins it wins despite that; if it loses,
+  the confound is live, and the clean follow-up is a 30-day run with
+  `train_end` pulled back to match.
+- **A 60-day claim is a weaker claim.** "Fails within 60 days" is less
+  specific than "within 30". More lead time is operationally fine, but a
+  precision figure earned this way is not measuring what the stated goal in
+  Section 7 means, and the goal text has to move with it rather than be
+  quietly satisfied.
+
+`primary_horizon_days` stays 30, so `make train` with no arguments is still
+the control and `make score-fleet` still uses 30-day runs. Promote 60 to the
+primary only if it wins.
+
+Expect roughly double the volume of the 2026-10-06 build (62,565,487
+drive-days from 363,548 drives), and a label table about 2.7x larger - twice
+the drive-days across four horizons rather than three. Changing only model or
+split settings needs `make train` onwards, not a rebuild of features or
+labels.
+
+### 2.3 Q1 + Q2 2026 (the configuration of the reported results)
+
+The window the frozen run in Section 1.1 was trained and measured on, and the
+repository default until 2026-10-09. `configs/data.yaml`:
+`sources.backblaze.start_date: "2026-01-01"`. `configs/model.yaml`: a 30-day
+horizon with `train_end: "2026-04-15"`, `validation_end: "2026-05-10"`,
+`test_end: "2026-05-31"`. The test period must end at least 30 days before
+the data does.
 
 ```bash
 make ingest-backblaze
@@ -236,18 +304,16 @@ make final-report              # runs make plots first
 
 On 2026-10-06 this processed 62,565,487 drive-days from 363,548 drives:
 ingest and silver in a few minutes each, `make train` in about ten.
-Changing only model or split settings needs `make train` onwards, not a
-rebuild of features or labels.
 
-### 2.3 Q1 2026 only (the configuration of Sections 4, 4.1 and 5)
+### 2.4 Q1 2026 only (the configuration of Sections 4, 4.1 and 5)
 
 `configs/data.yaml`: `sources.backblaze.end_date: "2026-03-31"`.
 `configs/model.yaml`: `primary_horizon_days: 14` and `splits` with
 `train_end: "2026-02-22"`, `validation_end: "2026-03-06"`, `test_end:
 "2026-03-17"`. One quarter is too short for the 30-day horizon once training
-stops a horizon before `train_end`. Then the same commands as 2.2.
+stops a horizon before `train_end`. Then the same commands as 2.3.
 
-### 2.4 Things that go wrong, and where to look
+### 2.5 Things that go wrong, and where to look
 
 - **Empty or tiny test split:** the split dates do not match the data. Check
   `train_model_splits_loaded` in the log.
@@ -979,14 +1045,16 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 
 | File | Key | Current value | Meaning |
 |---|---|---|---|
-| `configs/model.yaml` | `primary_horizon_days` | 30 | Horizon the shipped model is trained and scored for (was 14) |
-| `configs/model.yaml` | `horizons_days` | [7, 14, 30] | Horizons whose labels exist |
+| `configs/data.yaml` | `sources.backblaze.start_date` / `end_date` | 2025-07-01 / 2026-06-30 | Which raw daily CSVs `make ingest-backblaze` reads |
+| `configs/data.yaml` | `download.backblaze.quarters` | Q3_2025, Q4_2025, Q1_2026, Q2_2026 | Quarterly archives `make download-backblaze` fetches |
+| `configs/model.yaml` | `primary_horizon_days` | 30 | Horizon the shipped model is trained and scored for (was 14). 60 is tested via `--horizon-days`, not promoted (Section 2.2) |
+| `configs/model.yaml` | `horizons_days` | [7, 14, 30, 60] | Horizons whose labels exist (60 added for the Section 2.2 experiment) |
 | `configs/model.yaml` | `model.max_train_rows` | 5000000 | Training-row cap |
 | `configs/model.yaml` | `model.positive_weight_power` | 0.5 | Positive weight = (neg/pos)^0.5 |
 | `configs/model.yaml` | `model.early_stopping_rounds` | 50 | Early stopping patience (average precision) |
 | `configs/model.yaml` | `threshold.target_precision` | 0.90 | Goal precision, at recall >= 10% (was 0.95 at 35-50%) |
 | `configs/model.yaml` | `threshold.target_recall_range` | [0.10, 0.50] | Goal recall range |
-| `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | 2026-04-15 / 2026-05-10 / 2026-05-31 | Split boundaries |
+| `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | 2026-02-01 / 2026-03-17 / 2026-05-01 | Split boundaries. Sized for a 60-day horizon on 2025-07-01..2026-06-30; the frozen run used 2026-04-15 / 2026-05-10 / 2026-05-31 (Section 2.3) |
 | `configs/model.yaml` | `splits.purge_label_window` | true | Training stops one horizon before `train_end` |
 | `configs/model.yaml` | `splits.validation_after_train_only` | true | Validation holds only dates after `train_end` |
 | `configs/model.yaml` | `splits.sealed_start` | 2026-07-01 | Rows from here on are `split=sealed`; only `make evaluate-frozen` reads them (Section 1.4) |

@@ -79,7 +79,7 @@ make download-backblaze           # skip if the quarters are already in data/raw
 make ingest-backblaze             # raw CSVs -> data/bronze/
 make build-silver                 # cleaned drive-day and canonical tables -> data/silver/
 make build-features               # gold feature table -> data/gold/features/
-make build-labels                 # labels and splits for horizons 7, 14, 30 -> data/gold/labels/
+make build-labels                 # labels and splits for horizons 7, 14, 30, 60 -> data/gold/labels/
 make train                        # trains the primary model and writes the model card
 make score-fleet                  # scores the latest row for each drive
 make plots                        # performance plots from the audit reports
@@ -214,7 +214,7 @@ target name change its behavior; the others take no arguments.
 | `make ingest-backblaze` | raw CSVs inside `sources.backblaze.start_date`/`end_date` | `data/bronze/` |
 | `make build-silver` | bronze | `data/silver/` |
 | `make build-features` | silver | `data/gold/features/` |
-| `make build-labels` | gold features | `data/gold/labels/` (horizons 7, 14, 30; splits) |
+| `make build-labels` | gold features | `data/gold/labels/` (horizons 7, 14, 30, 60; splits) |
 | `make train` | gold and labels | MLflow run, model card, evaluation and action-tier reports |
 | `make score-fleet` | latest row per drive, latest MLflow run for the primary horizon (30 days) | `data/audit/predictions/<date>.json` |
 | `make plots` | audit reports | `data/audit/plots/` |

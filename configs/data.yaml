@@ -13,7 +13,7 @@ sources:
     # downloaded - null (the default) ingests everything raw_glob matches.
     # Useful for keeping a single build-silver run's data volume bounded,
     # e.g. while validating on a smaller slice before ingesting more.
-    start_date: "2026-01-01"
+    start_date: "2025-07-01"
     end_date: "2026-06-30"
   smartz:
     raw_glob: "data/raw/smartz/*.csv"
@@ -35,7 +35,7 @@ sources:
 download:
   backblaze:
     base_url: "https://f001.backblazeb2.com/file/Backblaze-Hard-Drive-Data"
-    quarters: ["Q1_2026","Q2_2026"]
+    quarters: ["Q3_2025", "Q4_2025", "Q1_2026", "Q2_2026"]
     start_quarter: null
     end_quarter: null
   smartz:

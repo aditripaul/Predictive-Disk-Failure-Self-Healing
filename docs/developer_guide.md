@@ -1057,7 +1057,7 @@ Takeaways:
   SMART signals stay elevated, not one-day spikes.
 
 **Trying another horizon.** `make train TRAIN_ARGS="--horizon-days 30"`
-trains for any horizon in `horizons_days` (labels for 7/14/30 already exist,
+trains for any horizon in `horizons_days` (labels for 7/14/30/60 already exist,
 no `build-labels` re-run). The run is logged with its `horizon_days` and
 the model card is named `v<version>_h<horizon>d`; `make score-fleet` only
 loads runs whose horizon equals `primary_horizon_days`, so a trial run never

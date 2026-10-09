@@ -1,7 +1,7 @@
 version: 1
 
 primary_horizon_days: 30
-horizons_days: [7, 14, 30]
+horizons_days: [7, 14, 30, 60]  # 60 added for the horizon experiment (Section 2.2)
 
 model:
   type: lightgbm  # lightgbm | xgboost (src/models/training.py, src/models/xgboost_training.py)
@@ -154,12 +154,25 @@ diagnostics:
 
 splits:
   strategy: chronological
-  # Q1 + Q2 2026 (data to 2026-06-30). The test period ends 30 days before
-  # the data does, so 7-, 14- and 30-day labels are all observable for it.
+  # Q3 2025 - Q2 2026 (data 2025-07-01 to 2026-06-30, 365 days). The test
+  # period ends 60 days before the data does, so 7-, 14-, 30- AND 60-day
+  # labels are all observable for it - a row whose horizon runs past the last
+  # day of data is censored (label null), never counted as a negative
+  # (src/labels/labeling.py), so a too-late test_end silently shrinks the
+  # split instead of corrupting it (Section 5.7).
+  #
+  # Sized so the same boundaries serve both the 30-day control and the 60-day
+  # treatment, which is what makes the horizon the only variable between them.
+  # Note the purge window is asymmetric by construction: at 30 days training
+  # rows run to 2026-01-02, at 60 days only to 2025-12-03, so the 60-day model
+  # trains on about a month less data.
+  #
+  # For Q1 + Q2 2026 only use 2026-04-15 / 2026-05-10 / 2026-05-31 (30-day;
+  # this is what the frozen run in Section 1.1 was trained on).
   # For Q1 only use 2026-02-22 / 2026-03-06 / 2026-03-17 (14-day horizon).
-  train_end: "2026-04-15"
-  validation_end: "2026-05-10"
-  test_end: "2026-05-31"
+  train_end: "2026-02-01"
+  validation_end: "2026-03-17"
+  test_end: "2026-05-01"
   # Sealed final quarter (Q3 2026). Rows dated on or after this are labeled
   # split="sealed" and no training, validation or test step reads them. They
   # are scored once, by pipelines/evaluate_frozen.py, with a model frozen
