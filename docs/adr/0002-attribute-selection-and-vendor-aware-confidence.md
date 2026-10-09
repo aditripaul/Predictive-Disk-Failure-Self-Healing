@@ -232,9 +232,40 @@ Measured on the real build: `recency_factor` median 0.6065, p95 0.6065, max
 ## Consequences
 
 - Destructive actions become possible on the non-Seagate fleet. This is a
-  behavioural change in a safety system: the `feature_confidence` distribution
-  before and after, specifically how many drive-days cross 0.80, should be
-  inspected on a real build before this goes near a real fleet.
+  behavioural change in a safety system, so the distribution was inspected on a
+  real build before accepting it (`scripts/check_confidence_distribution.py`,
+  62,565,487 drive-days, 2026-10-09):
+
+  | | Before both fixes | After |
+  |---|---|---|
+  | `recency_factor` median | 0.6065 | 1.0000 |
+  | max `feature_confidence` | 0.6065 | 1.0000 |
+  | drive-days at or above 0.80 | 0.0% | **86.1%** |
+  | newly blocked | - | **0.00%** |
+
+  Holding the corrected recency fixed, the per-model denominator alone moves
+  27.2% -> 86.1%, so it unblocks 58.9% of drive-days. Nothing is newly
+  blocked, as expected: a per-model denominator is never larger than the
+  global one.
+
+  The ~13% that remains blocked is correct, not residual breakage. A drive
+  needs at least 24 of the trailing 30 days of telemetry to reach
+  `telemetry_coverage_30d >= 0.80`, so its first 23 days are below the floor;
+  over the 181-day window that is 23/181 = 12.7%, against an observed 13%. A
+  drive observed for two weeks should not be drainable.
+
+  `WDC WUH722222ALE6L4`, the largest model in the fleet at 8.1M drive-days,
+  went from 0% to 87% actionable.
+- **Known remaining gap, ~0.3% of drive-days.** SSDs and laptop drives
+  (`Seagate SSD`, `WD Blue SA510`, `TOSHIBA MQ01ABF050`, `MTFDDAV240TCB`,
+  `HGST HMS5C4040BLE640`) sit at median attribute coverage 0.00-0.67 and stay
+  below the floor. Part of this is real - they do not report HDD defect
+  counters, and an HDD defect model arguably should not act on them - but part
+  is the 50% expectation threshold being too permissive: an attribute present
+  on just over half a model's drive-days counts as "expected" and is then
+  scored as missing on the other half. Raising the threshold (an attribute
+  counts as expected only if nearly always present) would fix that, and is
+  deferred because it affects 0.3% of drive-days and no HDD model.
 - `tests/unit/test_vendor_attribute_confidence.py` pins the whole chain,
   including a case asserting the pre-fix 0.60 value is still blocked, so a
   regression to the global denominator fails the suite.

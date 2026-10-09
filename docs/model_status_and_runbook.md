@@ -132,6 +132,12 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
   after fix (1), which is how (2) was found. `build_gold_features` now fails
   outright if no drive-day can reach the floor, and
   `scripts/check_confidence_distribution.py` reports the per-factor breakdown.
+  Measured after both fixes: **86.1%** of drive-days now reach the floor
+  (0.0% before), with 0.00% newly blocked. The ~13% still blocked is the
+  30-day telemetry warm-up (a drive needs 24 of the trailing 30 days for
+  coverage >= 0.80, so its first 23 days are below it: 23/181 = 12.7%), which
+  is intended. The largest model in the fleet, `WDC WUH722222ALE6L4` at 8.1M
+  drive-days, went from 0% to 87% actionable.
 - **`smart_196` (reallocation event count) is now a priority attribute.** It
   out-separates four of the five existing ones (0.306) at double the coverage
   of `smart_187`, reaching the drives where the Seagate attributes are null.
