@@ -64,8 +64,13 @@ clean:
 	find . -type d \( -name "__pycache__" -o -name ".pytest_cache" \) -not -path "./.venv/*" -exec rm -rf {} +
 	rm -rf .mypy_cache .ruff_cache htmlcov .coverage
 
+# Regenerable data only. test_access_log.jsonl is deliberately spared: it is the
+# append-only record of every test-split computation (src/models/access_log.py),
+# so the comparison count behind a reported result is a fact rather than an
+# estimate. Deleting it cannot be undone by re-running the pipeline, and would
+# silently reset that count to zero.
 clean-data:
-	find data/bronze data/silver data/gold data/audit -type f -not -name ".gitkeep" -delete
+	find data/bronze data/silver data/gold data/audit -type f -not -name ".gitkeep" -not -name "test_access_log.jsonl" -delete
 	find data/bronze data/silver data/gold data/audit -mindepth 1 -type d -empty -delete
 
 # Removes the kept training work directories left by
