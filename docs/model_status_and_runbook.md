@@ -184,7 +184,8 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
   effect from filling a vault with one drive batch, not local correlation -
   and model and age are already featurized.
 - Both code changes need a full re-ingest through train to take effect, which
-  **invalidates the frozen run in Section 1.4**. Do it before Q3 is ingested;
+  **invalidated the frozen run that preceded Section 1.1's**. Do it before Q3
+  is ingested;
   afterwards it costs the sealed evaluation. Full reasoning, including the
   hypotheses the screen refuted, is in
   `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md`.
@@ -878,8 +879,11 @@ What was tried, in the order it was tested:
    clear gain (Section 4.3).
 5. ~~Survival model, anomaly detection~~: no better than the classifier
    (Section 4.3).
-6. **Two-stage model:** done. Confirmed over five seeds as a modest gain
-   (about +5 points at the primary threshold) and adopted (Section 4.5).
+6. **Two-stage model:** adopted, but not confirmed. A five-seed repeat
+   showed a gain in every seed (about +5 points at the primary threshold,
+   Section 4.5); a direct paired-bootstrap test on the current feature set
+   gave an interval that includes 0 (Section 1.2). Kept as the default on
+   the standing evidence, not reported as a settled result.
 
 What could still change the picture:
 

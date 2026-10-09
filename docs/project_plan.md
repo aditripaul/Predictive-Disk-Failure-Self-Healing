@@ -6,8 +6,8 @@
 > **The plan as written, before implementation, and kept that way.** The
 > prediction target stated here (precision >= 95%, recall 35-50%) was not met;
 > the primary horizon is now 30 days, and per-action thresholds are set from
-> lift rather than precision. Measured outcomes: `docs/system_summary.md`
-> and `docs/model_status_and_runbook.md`.
+> lift rather than precision. Measured outcomes: `docs/system_summary.md`,
+> `docs/project_report.md` and `docs/model_status_and_runbook.md`.
 
 **Document role:**
 This document defines the complete execution roadmap for the Project. It translates the design goals from `design_goal.md` and the dataset/feature strategy from `dataset_strategy.md` into a phased, actionable engineering plan.

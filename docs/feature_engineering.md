@@ -13,6 +13,15 @@ little and do no harm. Other results quoted in this document come from the
 earlier feature set (five SMART attributes, Q1 2026, 14-day horizon); the
 primary horizon is now 30 days.
 
+**Update, 2026-10-09:** a sixth priority attribute (`reallocation_event_count`,
+SMART 196) was added, and `feature_confidence`'s attribute-coverage term
+changed from a single fleet-wide denominator to one scored per drive model -
+see section 5 and
+`docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md`. Neither
+change is reflected in the rest of this document's body text below, which
+still describes the five-attribute, fleet-wide-denominator feature set as
+"current"; read section 5 for what is actually true now.
+
 Related: `docs/model_status_and_runbook.md` (results, goal status) and
 `docs/pipeline_usage.md` (how to run).
 
@@ -49,12 +58,23 @@ pipeline uses raw values only.
 | 188 | `command_timeout` | Operations aborted on timeout |
 | 197 | `current_pending_sector_count` | Bad sectors waiting to be remapped |
 | 198 | `offline_uncorrectable` | Uncorrectable errors found in offline scans |
+| 196 | `reallocation_event_count` | How many times a sector has been remapped - a count of *events*, not of currently-bad sectors |
 
-**Why these five:** Backblaze (2014) and Google (Pinheiro et al., 2007) both
+**Why the first five:** Backblaze (2014) and Google (Pinheiro et al., 2007) both
 found them the most consistent failure indicators across manufacturers, and
 the paper we reviewed (Amram et al., 2021) found 5 and 187 the most important
 in every model it built. In our model the top features by gain are rolling
 statistics of 5 and 197.
+
+**Why 196, added 2026-10-09:** a raw-attribute screen
+(`scripts/screen_raw_attributes.py`) measured single-attribute drive-day AUC
+for every SMART column Backblaze publishes, not just the ones the paper
+named. 196 separates failing from healthy drive-days better than four of the
+other five (|AUC - 0.5| = 0.306) and is reported at roughly double the
+coverage of 187/188 (~66% against ~32%), reaching the non-Seagate drives
+where those two are null. Full screen results, including the hypotheses it
+refuted (a vault/pod spatial-clustering feature; SMART 22/helium), are in
+`docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md`.
 
 ### 2.2 Context attributes (light feature family), new
 
@@ -72,10 +92,11 @@ score (section 5).
 ### 2.3 Why two tiers
 
 Each core counter produces about 34 feature columns. Giving the four context
-attributes the same treatment would widen the table from about 225 columns to
-about 360, and the training matrices would no longer fit in memory with two
-quarters of data. The context attributes also do not behave like error
-counters: rolling statistics of power-on hours carry almost no information.
+attributes the same treatment would widen the table by roughly another 140
+columns on top of what six core counters already cost, and the training
+matrices would no longer fit in memory with two quarters of data. The context
+attributes also do not behave like error counters: rolling statistics of
+power-on hours carry almost no information.
 
 So context attributes get the current value and its change over 7 and 30
 observations, three columns each.
@@ -180,12 +201,44 @@ that could mean something.
 `telemetry_coverage_30d`, `days_since_last_telemetry`, the gap and stale flags,
 and `feature_confidence` describe how much the features can be trusted.
 `feature_confidence` = coverage x recency x attribute coverage, and the agent
-will not take a destructive action below a minimum confidence.
+will not take a destructive action below a minimum confidence (0.80,
+`configs/agent.yaml`).
 
 Attribute coverage is computed over the **core counters only**. If the context
 attributes counted, a drive model that does not report temperature would have
 lower confidence for a reason unrelated to its health, and its destructive
 actions would be silently downgraded.
+
+**Found broken fleet-wide, fixed 2026-10-09 (ADR 0002).** Two multiplicative
+bugs each capped `feature_confidence` below the 0.80 floor, measured at **0%
+of 62.6 million drive-days** clearing it before either fix:
+
+1. The attribute-coverage denominator counted every core attribute for every
+   drive, including the Seagate-only 187/188, so any non-Seagate drive
+   capped at 3/5 = 0.60 regardless of how complete ITS OWN telemetry was.
+   Fixed: `src/features/cross_vendor.py::model_expected_attributes` computes,
+   per drive model, which attributes that model actually reports (present in
+   at least half its drive-days, given at least 1,000 drive-days of
+   evidence); `add_feature_confidence` then counts a drive down only for an
+   attribute its own model is expected to report. A model with too little
+   history to judge, or absent from the table, is scored against every
+   attribute - the conservative direction, since it can only lower
+   confidence, never raise it.
+2. Recency charged the ordinary daily telemetry cadence itself as 24 hours of
+   staleness, capping every drive-day at `exp(-24/48) = 0.6065` no matter how
+   fresh its last reading was. Fixed: `expected_cadence_days`
+   (`configs/features.yaml`, 1 for both Backblaze and SMART-Z) sets the
+   cadence telemetry is expected to arrive at, and recency now charges only
+   the time beyond it - a reading one day after the last is fresh and scores
+   1.0; a three-day gap is charged two days' worth and scores `exp(-48/48) =
+   0.37`.
+
+Measured on the rebuilt gold table: **86.1%** of drive-days now clear the
+floor, with 0.00% newly blocked (a per-model denominator is never stricter
+than the global one it replaced). `build_gold_features` now fails the build
+outright if NO drive-day can ever clear the floor, since no synthetic test
+fixture would have caught either bug - every unit and chaos test builds
+drives with every attribute already present.
 
 ## 6. How the choices are tested
 
@@ -218,6 +271,12 @@ builds are not meaningful.
   encoded differently by some vendors.
 - **The label is partly defined by a feature.** Backblaze marks a drive failed
   when it is removed, and one removal reason is SMART 187 turning positive.
+- **The vendor-aware denominator is a property of the fleet's CURRENT
+  model-day distribution, computed fleet-wide the same way the model-family
+  z-score mean/std are** - so it can shift slightly between builds even
+  though no attribute's own ingestion changed, which is a small, acknowledged
+  source of drift between a model card and a later evaluation of the same
+  gold table.
 - **The raw `failure` flag is excluded from the feature list**
   (`src/models/features.py::NON_FEATURE_COLUMNS`). It marks the failure day
   itself, so it is a label in disguise. It was all zeros in the assembled
@@ -239,7 +298,7 @@ builds are not meaningful.
 | Defect velocity, temperature spike, days since last increase | `src/features/velocity.py` |
 | Age | `src/features/lifecycle.py` |
 | Ratios and family z-scores | `src/features/cross_vendor.py` |
-| Confidence | `src/features/confidence.py` |
+| Confidence | `src/features/confidence.py` (recency/coverage math), `src/features/cross_vendor.py::model_expected_attributes` (which attributes a model is expected to report) |
 | The written list of every feature | `data/audit/feature_registry/v<version>.json` |
 
 ## 9. References

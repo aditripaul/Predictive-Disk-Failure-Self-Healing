@@ -159,6 +159,7 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
 | Document | Purpose |
 |---|---|
 | `docs/system_summary.md` | **Start here.** What was built, how one decision flows through it, measured results, limitations |
+| `docs/project_report.md` | The full project report: objectives, design, data, method, results, discussion, limitations, future work |
 | `docs/model_status_and_runbook.md` | Every result measured on real data, what was learned, how to reproduce it, open items |
 | `docs/pipeline_usage.md` | Commands for each pipeline stage, training options and the model experiment tool |
 | `docs/feature_engineering.md` | What the model sees and why |
@@ -168,6 +169,7 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
 | `docs/developer_guide.md` | How the implemented codebase is organized, how the pieces fit together, and how to extend it |
 | `docs/user_guide.md` | How to run, operate, and approve/reject decisions from the system - no code-reading required |
 | `docs/adr/0001-training-memory-isolation.md` | Why `make train` runs as four processes, and the debugging history behind it |
+| `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md` | The attribute screen, and a safety-floor bug it found and fixed |
 
 ---
 
@@ -638,15 +640,21 @@ quarter and the cross-vendor set can each be scored against it once:
 
 | Operating point | Precision on the real fleet (0.18% of drives fail) | Same alerts, test set with 15% failing |
 |---|---|---|
-| 10.5% of failing drives caught (primary threshold) | **49.6%**, 95% CI [41.5%, 58.8%] | 99.0% |
-| 20.0% caught | 39.7% | - |
-| 32.4% caught | 28.7% | - |
+| 8.7% of failing drives caught (primary threshold) | **48.6%**, 95% CI [38.9%, 58.2%] | 99.0% |
+| 20.3% caught | 39.7% | - |
+| 33.3% caught | 29.5% | - |
 
 Precision depends on how rare failures are in the test set; the last column
 restates the measured catch rate and false-alarm rate for a test set like
-those most published results use. An alerted drive is about 283 times more
-likely to fail than a random one, and fewer than 1 healthy drive in 5,000 is
+those most published results use. An alerted drive is about 277 times more
+likely to fail than a random one, and fewer than 1 healthy drive in 6,000 is
 alerted. The interval is a bootstrap over whole drives.
+
+A fix to a safety-relevant bug sits behind this run: `feature_confidence`
+was structurally unreachable fleet-wide before it (0% of drive-days cleared
+the 0.80 floor `FEATURE_CONFIDENCE` enforces, so no migrate or drain was ever
+reachable, however confident the model was). Both causes are fixed (86.1%
+now clear the floor); see §24 and `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md`.
 
 Full results - including the per-tier breakdown, the drive counts and the
 warning lead time, which come from the run immediately before the freeze -
@@ -873,8 +881,8 @@ make test
 
 | Metric | Target |
 |---|---:|
-| Prediction precision | ≥ 95% originally, later ≥ 90% (not met: 49.6% on the real fleet at the primary threshold, 95% CI [41.5%, 58.8%]; see §15) |
-| Prediction recall | 35–50% originally, later ≥ 10% (10.5% at the primary threshold) |
+| Prediction precision | ≥ 95% originally, later ≥ 90% (not met: 48.6% on the real fleet at the primary threshold, 95% CI [38.9%, 58.2%]; see §15) |
+| Prediction recall | 35–50% originally, later ≥ 10% (8.7% at the primary threshold) |
 | Loop cycle time | < 5 minutes |
 | Guardrail evaluation latency | < 500 ms |
 | Hard-guardrail compliance | 100% |
@@ -903,6 +911,13 @@ The system is evaluated in a simulated operational environment with guardrails, 
 
 Known gaps worth knowing before you rely on any of it:
 
+- A safety floor (`feature_confidence >= 0.80`, required for any migrate or
+  drain) was unreachable fleet-wide until 2026-10-09: two multiplicative
+  bugs each capped it below 0.80 regardless of the model's own confidence.
+  Fixed; see §15 and `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md`.
+- The second-stage model's precision gain is not a confirmed result - a
+  direct paired significance test disagrees between two runs on whether the
+  gap excludes 0. It stays the default on a weaker, five-seed repeat instead.
 - The live agent loop is **not** driven by the trained model - it runs against
   a hardcoded demonstration fleet, and uses the hand-picked cutoffs in
   `configs/agent.yaml` rather than the tier thresholds training derives.

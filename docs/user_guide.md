@@ -277,17 +277,21 @@ drives), predicting failure within 30 days:
   the warning level about 1 in 10 do. Drive failure is rare (roughly 1 drive
   in 570 over the test period), so even a very selective model raises more
   false alarms than true ones at the lenient levels.
-- **An alert still means a lot.** An alerted drive is about 283 times more
+- **An alert still means a lot.** An alerted drive is about 277 times more
   likely to fail than a typical drive, and fewer than 1 healthy drive in
-  5,000 is alerted at the primary threshold.
-- **It does not catch every failure.** The strictest levels catch about 10%
+  6,000 is alerted at the primary threshold.
+- **It does not catch every failure.** The strictest levels catch under 10%
   of failing drives; the warning level catches about 60%. Many drives fail
   with no warning in their SMART readings.
 - **Warnings come about 14 days before the failure** (median).
 - **The figures have real uncertainty.** Only 621 drives failed in the test
-  period, so the precision at the primary threshold is 49.6% with a 95%
-  confidence range of roughly 42% to 59%. Treat it as "about half", not as a
+  period, so the precision at the primary threshold is 48.6% with a 95%
+  confidence range of roughly 39% to 58%. Treat it as "about half", not as a
   precise number, and expect it to move on a different fleet or period.
+- **The second-stage model's gain is not confirmed.** A direct significance
+  test on the current build includes 0 in its interval; an earlier run and a
+  five-seed repeat both suggested a small gain. It stays on by default
+  because it does not appear to hurt, not because the gain is settled.
 
 This is why a low score only warns, why migrate and drain need the highest
 scores plus the safety checks in §7, and why uncertain cases are sent to a
@@ -317,6 +321,17 @@ guess - it downgrades to Cordon (stop new workload, nothing destructive)
 instead of Migrate/Drain. You'll see this in the audit trail as an action
 that looks less aggressive than the raw risk score alone might suggest;
 that's the safety-over-aggressiveness design working as intended, not a bug.
+
+Until 2026-10-09, two bugs made check 2's confidence score structurally
+unreachable for any drive whose features came from the real pipeline
+(`make build-features` through `make score-fleet`) - not because that
+fleet's telemetry was actually thin. This did **not** affect
+`make agent-demo`/`make api`'s default two-drive fixture, which sets its
+confidence values directly rather than computing them, so an audit trail
+from the demo looked normal throughout. If you instead ran `make score-fleet`
+against real data before that date, every proposal in it was downgraded to
+Cordon or below, regardless of score - that is why. Both bugs are fixed; see
+`docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md`.
 
 ---
 

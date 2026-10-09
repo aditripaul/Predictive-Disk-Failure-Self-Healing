@@ -792,10 +792,12 @@ resource_limits:
 ```
 
 **Batched feature computation (`make build-features`).** The gold feature
-table is ~196 columns wide, which works out to ~950 bytes per row - about
-10GB for a single month of real Backblaze data (10.46M drive-days), before
-counting the intermediates each feature family allocates on top of it. No
-amount of join hygiene makes that fit under the cap, so
+table is ~196 columns wide (as of the five-priority-attribute build; a sixth
+attribute added 2026-10-09, ADR 0002, widens it by roughly another 30), which
+works out to ~950 bytes per row - about 10GB for a single month of real
+Backblaze data (10.46M drive-days), before counting the intermediates each
+feature family allocates on top of it. No amount of join hygiene makes that
+fit under the cap, so
 `pipelines/build_gold_features.py` does not build it as one frame:
 
 1. `pivot_badness_wide` produces the wide (~22 column) frame as before.
@@ -1185,6 +1187,20 @@ tunes the threshold as before, and reports test lift beside test precision.
 `threshold.action_tier_lift`'s current values reproduce the former precision
 targets on validation, so adopting lift was not meant to move any threshold.
 
+**Per-drive-model thresholds exist and are measured, but are not served**
+(`src/models/threshold.py::tune_action_tiers_by_family`, ADR 0002). A drive
+model with at least `threshold.min_family_failing_drives` (50) failing
+validation drives gets its own set of tier thresholds, tuned the same way
+from the same lift targets but converted at that model's own validation
+failure rate; a model below the gate keeps the fleet-wide thresholds.
+`resolve_family_thresholds` is the single lookup so scoring, serving and
+evaluation cannot disagree about the fallback. `make train` reports the
+comparison on test; it was measured 2026-10-09 and refuted (worse recall for
+negligible precision at the lenient tiers, worse on both axes at drain) -
+see the runbook and the ADR for the full result and why. **Nothing consumes
+these thresholds**; serving and the agent apply only the fleet-wide ones,
+and should not be rewired to this.
+
 **Experiment tool additions** (`pipelines/experiment_model.py`):
 
 | Flag / variant | What it measures |
@@ -1223,7 +1239,7 @@ metrics, per-tier metrics, a bootstrap interval and the calibrated curve -
 all at the thresholds training already fixed.
 
 ```bash
-make evaluate-frozen ARGS="--run-id 0ee06c01ff2a427ca76011fb1afb8ce3 --split sealed"
+make evaluate-frozen ARGS="--run-id <mlflow run id> --split sealed"
 ```
 
 **It is single-shot by construction.** The result is written to
@@ -1656,7 +1672,7 @@ and checkpoint, by design - see `src/agent/demo.py`).
 ```bash
 make ingest-synthetic-stub   # 15 drives spanning configs/model.yaml's splits -> data/bronze/synthetic/
 make build-silver            # -> data/silver/{drive_day,canonical_telemetry,drive_metadata}/
-make build-features          # -> data/gold/features/part.parquet (~196 columns)
+make build-features          # -> data/gold/features/part.parquet (~196 columns, ~227 since the 6th priority attribute)
 make build-labels            # -> data/gold/labels/part.parquet + dataset_versions/*.json
 make train                   # trains, tunes threshold, logs to MLflow, writes a model card
 make score-fleet             # batch-scores the current fleet -> data/audit/predictions/
@@ -1782,9 +1798,12 @@ Data / model:
 - The repository ships no data. The pipeline has been run end to end on real
   Backblaze Q1 + Q2 2026 data (results in `docs/model_status_and_runbook.md`);
   SMART-Z has not been evaluated.
-- The model does not reach the precision target on the real fleet (49.6% at
-  10.5% recall against a 90% target, 95% CI [41.5%, 58.8%]).
+- The model does not reach the precision target on the real fleet (48.6% at
+  8.7% recall against a 90% target, 95% CI [38.9%, 58.2%]).
   `docs/system_summary.md` section 4.
+- The second-stage model's precision gain is not confirmed - a direct paired
+  bootstrap test on the current build gives an interval that includes 0.
+  `docs/model_status_and_runbook.md` §1.2.
 - Neither sealed evaluation has been run: the Q3 2026 quarter is sealed but
   unscored, and SMART-Z has a split reserved but no data ingested, so
   stability over time and across vendors are both unmeasured (§5.14).
@@ -1803,6 +1822,24 @@ Data / model:
 
 Safety-critical defaults:
 
+- **`feature_confidence` was structurally unreachable fleet-wide, now fixed
+  (2026-10-09).** Two multiplicative bugs each capped it below the 0.80
+  destructive-action floor regardless of a drive's actual telemetry: an
+  attribute-coverage denominator counting every priority attribute for every
+  drive (so a non-Seagate drive, missing only another vendor's SMART
+  187/188, capped at 0.60), and a recency term charging the ordinary daily
+  telemetry cadence itself as a full day of staleness (capping every
+  drive-day at 0.6065). Measured on the real build, **0% of 62.6 million
+  drive-days** cleared the floor before either fix - no migrate or drain was
+  ever reachable, fleet-wide, however confident the model's own prediction
+  was. Neither was caught by any test, because every guardrail and chaos
+  fixture builds drives with every attribute already populated; only real
+  data exposed it. Both fixed (`src/features/confidence.py`,
+  `src/features/cross_vendor.py::model_expected_attributes`); 86.1% of
+  drive-days now clear the floor. `build_gold_features` now refuses to
+  produce a gold table where NO drive-day can ever clear it, as a standing
+  check against a third bug of this shape. Full account:
+  `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md`.
 - **`RuleContext`'s fleet-topology fields default to the *permissive* side
   when not wired**, not the conservative one:
   `is_last_healthy_node_in_domain` defaults to `False` (so `HARD_NO_LAST_NODE`
