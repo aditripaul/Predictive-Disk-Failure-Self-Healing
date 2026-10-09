@@ -144,7 +144,16 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
   4.5) and is now the default.
 - **Did not:** hyperparameters, XGBoost, per-family models, a second quarter
   of data, more SMART attributes and features, persistence rules, a survival
-  model, anomaly detection (Sections 4.1 to 4.3 and 5).
+  model, anomaly detection (Sections 4.1 to 4.3 and 5), `smart_196`, and
+  per-family action-tier thresholds.
+- **Per-family thresholds made it worse** (ADR 0002): 7 of 81 models cleared
+  the 50-failing-drive gate, and against fleet-wide thresholds on the same
+  test drives they lost 7 to 8 points of recall for under 1 point of
+  precision at the lenient tiers. At drain they were worse on both axes (64
+  caught from 173 alerts against 76 from 162). Different families sitting at
+  different operating points under one threshold turns out to be what a
+  calibrated score does to populations of differing risk, not a mis-set
+  threshold.
 
 ### 1.6 Found by the attribute screen (2026-10-09)
 

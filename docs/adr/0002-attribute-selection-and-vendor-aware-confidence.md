@@ -218,7 +218,7 @@ Measured on the real build: `recency_factor` median 0.6065, p95 0.6065, max
    `src/preprocess/smart_mapping.py` currently documents direction
    normalization as identity for every onboarded counter. Onboarding it needs
    that path built and tested, which belongs in its own change.
-5. **Per-family operating points: implemented 2026-10-09, unmeasured.**
+5. **Per-family operating points: implemented and refuted on test, 2026-10-09.**
    `src/models/threshold.py::tune_action_tiers_by_family` gives each drive
    model its own action-tier thresholds, tuned on that model's own validation
    drives from the same lift targets, converted at that model's own failure
@@ -231,19 +231,53 @@ Measured on the real build: `recency_factor` median 0.6065, p95 0.6065, max
    `resolve_family_thresholds` is the single lookup, so scoring, serving and
    evaluation cannot drift apart on the fallback rule.
 
-   `train_model` now reports `action_tiers_by_family.test_comparison`: every
-   test drive judged at its own family's threshold against every test drive
-   judged at the fleet-wide one, same drives and same scores, with the recall
-   and precision deltas. **This has not been run on real data yet, so whether
-   it helps is unknown.** Tuning per family on 50 to 100 drives can fit the
-   validation set rather than the family, which is the same failure mode that
-   made the fleet-wide precision targets undershoot on test (0.15 target,
-   0.10 measured). The gate may well do more work than the gain.
+   **Measured on test and refuted.** 7 of 81 drive models cleared the gate,
+   74 kept the fleet-wide thresholds. Per-family against fleet-wide, same test
+   drives and same scores:
 
-   Not done: the serving and agent sides still apply fleet-wide cut-offs. That
-   is blocked on a pre-existing gap - the agent is not driven by trained tier
-   thresholds at all - and should not be wired until the test comparison says
-   per-family thresholds are worth having.
+   | Tier | Recall delta | Precision delta |
+   |---|---|---|
+   | warn | -0.069 | +0.005 |
+   | cordon | -0.081 | +0.010 |
+   | migrate | -0.077 | +0.007 |
+   | drain | -0.019 | **-0.099** |
+
+   Seven to eight points of recall traded for under one point of precision at
+   the lenient tiers, and at **drain** it is strictly worse on both axes: 64
+   caught from 173 alerts against 76 from 162. Worse recall AND more alerts,
+   at the tier with the most consequential action.
+
+   Two causes:
+
+   - **Overfitting, worst where it matters most.** At 50 to 100 failing
+     validation drives a family's curve has 1 to 2 percent recall resolution,
+     and the drain target (226x lift) sits at the top of that curve where only
+     a handful of drives clear the threshold. The tuned cut-off is fitted to
+     noise precisely at the drain tier. More data per family, not a better
+     tuner, is what this would need.
+   - **Per-family *lift* was the wrong target.** Equalising lift means a
+     family with a higher base rate needs higher precision for the same lift,
+     so it alerts *less* aggressively while a low-risk family alerts more -
+     the inverse of the sensible ordering, and wrong for action cost, since a
+     false drain costs the same whatever the family's base rate. A per-family
+     *precision* target would be better posed, but it would still meet the
+     first cause, which the drain row shows is severe. Not attempted.
+
+   **The original inference was unsound, and that is the durable lesson.**
+   Families sitting at different operating points under one threshold is the
+   expected behaviour of a calibrated score meeting populations of differing
+   risk - not evidence that the threshold is mis-set. Thresholding a
+   well-calibrated P(fail) globally is already optimal for recall at a fixed
+   precision; per-family thresholds can only help where the score is
+   *differentially miscalibrated by family*, and this test says it is not,
+   enough to matter. The 0.508 precision at 0.492 recall seen on
+   ST12000NM0008 was that family's position on the pooled frontier, not a
+   gain waiting to be unlocked.
+
+   The code is kept because it is the measurement, not because the thresholds
+   are used: `train_model` reports the comparison and nothing consumes
+   `action_tiers_by_family` thresholds. Serving and the agent still apply
+   fleet-wide cut-offs and **should not** be rewired to these.
 
 6. **Why per-family thresholds, and the evidence for them.** The guardrail's
    instinct was sound even though its mechanism was wrong - prediction quality genuinely
