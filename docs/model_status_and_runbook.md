@@ -926,6 +926,18 @@ recall (`configs/model.yaml` `threshold`). The frozen model gives 49.6% at
 10.5% recall and 28.7% at 32.4% (Section 1.1). At the validation threshold
 for 95% precision it flags a single test drive.
 
+**The goal is stated at a 30-day horizon, and the horizon is part of it.**
+Precision moves with the base rate, so a longer label raises it mechanically:
+at an identical operating point, doubling the positive rate takes precision
+from 48.6% to 65.5% and *drops* lift from 277 to 187 with the model unchanged.
+Lift is no escape - it is base-rate invariant only in the limit of rare
+events. The invariant readings are drive-level `auroc` and recall at a matched
+false-alarm rate (the positive likelihood ratio is 539 here, and holds); both
+are logged by `make train`. A 60-day precision figure therefore does not
+satisfy this target, belongs in no column beside a 30-day one, and changing
+the horizon of the goal is a decision to record here rather than a
+config edit.
+
 The limit is how rare failures are, not the false-alarm rate: at the primary
 threshold fewer than 1 healthy drive in 5,000 is alerted, but only 621 drives
 fail out of 353,949. On a test set where 15% of drives fail the same alerts
@@ -954,8 +966,27 @@ What was tried, in the order it was tested:
 What could still change the picture:
 
 - **A longer horizon again (60-90 days).** On validation, 61 of 510
-  false alarms failed 31 or more days after the alert. It needs data well
-  past the test period (a third quarter) and changes what an alert means.
+  false alarms failed 31 or more days after the alert. The data is now in
+  place - Q3 2025 to Q2 2026, with splits sized for it (Section 2.2) - and
+  the 60-day run is set up but not yet made.
+
+  Read it in ROC space, because precision and AUPRC will both rise whether or
+  not anything improved. If 60-day `auroc` matches the 30-day control, the
+  precision gain is definitional and should be reported as "precision rose
+  because the positive rate doubled; discriminative performance unchanged."
+  If `auroc` rises, the gain is real. Either answer is worth having: a flat
+  AUROC is evidence that the telemetry's discriminative content does not
+  depend on the horizon, which is the strongest test yet of the claim that
+  the ceiling is informational rather than a modelling failure.
+
+  Two consequences to expect. `action_tier_lift` is converted at each split's
+  own failure rate, so at a doubled rate the drain tier asks for 226.4 x
+  0.53% = 1.20 precision and becomes unreachable; `tune_action_tiers` will
+  flag `target_met: false` and fall back, which is correct but reads as a
+  regression. And a longer horizon spends drive life to buy alert accuracy -
+  it retires drives with weeks of life left - so which horizon is better is a
+  cost question, not a precision one, and the cost model
+  (`configs/agent.yaml`) does not exist yet.
 - **Tiered goals:** keep the destructive action at a high precision target
   and let warnings accept more false alarms. The tiers exist (Section 4.4);
   their targets in `configs/model.yaml` are placeholders to be set from the
@@ -1052,7 +1083,7 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 | `configs/model.yaml` | `model.max_train_rows` | 5000000 | Training-row cap |
 | `configs/model.yaml` | `model.positive_weight_power` | 0.5 | Positive weight = (neg/pos)^0.5 |
 | `configs/model.yaml` | `model.early_stopping_rounds` | 50 | Early stopping patience (average precision) |
-| `configs/model.yaml` | `threshold.target_precision` | 0.90 | Goal precision, at recall >= 10% (was 0.95 at 35-50%) |
+| `configs/model.yaml` | `threshold.target_precision` | 0.90 | Goal precision, at recall >= 10%, **30-day horizon** (was 0.95 at 35-50%). See Section 7: the horizon is part of the goal |
 | `configs/model.yaml` | `threshold.target_recall_range` | [0.10, 0.50] | Goal recall range |
 | `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | 2026-02-01 / 2026-03-17 / 2026-05-01 | Split boundaries. Sized for a 60-day horizon on 2025-07-01..2026-06-30; the frozen run used 2026-04-15 / 2026-05-10 / 2026-05-31 (Section 2.3) |
 | `configs/model.yaml` | `splits.purge_label_window` | true | Training stops one horizon before `train_end` |

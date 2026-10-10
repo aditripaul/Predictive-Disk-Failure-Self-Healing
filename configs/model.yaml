@@ -66,8 +66,21 @@ model:
 # threshold with recall >= the lower bound, flagged target_met: false with
 # the gap recorded in the model card. The target is kept as the goal.
 # Goal (agreed 2026-10-06): 90% precision at >= 10% recall, per drive, on the
-# test split. The earlier 95% at 35-50% recall was not reachable; the report's
-# precision-at-recall table still shows 5 / 10 / 20 / 35% recall.
+# test split, AT A 30-DAY HORIZON. The earlier 95% at 35-50% recall was not
+# reachable; the report's precision-at-recall table still shows 5 / 10 / 20 /
+# 35% recall.
+#
+# The horizon is part of the goal, not an implementation detail. Precision
+# moves with the base rate and a longer label raises it mechanically: at an
+# IDENTICAL operating point, doubling the positive rate takes precision from
+# 48.6% to 65.5% and drops lift from 277 to 187 without the model changing.
+# So a precision figure earned at 60 days does not satisfy this target and
+# must never be reported in the same column as a 30-day one. Compare horizons
+# in ROC space instead - drive-level auroc and recall at a matched false-alarm
+# rate, both logged by make train (src/models/evaluation.py). Changing the
+# horizon of the goal is a decision to record here and in Section 7 of
+# docs/model_status_and_runbook.md, not something a config edit should do
+# quietly.
 threshold:
   target_precision: 0.90
   target_recall_range: [0.10, 0.50]

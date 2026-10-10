@@ -100,6 +100,7 @@ from src.models.evaluation import (
     evaluate_at_threshold,
     precision_at_recall_level,
     precision_at_recall_table,
+    recall_at_false_alarm_table,
 )
 from src.models.explainability import (
     build_explainer,
@@ -1186,6 +1187,12 @@ def main() -> None:
                 y_test,
                 test_scores,
             )
+            # ROC space, so a change of label horizon does not move it: the
+            # only reading that distinguishes a better model from one
+            # predicting a commoner event (src/models/evaluation.py).
+            results["test_recall_at_false_alarm"] = recall_at_false_alarm_table(
+                test_ids["drive_id"].to_numpy(), y_test, test_scores
+            )
             # Which data this run saw. Results moved by ~0.04 AUPRC between two
             # builds of the "same" quarter, so a number without its build is
             # not comparable with another.
@@ -1368,7 +1375,7 @@ def main() -> None:
             mlflow.log_metric("test_auprc", results["test_metrics"]["auprc"])
             for split_key in ("validation", "test"):
                 drive_level = results[f"{split_key}_drive_level"]
-                for metric in ("precision", "recall", "auprc"):
+                for metric in ("precision", "recall", "auprc", "auroc"):
                     mlflow.log_metric(f"{split_key}_drive_{metric}", drive_level[metric])
             mlflow.log_metric(
                 "test_expected_calibration_error",
@@ -1385,6 +1392,12 @@ def main() -> None:
                 "test_calibrated_brier_score",
                 results["test_calibrated_calibration"]["brier_score"],
             )
+            for row in results["test_recall_at_false_alarm"]:
+                if row["reachable"]:
+                    mlflow.log_metric(
+                        f"test_drive_recall_at_far_{row['false_alarm_rate_budget']:g}",
+                        row["recall"],
+                    )
             if results["test_warning_lead_time"]["mean_lead_time_days"] is not None:
                 mlflow.log_metric(
                     "test_mean_warning_lead_time_days",
