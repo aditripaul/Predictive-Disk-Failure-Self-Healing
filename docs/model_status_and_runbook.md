@@ -324,6 +324,17 @@ stops a horizon before `train_end`. Then the same commands as 2.3.
   holds several GB. Delete it with `make clean-kept` when you are done.
 - **Stale results after a code change:** re-run `make train` before judging
   any experiment. Runs made on older code are not comparable.
+- **`memory_limit_exceeded` at the very end of `make ingest-backblaze`,
+  after every file logged successfully:** this was Bronze profiling, not the
+  ingest. It ran one 16-column `null_count()` over the whole Bronze dataset,
+  which materialized every column at once - about 20 GB at 365 days and
+  within the cap at 181. Row and null counts now come from the Parquet
+  footers and everything else is accumulated per partition
+  (`src/ingest/profiling.py`). If you hit it on an older checkout, Bronze is
+  already complete - profiling runs after the loop - so `make build-silver`
+  can go ahead; only the audit report is missing, and nothing downstream
+  reads it. `backblaze_ingest_complete` in the log marks the point where the
+  ingest itself finished.
 
 ## 3. Memory: what was wrong and what fixed it
 

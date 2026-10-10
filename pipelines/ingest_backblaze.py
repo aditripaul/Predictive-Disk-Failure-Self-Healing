@@ -86,6 +86,15 @@ def main(argv: list[str] | None = None) -> None:
         written = ingest_backblaze_file(csv_path, bronze_root)
         logger.info("backblaze_file_ingested", source=str(csv_path), partition_count=len(written))
 
+    # Logged before profiling, which is a report about Bronze rather than a
+    # step that produces it: if profiling fails, this line is how you know the
+    # ingest itself finished and does not need repeating.
+    logger.info(
+        "backblaze_ingest_complete",
+        file_count=len(raw_files),
+        bronze_root=str(bronze_root),
+    )
+
     report = profile_bronze_dataset(bronze_root)
     audit_dir = Path(config["audit_dir"]) / "data_quality_reports"
     out_path = write_profiling_report(report, audit_dir, "backblaze")
