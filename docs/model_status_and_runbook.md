@@ -1400,6 +1400,49 @@ for that group, measured point-in-time before it ships. What would not: a
 small group, a one-snapshot effect, or a precision gain bought with an equal
 loss of recall, which is a threshold move with extra steps.
 
+### 4.10 Per-family recalibration (built 2026-10-18, not yet run)
+
+Section 4.9 found ranking quality varies 73-fold by drive family, so the same
+score carries a different chance of failure by family and one global
+threshold cannot be optimal. `make family-calibration` tests the one
+policy-layer use of that.
+
+**The method.** A fleet-wide logistic recalibration of the score's log-odds,
+plus one intercept per drive family, pulled toward zero by a Gaussian prior
+of width `tau` (`src/agent/family_calibration.py`). The intercept says "in
+this family a given score means k times the odds of failure"; a family with
+few failures stays near the fleet unless the evidence is strong. Within a
+family the map is monotone, so only the order *across* families changes.
+Deliberately not a per-family slope or a per-family threshold: those fit
+noise at a few dozen failures, which is how per-family thresholds lost on
+test (Section 1.5).
+
+**Out of sample, by construction.** It fits on point-in-time snapshots from
+the validation window (2026-02-15 to 2026-03-31) and is judged on the test
+snapshots from `make agent-pit`. `tau` is chosen by a time split inside the
+fitting window - earlier dates predicting later ones, with `tau = 0` (fleet
+only) always a candidate - so nothing is selected by looking at test data.
+The script refuses to run if any fitting snapshot is on or after the first
+evaluation snapshot, since the two files come out of the same pipeline.
+
+**The comparison** is the raw score against the recalibrated one, on the same
+test drive-snapshots, as recall at matched false-alarm rate with a paired
+drive-cluster bootstrap interval. The raw score is the right baseline because
+a fleet-only recalibration ranks identically. A gain whose interval clears
+zero means per-family calibration is worth adopting - it would sit between
+the model and the action tiers. One that straddles zero closes the last
+policy-layer idea for false positives on this telemetry.
+
+Checked on synthetic families with known offsets: it recovers them, shrinks a
+60-drive family hard under a tight prior, leaves within-family ranking
+unchanged, finds a gain clear of zero when a family effect exists and none
+when it does not. Dropping the offsets, or the window guard, each fail a
+test.
+
+```bash
+make family-calibration
+```
+
 ## 5. What we learned
 
 ### 5.1 Evaluation is per drive, not per drive-day

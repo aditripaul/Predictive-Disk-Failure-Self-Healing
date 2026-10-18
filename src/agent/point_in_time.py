@@ -312,6 +312,65 @@ COMBINERS = {
 }
 
 
+def compare_scorings(
+    drive_ids: pl.Series,
+    failed: np.ndarray,
+    baseline: np.ndarray,
+    candidate: np.ndarray,
+    *,
+    budgets: tuple[float, ...] = DEFAULT_FAR_BUDGETS,
+    n_boot: int = 500,
+    seed: int = 0,
+    alpha: float = 0.05,
+) -> list[dict[str, Any]]:
+    """Recall at matched false-alarm rate for two scorings of the SAME
+    observations, with a paired drive-cluster bootstrap interval on the
+    difference (candidate - baseline).
+
+    Both scorings see identical drives and identical resamples, so shared noise
+    cancels and the interval is on the quantity of interest. Recall at a
+    matched FAR is base-rate free, which precision at a threshold is not.
+    Precision at each budget is reported too, for reading - it is implied by
+    the recall, the budget and this sample's base rate."""
+    codes = dense_drive_codes(pl.DataFrame({"drive_id": drive_ids}))
+    n_drives = int(codes.max()) + 1
+    curve_a, curve_b = _prepare_far(baseline, failed), _prepare_far(candidate, failed)
+    ones = np.ones(len(codes))
+    base_a = recall_at_far(curve_a, ones, budgets)
+    base_b = recall_at_far(curve_b, ones, budgets)
+    positives, negatives = float(failed.sum()), float((~failed).sum())
+
+    rng = np.random.default_rng(seed)
+    diffs = np.empty((n_boot, len(budgets)))
+    for b in range(n_boot):
+        drive_w = np.bincount(rng.integers(0, n_drives, n_drives), minlength=n_drives)
+        w = drive_w[codes].astype(float)
+        diffs[b] = np.array(recall_at_far(curve_b, w, budgets)) - np.array(
+            recall_at_far(curve_a, w, budgets)
+        )
+    lo, hi = 100 * alpha / 2, 100 * (1 - alpha / 2)
+
+    def precision(recall: float, budget: float) -> float:
+        caught, false_alarms = recall * positives, budget * negatives
+        return caught / (caught + false_alarms) if caught + false_alarms else 0.0
+
+    return [
+        {
+            "false_alarm_budget": budget,
+            "baseline_recall": base_a[i],
+            "candidate_recall": base_b[i],
+            "baseline_precision": precision(base_a[i], budget),
+            "candidate_precision": precision(base_b[i], budget),
+            "difference": base_b[i] - base_a[i],
+            "difference_ci": (
+                float(np.percentile(diffs[:, i], lo)),
+                float(np.percentile(diffs[:, i], hi)),
+            ),
+        }
+        for i, budget in enumerate(budgets)
+    ]
+
+
 def compare_looks(
     pairs: pl.DataFrame,
     *,
@@ -322,47 +381,31 @@ def compare_looks(
     alpha: float = 0.05,
 ) -> list[dict[str, Any]]:
     """Recall at matched false-alarm rate: one look (`p_cur`) against two
-    (`min(p_prev, p_cur)`), on the same drives, with a paired cluster-bootstrap
-    interval on the difference.
-
-    Both policies see identical drives and identical resamples, so shared
-    noise cancels and the interval is on the quantity of interest. Recall at a
-    matched FAR is base-rate free, which precision at a threshold is not."""
+    combined by `combiner`, on the same drives (see `compare_scorings`)."""
     if pairs.is_empty():
         return []
-    failed = pairs["label"].to_numpy() == 1
-    one = pairs["p_cur"].to_numpy()
     if combiner not in COMBINERS:
         raise ValueError(f"unknown combiner {combiner!r}; choose from {sorted(COMBINERS)}")
+    one = pairs["p_cur"].to_numpy()
     two = COMBINERS[combiner](one, pairs["p_prev"].to_numpy())
-    curve_one, curve_two = _prepare_far(one, failed), _prepare_far(two, failed)
-
-    codes = dense_drive_codes(pairs)
-    n_drives = int(codes.max()) + 1
-    ones = np.ones(len(codes))
-    base_one = recall_at_far(curve_one, ones, budgets)
-    base_two = recall_at_far(curve_two, ones, budgets)
-
-    rng = np.random.default_rng(seed)
-    diffs = np.empty((n_boot, len(budgets)))
-    for b in range(n_boot):
-        drive_w = np.bincount(rng.integers(0, n_drives, n_drives), minlength=n_drives)
-        w = drive_w[codes].astype(float)
-        diffs[b] = np.array(recall_at_far(curve_two, w, budgets)) - np.array(
-            recall_at_far(curve_one, w, budgets)
-        )
-    lo, hi = 100 * alpha / 2, 100 * (1 - alpha / 2)
+    rows = compare_scorings(
+        pairs["drive_id"],
+        pairs["label"].to_numpy() == 1,
+        one,
+        two,
+        budgets=budgets,
+        n_boot=n_boot,
+        seed=seed,
+        alpha=alpha,
+    )
     return [
         {
             "combiner": combiner,
-            "false_alarm_budget": budget,
-            "one_look_recall": base_one[i],
-            "two_look_recall": base_two[i],
-            "difference": base_two[i] - base_one[i],
-            "difference_ci": (
-                float(np.percentile(diffs[:, i], lo)),
-                float(np.percentile(diffs[:, i], hi)),
-            ),
+            "false_alarm_budget": r["false_alarm_budget"],
+            "one_look_recall": r["baseline_recall"],
+            "two_look_recall": r["candidate_recall"],
+            "difference": r["difference"],
+            "difference_ci": r["difference_ci"],
         }
-        for i, budget in enumerate(budgets)
+        for r in rows
     ]

@@ -3,7 +3,7 @@
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
 	build-sequences train-lstm score-fleet plots \
-	agent-demo agent-fleet agent-pit dashboard api final-report
+	agent-demo agent-fleet agent-pit family-calibration dashboard api final-report
 
 # --- setup -----------------------------------------------------------------
 
@@ -185,6 +185,15 @@ agent-fleet:
 #   make agent-pit ARGS="--step-days 3 --bootstrap 2000"
 agent-pit:
 	uv run python pipelines/run_point_in_time.py $(ARGS)
+
+# Per-family recalibration, fitted on VALIDATION-window snapshots and judged on
+# the test snapshots (runbook 4.10). Makes the validation snapshots first, into
+# separate files so the test ones are not overwritten.
+family-calibration:
+	uv run python pipelines/run_point_in_time.py --start-date 2026-02-15 --end-date 2026-03-31 \
+		--out data/audit/agent_pit_validation.json \
+		--observations-out data/audit/agent_pit_validation_observations.parquet
+	uv run python scripts/evaluate_family_calibration.py $(ARGS)
 
 dashboard:
 	uv run streamlit run src/dashboards/app.py
