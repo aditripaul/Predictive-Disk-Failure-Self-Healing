@@ -1033,6 +1033,11 @@ The test: pull `train_end` forward with everything else fixed and compare
 `test_drive_recall_at_far_*` between the two runs. Both log it, so that is a
 direct read rather than the interpolation used above. Not yet run.
 
+Update (Section 4.7): measured point-in-time on one date, this model's ROC
+sits 1.2 to 1.3 recall points below the frozen run's at matched false-alarm
+rate, inside that snapshot's sampling error. That weakens the case that the
+wider window cost anything real, though it does not settle it.
+
 ### 4.7 The agent backtest is not point-in-time (2026-10-18): do not quote it
 
 First run of the agent over the test window (`make agent-fleet`, Apr-May
@@ -1129,16 +1134,61 @@ last row, over every caught drive; `tests/unit/test_check_agent_lookahead.py`
 pins the label behaviour against the real labeller. The 13-day figure should
 not be quoted.
 
-**The clean number hiding in the run.** The 483 acted drives (1,191 - 708)
-whose scored row IS the last day were alive at a fixed date T=2026-05-31, so
-they are a legitimate snapshot: a real label at T, no dying-drive selection.
-Assigning tiers from `p_fail` and the thresholds alone, ignoring the maturity
-gate, gives point-in-time precision and recall at T. The script now prints
-it (section 5, against every drive alive at T for recall). My estimate before
-running it, from the table above: about 89 of those 483 vanished in June, at
-~90% failing, so roughly 80 caught - **precision near 17% at cordon and
-above**, an order of magnitude below the 61.8% headline. That is a prediction,
-not a result; replace it with the script's number.
+**Lead time, measured over every caught drive.** 607 of the 715 "caught"
+drives (84.9%) were scored on the day they died: median notice 0 days, mean
+2.1. Only 108 (15.1%) had any notice at all, which is exactly the labelled
+sample the first version of the diagnostic mistook for the whole. 93.3% had
+14 days or less. The agent's 48.3% recall is, for the most part, drives
+detected at the moment of failure. A drive caught the day it dies is not a
+save.
+
+**The clean number hiding in the run: the fleet as of 2026-05-31.** The 483
+acted drives whose scored row IS the window's last day were alive at a fixed
+date, so they are a legitimate snapshot - a real label at T and no
+dying-drive selection. Tiers come from `p_fail` and the thresholds alone,
+ignoring the maturity gate, and recall is against every drive alive at T.
+352,024 drives alive and labelled, 301 failed in the next 30 days (base rate
+0.086%):
+
+| Flagged at | Drives | Failed | Precision (95% CI) | Recall (95% CI) | FAR | PLR |
+|---|---|---|---|---|---|---|
+| >= warn | 1,214 | 124 | 10.2% [9, 12] | 41.2% [36, 47] | 3.10e-03 | 133 |
+| >= cordon | 447 | 80 | 17.9% [15, 22] | 26.6% [22, 32] | 1.04e-03 | 255 |
+| >= migrate | 106 | 28 | 26.4% [19, 36] | 9.3% [7, 13] | 2.22e-04 | 419 |
+| >= drain | 18 | 9 | 50.0% [29, 71] | 3.0% [2, 6] | 2.56e-05 | 1,169 |
+
+This is the number the 61.8% headline was standing in for: **17.9%
+precision at 26.6% recall at cordon and above**, 3.5x lower precision and
+half the recall. A prediction made before running it, from the maturity
+table, was about 80 caught and about 17%; the run gave 80 and 17.9%.
+
+How it compares with the frozen run, on the base-rate-free axes (Section
+1.7): at the same false-alarm rate the frozen run's published operating points
+interpolate to 10.5% recall at 2.22e-04 and 27.9% at 1.04e-03, against 9.3%
+and 26.6% here - gaps of 1.2 and 1.3 points, inside this snapshot's own
+sampling error (+/-3.3 and +/-5.0 on 301 failures). Restated at the frozen
+run's 0.175% base rate, the migrate point is 42.4% against its 48.6%. So the
+model's discrimination holds up under a proper point-in-time design; what was
+wrong was the evaluation, not the model.
+
+Two caveats on that. It is one date, 301 failures, and successive days share
+most of their drives, so extra dates add power slowly. And the frozen run's
+points are read off a coarse three-point curve and interpolated.
+
+This also withdraws a claim made while reading the contaminated run: that the
+drive-level metric is pessimistic relative to how the model would be used,
+because the agent's PLR of 387 beat the model's 318 on the same window. That
+gap was the look-ahead. Measured cleanly there is no such gap.
+
+**What the clean numbers say about the policy.** At cordon and above, 367 of
+447 actions (82%) are on drives that do not fail within 30 days, to catch 80
+of 301 failures. Whether that is acceptable is a cost question that precision
+cannot answer. Acting is worth it when `precision x P(save) x C_failure >
+C_action`. With the 17.9% above, a cordon pays for itself if it costs less
+than about 18% of an unplanned failure, scaled by how often a cordon actually
+prevents one; at warn and above the figure is 10%. The cost model in
+`configs/agent.yaml` does not exist yet, so there is no principled place to
+put the thresholds - only operating points to choose among.
 
 **What a clean measurement needs:** a fleet at a fixed date T, containing only
 drives reporting on T, with maturity computed as of T
@@ -1262,6 +1312,14 @@ test window carries a 0.417% base rate against the frozen run's 0.175%.
 Restated at the frozen run's rate it is 35.8%, and at matched false-alarm
 rate it catches 3.3 points *less*. Any precision figure quoted against this
 goal needs its evaluated base rate beside it (Section 1.7).
+
+**As the policy would actually run, the goal is further away than any figure
+above suggests.** Measured point-in-time on one date (Section 4.7): 26.4%
+precision at 9.3% recall at migrate and above, 17.9% at 26.6% at cordon and
+above, 50% (n=18, interval 29 to 71) at 3.0% at drain. The agent's earlier
+61.8% / 48.3% headline came from a backtest that looked ahead and is not
+usable. None of these is 90%, and the evidence-gate and hysteresis stages
+added nothing to precision on this data.
 
 **The goal is stated at a 30-day horizon, and the horizon is part of it.**
 Precision moves with the base rate, so a longer label raises it mechanically:
