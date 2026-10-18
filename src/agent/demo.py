@@ -14,6 +14,7 @@ from src.agent.graph import compiled_agent
 from src.config import AgentSettings
 from src.guardrails.adapter import build_guardrail_evaluator
 from src.logging_config import configure_logging, get_logger
+from src.models.trained_thresholds import resolve_trained_action_thresholds
 from src.resource_limits import apply_memory_limit_from_config
 
 logger = get_logger(__name__)
@@ -81,13 +82,31 @@ def build_demo_dependencies(*, action_ledger: ActionLedger | None = None) -> Age
     )
 
 
+def live_plan_kwargs() -> dict:
+    """`plan_kwargs` binding the loop to the trained model's per-tier
+    thresholds, the same ones `make score-fleet` applies
+    (src/models/trained_thresholds.py).
+
+    Resolved at the entry point rather than inside `make_plan_node` so that
+    building a graph stays free of MLflow: tests and the demo construct the
+    graph constantly, and a store lookup on every construction would be both
+    slow and a side effect on `mlflow.db`. Falls back to
+    `configs/agent.yaml` - with the reason logged - when no trained run is
+    resolvable, so the loop still runs on a fresh checkout."""
+    action_thresholds, run_id = resolve_trained_action_thresholds()
+    logger.info("agent_action_thresholds", run_id=run_id, thresholds=action_thresholds)
+    return {"action_thresholds": action_thresholds}
+
+
 def main() -> None:
     configure_logging()
     apply_memory_limit_from_config()
     deps = build_demo_dependencies()
     checkpoint_path = AgentSettings.load().checkpoint_path
 
-    with compiled_agent(deps, checkpoint_path=checkpoint_path) as app:
+    with compiled_agent(
+        deps, checkpoint_path=checkpoint_path, plan_kwargs=live_plan_kwargs()
+    ) as app:
         result = app.invoke({}, config={"configurable": {"thread_id": "demo-fleet"}})
 
     logger.info(

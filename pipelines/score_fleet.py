@@ -27,7 +27,10 @@ from src.models.serving import (
     propose_actions,
     score_latest_drive_day,
 )
-from src.models.threshold import resolve_action_thresholds
+from src.models.trained_thresholds import (
+    action_thresholds_for_run,
+    latest_run_id_for_horizon,
+)
 from src.models.two_stage import load_two_stage
 from src.resource_limits import apply_memory_limit_from_config
 
@@ -76,18 +79,7 @@ def main() -> None:
     # Only runs trained for the configured horizon: a trial run with
     # `make train TRAIN_ARGS="--horizon-days 30"` must not silently become the
     # model behind 14-day predictions.
-    runs = mlflow.search_runs(
-        experiment_names=[experiment_name],
-        filter_string=f"params.horizon_days = '{horizon_days}'",
-        order_by=["start_time DESC"],
-        max_results=1,
-    )
-    if runs.empty:
-        raise RuntimeError(
-            f"No MLflow runs with horizon_days={horizon_days} found for experiment "
-            f"{experiment_name!r}; run `make train` first."
-        )
-    run_id = runs.iloc[0]["run_id"]
+    run_id = latest_run_id_for_horizon(experiment_name, horizon_days)
 
     model_type = model_config["model"].get("type", "lightgbm")
     model = (
@@ -107,17 +99,10 @@ def main() -> None:
             candidate_threshold=two_stage_model.candidate_threshold,
         )
 
-    # Per-tier thresholds tied to drive-level precision, recorded by
-    # `make train` with the model; older runs without them fall back to the
-    # hand-picked cutoffs in configs/agent.yaml.
-    try:
-        tier_thresholds = mlflow.artifacts.load_dict(f"runs:/{run_id}/action_tiers.json")
-    except Exception:
-        tier_thresholds = None
-        logger.warning("action_tiers_missing_using_agent_config", run_id=run_id)
-    action_thresholds = resolve_action_thresholds(
-        tier_thresholds, agent_config["action_thresholds"]
-    )
+    # Per-tier thresholds tied to drive-level precision, recorded by `make
+    # train` with the model. Shared with the live agent loop so the two paths
+    # cannot drift apart (src/models/trained_thresholds.py).
+    action_thresholds = action_thresholds_for_run(run_id, agent_config["action_thresholds"])
 
     feature_columns = select_feature_columns(latest_features)
     as_of = dt.datetime.now(dt.UTC)
