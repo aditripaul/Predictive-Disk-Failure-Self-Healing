@@ -81,6 +81,10 @@ class FleetAgent:
     run_id: str | None
     drive_count: int
     candidate_count: int
+    #: Drives at or above the lowest threshold BEFORE max_candidates
+    #: truncated. The gap is drives the agent was never shown, which is not
+    #: the same as drives it declined to act on.
+    above_threshold_count: int
     window: tuple[dt.date | None, dt.date | None]
     #: The SAME list object `fleet_state_provider` returns. A multi-cycle
     #: caller must advance it - see `pipelines/run_agent_fleet.py`. The plan
@@ -145,21 +149,27 @@ def to_candidate_drives(
     *,
     action_thresholds: dict[str, float],
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], int]:
     """The lean per-drive dicts the agent state carries, highest risk first.
 
     Only drives at or above the lowest action threshold are candidates -
-    below it the policy returns MONITOR anyway, so carrying them would bloat
-    the checkpoint to no effect. `stale_telemetry` defaults to False when the
+    below it the policy returns MONITOR anyway, so carrying them would cost
+    memory for no decision. `stale_telemetry` defaults to False when the
     column is absent rather than being omitted, because the action-tier
     policy treats a missing flag as "not stale" and the guardrail engine
-    expects the key to exist."""
+    expects the key to exist.
+
+    Returns `(candidates, above_threshold_count)`. The second value is the
+    count BEFORE `max_candidates` truncates, so a scorer can tell drives the
+    agent rejected from drives it was never shown - without it, a capped run
+    reports every drive as reached and the attrition reads as zero."""
     floor = min(action_thresholds.values()) if action_thresholds else 0.0
     candidates = (
         scored.filter(pl.col("p_fail") >= floor).sort("p_fail", descending=True)
         if "p_fail" in scored.columns
         else scored
     )
+    above_threshold = candidates.height
     drives: list[dict[str, Any]] = []
     for row in candidates.head(max_candidates).to_dicts():
         drives.append(
@@ -171,7 +181,7 @@ def to_candidate_drives(
                 "stale_telemetry": bool(row.get("stale_telemetry_flag") or False),
             }
         )
-    return drives
+    return drives, above_threshold
 
 
 def _snapshot_id(window: tuple[dt.date | None, dt.date | None], drive_count: int) -> str:
@@ -304,7 +314,7 @@ def build_fleet_dependencies(
     scored = score_snapshot(
         snapshot, load_scoring_model(resolved_run_id, model_config["model"].get("type", "lightgbm"))
     )
-    drives = to_candidate_drives(
+    drives, above_threshold = to_candidate_drives(
         scored, action_thresholds=action_thresholds, max_candidates=max_candidates
     )
     snapshot_id = _snapshot_id((start_date, end_date), scored.height)
@@ -314,6 +324,7 @@ def build_fleet_dependencies(
         run_id=resolved_run_id,
         drive_count=scored.height,
         candidate_count=len(drives),
+        above_threshold_count=above_threshold,
         start_date=str(start_date),
         end_date=str(end_date),
     )
@@ -323,14 +334,29 @@ def build_fleet_dependencies(
         for row in scored.select(["drive_id", "date"]).to_dicts()
         if "date" in scored.columns
     }
-    # `drives` is handed to the provider by reference, so a caller that
-    # removes an entry changes what the next cycle sees.
-    state = {"fleet_snapshot_id": snapshot_id, "drives": drives}
+
+    def fleet_state_provider() -> dict[str, Any]:
+        """The highest-risk candidate still in the pool, and only it.
+
+        The pool itself stays here, in ordinary Python memory. Returning all
+        of it would put every candidate into `AgentState`, which LangGraph
+        writes to SQLite on every node of every cycle - at a pool size large
+        enough to measure recall that is gigabytes of checkpoint for a list
+        the plan node reduces to one drive anyway (`state.py` keeps the state
+        lean deliberately). One drive in, same decision out, and the pool can
+        be as large as the measurement needs."""
+        if not drives:
+            return {"fleet_snapshot_id": snapshot_id, "drives": []}
+        return {
+            "fleet_snapshot_id": snapshot_id,
+            "drives": [max(drives, key=lambda d: d["p_fail"])],
+        }
+
     executed: list[dict[str, Any]] = []
     execute, validate = _recording_executor(executed)
 
     dependencies = AgentDependencies(
-        fleet_state_provider=lambda: state,
+        fleet_state_provider=fleet_state_provider,
         predictor=lambda snap: {"drives": snap["drives"]},
         guardrail_evaluator=build_guardrail_evaluator(),
         executor=execute,
@@ -344,6 +370,7 @@ def build_fleet_dependencies(
         run_id=resolved_run_id,
         drive_count=scored.height,
         candidate_count=len(drives),
+        above_threshold_count=above_threshold,
         window=(start_date, end_date),
         candidates=drives,
         as_of_by_drive=as_of_by_drive,

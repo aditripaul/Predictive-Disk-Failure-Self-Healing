@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import uuid
 from collections import Counter
 from pathlib import Path
 
@@ -70,6 +71,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--cycles", type=int, default=1)
     parser.add_argument("--max-candidates", type=int, default=DEFAULT_MAX_CANDIDATES)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    parser.add_argument(
+        "--checkpoint-path",
+        default=":memory:",
+        help="LangGraph checkpoint store. Defaults to :memory: - this is a "
+        "measurement tool, and a durable store would both grow by a "
+        "checkpoint per node per cycle and let one run resume another's "
+        "per-drive hysteresis and cooldown state. Pass the configured path "
+        "to exercise durability deliberately.",
+    )
+    parser.add_argument(
+        "--thread-id",
+        default=None,
+        help="Resume a specific LangGraph thread. Default: a fresh one per "
+        "run, so two runs over the same window give the same answer.",
+    )
     parser.add_argument(
         "--score",
         action="store_true",
@@ -144,12 +160,17 @@ def main(argv: list[str] | None = None) -> None:
     # Enough tries for hysteresis to escalate a drive before we give up on
     # it, plus one; fewer and no drive could ever reach a destructive tier.
     max_selections = AgentSettings.load().hysteresis_cycles_required + 1
-    # One thread for the whole run, so hysteresis counters and cooldown
-    # carry across cycles the way they would in a live loop.
-    config = {"configurable": {"thread_id": f"fleet-{fleet.snapshot_id}"}}
+    # One thread for the whole run, so hysteresis counters and cooldown carry
+    # across cycles the way they would in a live loop - but a FRESH one per
+    # run. The thread id used to be derived from the snapshot alone, which is
+    # deterministic, so re-running a window resumed the previous run's
+    # cooldowns and advanced hysteresis counters and gave a different answer
+    # from the same inputs.
+    thread_id = args.thread_id or f"fleet-{fleet.snapshot_id}-{uuid.uuid4().hex[:8]}"
+    config = {"configurable": {"thread_id": thread_id}}
     with compiled_agent(
         fleet.dependencies,
-        checkpoint_path=AgentSettings.load().checkpoint_path,
+        checkpoint_path=args.checkpoint_path,
         plan_kwargs=fleet.plan_kwargs,
     ) as app:
         for cycle in range(args.cycles):
@@ -184,8 +205,10 @@ def main(argv: list[str] | None = None) -> None:
         "snapshot_id": fleet.snapshot_id,
         "run_id": fleet.run_id,
         "window": [str(fleet.window[0]), str(fleet.window[1])],
+        "thread_id": thread_id,
         "drive_count": fleet.drive_count,
         "candidate_count": fleet.candidate_count,
+        "above_threshold_count": fleet.above_threshold_count,
         "action_thresholds": fleet.plan_kwargs["action_thresholds"],
         "cycles_run": len(decisions),
         "actions_by_tier": dict(Counter(d["proposed_action"] for d in decisions)),
@@ -254,7 +277,12 @@ def _score(fleet, decisions: list[dict], *, horizon_days: int | None = None) -> 
             "skipped": "no observable labels in this window - the inference window "
             "after test_end is censored by construction, so there is nothing to score"
         }
-    scored = score_decisions(decisions, labels, candidate_count=fleet.candidate_count)
+    scored = score_decisions(
+        decisions,
+        labels,
+        candidate_count=fleet.candidate_count,
+        above_threshold_count=fleet.above_threshold_count,
+    )
     scored["horizon_days"] = resolved_horizon
     scored["window"] = [str(start), str(end)]
     logger.info("agent_backtest_scored", **{k: v for k, v in scored.items() if k != "attrition"})

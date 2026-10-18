@@ -195,3 +195,60 @@ def test_only_the_configured_horizon_is_loaded(tmp_path):
     labels = load_labels(path, horizon_days=30, start_date=WINDOW[0], end_date=WINDOW[1])
     assert labels.height == 1
     assert failing_drives(labels) == {"a"}
+
+
+def test_truncated_drives_are_reported_separately_from_rejected_ones():
+    """The defect this closes: a capped run reported never_selected=0, which
+    reads as the filters rejecting nothing rather than the agent never
+    having been shown the rest of the fleet."""
+    labels = _labels(failing=["d0"], healthy=["h0"])
+    scored = score_decisions(
+        [{"drive_id": "d0", "proposed_action": ActionTier.DRAIN.value}],
+        labels,
+        candidate_count=100,
+        above_threshold_count=4000,
+    )
+    assert scored["drives_above_threshold"] == 4000
+    assert scored["truncated_by_max_candidates"] == 3900
+    # Within the pool the agent did reach everything but 99.
+    assert scored["attrition"]["never_selected"] == 99
+
+
+def test_the_pool_recall_ceiling_is_reported():
+    """With fewer candidates than failing drives, recall is bounded by the
+    pool before any decision rule applies - so the ceiling has to be stated
+    next to the recall, or the number reads as a model limitation."""
+    labels = _labels(failing=[f"d{i}" for i in range(300)], healthy=["h0"])
+    scored = score_decisions(
+        [{"drive_id": "d0", "proposed_action": ActionTier.DRAIN.value}],
+        labels,
+        candidate_count=100,
+        above_threshold_count=4000,
+    )
+    assert scored["recall_ceiling_from_pool"] == pytest.approx(100 / 300)
+    assert scored["agent_recall"] <= scored["recall_ceiling_from_pool"]
+
+
+def test_an_uncapped_pool_has_no_truncation_and_no_ceiling_below_one():
+    labels = _labels(failing=["d0", "d1"], healthy=[])
+    scored = score_decisions(
+        [{"drive_id": "d0", "proposed_action": ActionTier.DRAIN.value}],
+        labels,
+        candidate_count=500,
+        above_threshold_count=500,
+    )
+    assert scored["truncated_by_max_candidates"] == 0
+    assert scored["recall_ceiling_from_pool"] == pytest.approx(1.0)
+
+
+def test_the_pre_cap_count_defaults_to_the_pool_when_not_supplied():
+    """Older reports have no above_threshold_count; the scorer must not
+    invent truncation that did not happen."""
+    labels = _labels(failing=["d0"], healthy=[])
+    scored = score_decisions(
+        [{"drive_id": "d0", "proposed_action": ActionTier.DRAIN.value}],
+        labels,
+        candidate_count=10,
+    )
+    assert scored["drives_above_threshold"] == 10
+    assert scored["truncated_by_max_candidates"] == 0

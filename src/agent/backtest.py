@@ -72,12 +72,19 @@ def score_decisions(
     labels: pl.DataFrame,
     *,
     candidate_count: int,
+    above_threshold_count: int | None = None,
 ) -> dict[str, Any]:
     """Agent-level precision and recall, plus the attrition breakdown.
 
     `decisions` are the records `pipelines/run_agent_fleet.py` writes, one
     per cycle. A drive decided more than once counts once, at the strongest
-    action it received."""
+    action it received.
+
+    `above_threshold_count` is how many drives cleared the lowest threshold
+    before `--max-candidates` truncated the pool. Without it a capped run
+    reports every drive as reached and the attrition reads as zero, which
+    looks like the filters rejecting nothing rather than the agent never
+    having been shown the rest."""
     failing = failing_drives(labels)
     observed = set(labels["drive_id"].to_list())
 
@@ -108,8 +115,16 @@ def score_decisions(
     precision = len(caught) / len(acted_observed) if acted_observed else 0.0
     recall = len(caught) / len(failing) if failing else 0.0
 
+    eligible = above_threshold_count if above_threshold_count is not None else candidate_count
     return {
         "failing_drives_in_window": len(failing),
+        "drives_above_threshold": eligible,
+        # Capped away before the agent could see them: not a policy decision,
+        # and the dominant term whenever --max-candidates binds.
+        "truncated_by_max_candidates": max(eligible - candidate_count, 0),
+        "recall_ceiling_from_pool": (
+            min(candidate_count, len(failing)) / len(failing) if failing else None
+        ),
         "drives_with_observed_labels": len(observed),
         "candidates_in_snapshot": candidate_count,
         "drives_decided": len(strongest),

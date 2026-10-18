@@ -127,7 +127,14 @@ def _guardrail_result_to_dict(result) -> dict[str, Any]:
     return {
         "action_id": result.action_id,
         "passed": result.passed,
-        "violations": [v.model_dump() for v in result.violations],
+        # mode="json" so GuardrailSeverity comes out as "hard"/"soft" rather
+        # than the enum instance. This dict lands in AgentState, which
+        # LangGraph checkpoints with msgpack - an unregistered enum logs
+        # "Deserializing unregistered type ... will be blocked in a future
+        # version" and would eventually fail to load. GuardrailSeverity is a
+        # str Enum, so every existing `== GuardrailSeverity.HARD` comparison
+        # still holds against the plain string.
+        "violations": [v.model_dump(mode="json") for v in result.violations],
         "final_action": result.final_action.value,
         "evaluation_latency_ms": result.evaluation_latency_ms,
     }

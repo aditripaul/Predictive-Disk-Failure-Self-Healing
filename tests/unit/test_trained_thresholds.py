@@ -167,3 +167,39 @@ def test_no_other_module_resolves_action_tiers_on_its_own():
             if "action_tiers" in line and "load_dict" in line:
                 offenders.append(f"{path}: {line.strip()}")
     assert offenders == [], f"resolve via {owner} instead of: {offenders}"
+
+
+def test_guardrail_violations_carry_no_enum_into_checkpointed_state():
+    """A GuardrailSeverity instance in AgentState logs "Deserializing
+    unregistered type ... will be blocked in a future version" and would
+    eventually fail to load. model_dump(mode="json") renders it as a plain
+    string, which still compares equal because it is a str Enum."""
+    from enum import Enum
+
+    from data_contracts.schemas import GuardrailSeverity
+    from src.guardrails.adapter import build_guardrail_evaluator
+
+    evaluate = build_guardrail_evaluator()
+    result = evaluate(
+        {
+            "action_id": "a-1",
+            "drive_id": "d-1",
+            "proposed_action": "drain",
+            "p_fail": 0.99,
+            "feature_confidence": 0.1,  # below the floor, so a violation fires
+            "feature_maturity": "WARMUP",
+            "stale_telemetry": True,
+            "is_last_healthy_node_in_domain": True,
+            "quorum_ok_after_action": False,
+            "high_io_period": False,
+            "maintenance_window_active": False,
+        }
+    )
+    assert result["violations"], "fixture should trip at least one guardrail"
+    for violation in result["violations"]:
+        for key, value in violation.items():
+            assert not isinstance(value, Enum), f"{key} is still an enum: {value!r}"
+    severities = [v["severity"] for v in result["violations"]]
+    assert any(s == GuardrailSeverity.HARD for s in severities), (
+        "str Enum comparison must still hold against the plain string"
+    )

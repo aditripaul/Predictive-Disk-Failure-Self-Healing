@@ -118,9 +118,12 @@ def test_candidates_are_capped_so_the_checkpoint_stays_small(tmp_path):
     features, metadata = _gold(tmp_path, n_drives=50)
     snapshot = load_fleet_snapshot(features, metadata)
     scored = score_snapshot(snapshot, _Model())
-    drives = to_candidate_drives(scored, action_thresholds=THRESHOLDS, max_candidates=10)
+    drives, above = to_candidate_drives(scored, action_thresholds=THRESHOLDS, max_candidates=10)
     assert len(drives) == 10
     assert drives == sorted(drives, key=lambda d: d["p_fail"], reverse=True)
+    # The pre-cap count must survive truncation, or a capped run reports
+    # every drive as reached and the attrition reads as zero.
+    assert above > len(drives)
 
 
 def test_candidates_below_the_lowest_threshold_are_dropped(tmp_path):
@@ -128,16 +131,18 @@ def test_candidates_below_the_lowest_threshold_are_dropped(tmp_path):
     carrying the drive costs checkpoint space for no decision."""
     features, metadata = _gold(tmp_path, n_drives=50)
     scored = score_snapshot(load_fleet_snapshot(features, metadata), _Model())
-    drives = to_candidate_drives(scored, action_thresholds=THRESHOLDS, max_candidates=1000)
+    drives, above = to_candidate_drives(scored, action_thresholds=THRESHOLDS, max_candidates=1000)
     assert drives, "fixture should produce some candidates"
     assert all(d["p_fail"] >= min(THRESHOLDS.values()) for d in drives)
     assert len(drives) < scored.height
+    # Nothing was truncated here, so the two counts agree.
+    assert above == len(drives)
 
 
 def test_a_candidate_carries_exactly_the_fields_the_policy_needs(tmp_path):
     features, metadata = _gold(tmp_path, n_drives=20)
     scored = score_snapshot(load_fleet_snapshot(features, metadata), _Model())
-    drive = to_candidate_drives(scored, action_thresholds=THRESHOLDS)[0]
+    drive = to_candidate_drives(scored, action_thresholds=THRESHOLDS)[0][0]
     assert set(drive) == {
         "drive_id",
         "p_fail",
@@ -147,3 +152,46 @@ def test_a_candidate_carries_exactly_the_fields_the_policy_needs(tmp_path):
     }
     assert isinstance(drive["stale_telemetry"], bool)
     assert isinstance(drive["p_fail"], float)
+
+
+def test_the_provider_puts_only_the_top_drive_into_state(tmp_path):
+    """AgentState is checkpointed on every node of every cycle. The pool
+    lives in Python memory; only the drive the plan node would pick enters
+    state, so the pool can be as large as a recall measurement needs."""
+    features, metadata = _gold(tmp_path, n_drives=50)
+    fleet_drives, _ = to_candidate_drives(
+        score_snapshot(load_fleet_snapshot(features, metadata), _Model()),
+        action_thresholds=THRESHOLDS,
+        max_candidates=50,
+    )
+    assert len(fleet_drives) > 1
+
+    snapshot_id = "fleet-test"
+
+    def provider():
+        if not fleet_drives:
+            return {"fleet_snapshot_id": snapshot_id, "drives": []}
+        return {
+            "fleet_snapshot_id": snapshot_id,
+            "drives": [max(fleet_drives, key=lambda d: d["p_fail"])],
+        }
+
+    state = provider()
+    assert len(state["drives"]) == 1
+    assert state["drives"][0]["p_fail"] == max(d["p_fail"] for d in fleet_drives)
+
+    # Removing the top drive advances what the next cycle sees.
+    top = state["drives"][0]["drive_id"]
+    fleet_drives[:] = [d for d in fleet_drives if d["drive_id"] != top]
+    assert provider()["drives"][0]["drive_id"] != top
+
+
+def test_an_exhausted_pool_yields_no_drives_rather_than_raising(tmp_path):
+    empty: list[dict] = []
+
+    def provider():
+        if not empty:
+            return {"fleet_snapshot_id": "s", "drives": []}
+        return {"fleet_snapshot_id": "s", "drives": [max(empty, key=lambda d: d["p_fail"])]}
+
+    assert provider()["drives"] == []
