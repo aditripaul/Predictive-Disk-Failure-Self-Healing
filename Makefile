@@ -3,7 +3,7 @@
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
 	build-sequences train-lstm score-fleet plots \
-	agent-demo agent-fleet dashboard api final-report
+	agent-demo agent-fleet agent-pit dashboard api final-report
 
 # --- setup -----------------------------------------------------------------
 
@@ -176,6 +176,15 @@ agent-demo:
 # access (src/models/access_log.py).
 agent-fleet:
 	uv run python pipelines/run_agent_fleet.py $(ARGS)
+
+# Fixed-date snapshots: the flagging policy measured the way it would run, on
+# the drives reporting that day. Use this, not agent-fleet --score, for any
+# precision or recall you intend to quote - the latter looks ahead (runbook
+# 4.7). Test-split data, so it is recorded in the test-access log.
+#   make agent-pit
+#   make agent-pit ARGS="--step-days 3 --bootstrap 2000"
+agent-pit:
+	uv run python pipelines/run_point_in_time.py $(ARGS)
 
 dashboard:
 	uv run streamlit run src/dashboards/app.py

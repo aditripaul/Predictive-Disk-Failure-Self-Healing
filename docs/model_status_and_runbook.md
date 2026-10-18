@@ -344,11 +344,11 @@ each drive's *last* row, so snapshotting through 2026-06-30 yields rows
 that are censored at every horizon and nothing to score. The run warns when
 the window extends past the boundary.
 
-The test-split backtest is the other mode, with the primary horizon and
-ground truth, and it records a test-split access
-(`src/models/access_log.py`). **Its results are not point-in-time** - the
-maturity gate and the latest-row snapshot both look ahead - so read Section
-4.7 before quoting any figure from it:
+The test-split backtest below has ground truth but **is not point-in-time**
+- the maturity gate and the latest-row snapshot both look ahead - so quote
+nothing from `--score`; use `make agent-pit` (Section 4.7) for any precision
+or recall figure. It remains useful for exercising the loop itself, and it
+records a test-split access (`src/models/access_log.py`):
 
 ```bash
 make agent-fleet ARGS="--start-date 2026-04-01 --end-date 2026-05-31 \
@@ -1190,14 +1190,39 @@ prevents one; at warn and above the figure is 10%. The cost model in
 `configs/agent.yaml` does not exist yet, so there is no principled place to
 put the thresholds - only operating points to choose among.
 
-**What a clean measurement needs:** a fleet at a fixed date T, containing only
-drives reporting on T, with maturity computed as of T
-(`build_drive_metadata(..., as_of_date=T)` on telemetry up to T), scored once
-and judged on `label` at T. Done daily across the window, that is also the
-only setting where hysteresis compares two independent scoring passes
-instead of the same frozen row twice. The row to compare against is the
-model's own figure under the same convention, not 57.1% (which uses
-`drive_level_table`'s max-over-rows rule).
+**The clean measurement, built.** `make agent-pit`
+(`pipelines/run_point_in_time.py`, `src/agent/point_in_time.py`) snapshots the
+fleet at fixed dates: every drive with a gold-feature row ON that date,
+scored once, judged on the label at that same row. Drives that had already
+gone are not in it, and no maturity label is consulted. It replaces
+`make agent-fleet --score` for any figure you intend to quote.
+
+Taken at several dates it reports pooled precision and recall per tier with
+**drive-cluster bootstrap intervals**, and it supports the one loop mechanism
+that could add information rather than strictness: a second, independent
+look. A drive is flagged only if it scores above threshold at both T-lag and
+T. That is a policy over two different days' telemetry, which is not the
+experiment that failed three times as a persistence *feature* inside one
+row's window. The two-look score is `min(p_T-lag, p_T)`, so it is compared
+with the one-look policy on the same drives at a matched false-alarm rate,
+with a paired interval on the difference. Hysteresis on the old fixed
+snapshot could not have done this: it looked twice at the same row.
+
+Cautions that govern reading it. Snapshots a week apart share most of their
+drives, and a failing drive is positive in about four weekly snapshots, so
+observations are not independent - every interval resamples whole drives, and
+pooled precision is "of flagged drive-snapshots, the share that fail within
+the horizon", not a count of distinct drives. Precision still lives at the
+base rate printed beside it. And these are test-window snapshots, so the run
+is recorded in the test-access log.
+
+Run a single date first to check memory before the full sweep (a date's fleet
+is ~0.7 GB at 356k drives x 246 features):
+
+```bash
+/usr/bin/time -v make agent-pit ARGS="--start-date 2026-05-31 --end-date 2026-05-31 --bootstrap 200" \
+    2>&1 | grep -iE "maximum resident|point_in_time_snapshot"
+```
 
 ## 5. What we learned
 
