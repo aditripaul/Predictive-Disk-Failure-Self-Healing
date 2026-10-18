@@ -252,3 +252,71 @@ def test_the_pre_cap_count_defaults_to_the_pool_when_not_supplied():
     )
     assert scored["drives_above_threshold"] == 10
     assert scored["truncated_by_max_candidates"] == 0
+
+
+def test_precision_is_broken_out_per_tier():
+    """One overall figure is dominated by cordon - 94% of a real run's
+    actions - and says nothing about whether drain is trustworthy."""
+    from src.agent.backtest import precision_by_tier
+
+    labels = _labels(failing=["c0", "m0", "dr0", "dr1"], healthy=["c1", "c2", "m1"])
+    decisions = [
+        {"drive_id": "c0", "proposed_action": ActionTier.CORDON.value, "p_fail": 0.4},
+        {"drive_id": "c1", "proposed_action": ActionTier.CORDON.value, "p_fail": 0.4},
+        {"drive_id": "c2", "proposed_action": ActionTier.CORDON.value, "p_fail": 0.4},
+        {"drive_id": "m0", "proposed_action": ActionTier.MIGRATE.value, "p_fail": 0.7},
+        {"drive_id": "m1", "proposed_action": ActionTier.MIGRATE.value, "p_fail": 0.7},
+        {"drive_id": "dr0", "proposed_action": ActionTier.DRAIN.value, "p_fail": 0.95},
+        {"drive_id": "dr1", "proposed_action": ActionTier.DRAIN.value, "p_fail": 0.95},
+    ]
+    by_tier = {row["tier"]: row for row in precision_by_tier(decisions, labels)}
+    assert by_tier["cordon"]["precision"] == pytest.approx(1 / 3)
+    assert by_tier["migrate"]["precision"] == pytest.approx(0.5)
+    assert by_tier["drain"]["precision"] == pytest.approx(1.0)
+
+
+def test_a_downgraded_cordon_is_reported_apart_from_a_scored_one():
+    """determine_action_tier returns CORDON when a drive scores high enough
+    for migrate but fails the confidence floor. Those are the drives whose
+    evidence the system itself distrusts, so their precision is the evidence
+    for or against downgrading them to WARN instead of acting."""
+    from src.agent.backtest import precision_by_tier
+
+    thresholds = {"warn": 0.1, "cordon": 0.3, "migrate": 0.6, "drain": 0.9}
+    labels = _labels(failing=["scored"], healthy=["downgraded"])
+    decisions = [
+        # Scored a genuine cordon: between the cordon and migrate cutoffs.
+        {"drive_id": "scored", "proposed_action": ActionTier.CORDON.value, "p_fail": 0.4},
+        # Cleared migrate but came out cordon, so a gate downgraded it.
+        {"drive_id": "downgraded", "proposed_action": ActionTier.CORDON.value, "p_fail": 0.8},
+    ]
+    by_tier = {
+        row["tier"]: row
+        for row in precision_by_tier(decisions, labels, action_thresholds=thresholds)
+    }
+    assert by_tier["cordon (scored)"]["precision"] == pytest.approx(1.0)
+    assert by_tier["cordon (downgraded)"]["precision"] == pytest.approx(0.0)
+
+
+def test_hysteresis_and_cooldown_caps_are_not_mistaken_for_downgrades():
+    """Both cap at WARN, never CORDON, so only the evidence gates can
+    produce a cordon whose score cleared the migrate threshold."""
+    from src.agent.backtest import was_downgraded_to_cordon
+
+    thresholds = {"warn": 0.1, "cordon": 0.3, "migrate": 0.6, "drain": 0.9}
+    warn_capped = {"proposed_action": ActionTier.WARN.value, "p_fail": 0.95}
+    assert was_downgraded_to_cordon(warn_capped, thresholds) is False
+    genuine = {"proposed_action": ActionTier.CORDON.value, "p_fail": 0.45}
+    assert was_downgraded_to_cordon(genuine, thresholds) is False
+
+
+def test_a_drive_appearing_twice_is_counted_at_its_strongest_tier_only():
+    from src.agent.backtest import strongest_per_drive
+
+    decisions = [
+        {"drive_id": "d0", "proposed_action": ActionTier.WARN.value, "p_fail": 0.5},
+        {"drive_id": "d0", "proposed_action": ActionTier.DRAIN.value, "p_fail": 0.5},
+    ]
+    strongest = strongest_per_drive(decisions)
+    assert len(strongest) == 1
+    assert strongest["d0"]["proposed_action"] == ActionTier.DRAIN.value

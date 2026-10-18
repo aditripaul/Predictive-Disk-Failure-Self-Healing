@@ -308,10 +308,16 @@ def _score(fleet, decisions: list[dict], *, horizon_days: int | None = None) -> 
         labels,
         candidate_count=fleet.candidate_count,
         above_threshold_count=fleet.above_threshold_count,
+        action_thresholds=fleet.plan_kwargs.get("action_thresholds"),
     )
     scored["horizon_days"] = resolved_horizon
     scored["window"] = [str(start), str(end)]
-    logger.info("agent_backtest_scored", **{k: v for k, v in scored.items() if k != "attrition"})
+    logger.info(
+        "agent_backtest_scored",
+        **{k: v for k, v in scored.items() if k not in {"attrition", "by_tier"}},
+    )
+    for row in scored["by_tier"]:
+        logger.info("agent_tier_precision", **row)
     return scored
 
 

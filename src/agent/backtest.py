@@ -67,18 +67,118 @@ def failing_drives(labels: pl.DataFrame) -> set[str]:
     return set(labels.filter(pl.col("label") == 1)["drive_id"].to_list())
 
 
+#: Ascending, so "strongest action a drive received" is well defined.
+TIER_ORDER = [
+    ActionTier.MONITOR.value,
+    ActionTier.WARN.value,
+    ActionTier.CORDON.value,
+    ActionTier.MIGRATE.value,
+    ActionTier.DRAIN.value,
+]
+
+
+def strongest_per_drive(decisions: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """One decision per drive: the strongest action it received.
+
+    Hysteresis warns a drive before escalating it, so most drives appear
+    twice. Counting both would double them and understate precision."""
+    rank = {tier: i for i, tier in enumerate(TIER_ORDER)}
+    strongest: dict[str, dict[str, Any]] = {}
+    for decision in decisions:
+        drive_id = decision["drive_id"]
+        current = strongest.get(drive_id)
+        if current is None or rank.get(decision["proposed_action"], 0) > rank.get(
+            current["proposed_action"], 0
+        ):
+            strongest[drive_id] = decision
+    return strongest
+
+
+def was_downgraded_to_cordon(decision: dict[str, Any], action_thresholds: dict[str, float]) -> bool:
+    """Whether a cordon is a *downgraded* migrate/drain.
+
+    `determine_action_tier` returns CORDON when a drive scores high enough
+    for migrate or drain but fails the confidence floor, the maturity gate
+    or the staleness check - "insufficient evidence to justify a destructive
+    action", which still acts, just more gently. Hysteresis and cooldown cap
+    at WARN rather than CORDON, so a cordon whose p_fail clears the migrate
+    threshold can only have come from that downgrade.
+
+    Separating these matters: they are the population where the score is
+    least trustworthy, so if their precision is materially worse than a
+    genuine cordon's, the gate should downgrade to WARN instead of acting."""
+    if decision["proposed_action"] != ActionTier.CORDON.value:
+        return False
+    migrate_threshold = action_thresholds.get(ActionTier.MIGRATE.value)
+    return migrate_threshold is not None and decision["p_fail"] >= migrate_threshold
+
+
+def _bucket(
+    label: str, drives: list[dict[str, Any]], failing: set[str], observed: set[str]
+) -> dict[str, Any]:
+    with_labels = [d for d in drives if d["drive_id"] in observed]
+    caught = [d for d in with_labels if d["drive_id"] in failing]
+    return {
+        "tier": label,
+        "drives": len(drives),
+        "with_labels": len(with_labels),
+        "caught": len(caught),
+        "precision": len(caught) / len(with_labels) if with_labels else None,
+    }
+
+
+def precision_by_tier(
+    decisions: list[dict[str, Any]],
+    labels: pl.DataFrame,
+    *,
+    action_thresholds: dict[str, float] | None = None,
+) -> list[dict[str, Any]]:
+    """Precision of each tier the agent assigned, strongest action per drive.
+
+    94% of a real run's actions were `cordon`, the cheapest and only
+    reversible active tier. An overall precision figure is therefore
+    dominated by it, and says little about whether the expensive tiers are
+    trustworthy - which is the question that decides whether a false-positive
+    rate is a problem or a price.
+
+    With `action_thresholds`, cordons are split into genuine ones and
+    migrate/drain downgraded by the evidence gates."""
+    failing = failing_drives(labels)
+    observed = set(labels["drive_id"].to_list())
+    strongest = strongest_per_drive(decisions)
+
+    rows: list[dict[str, Any]] = []
+    for tier in TIER_ORDER:
+        at_tier = [d for d in strongest.values() if d["proposed_action"] == tier]
+        if not at_tier:
+            continue
+        if tier == ActionTier.CORDON.value and action_thresholds:
+            genuine = [d for d in at_tier if not was_downgraded_to_cordon(d, action_thresholds)]
+            downgraded = [d for d in at_tier if was_downgraded_to_cordon(d, action_thresholds)]
+            rows.append(_bucket("cordon (scored)", genuine, failing, observed))
+            if downgraded:
+                rows.append(_bucket("cordon (downgraded)", downgraded, failing, observed))
+        else:
+            rows.append(_bucket(tier, at_tier, failing, observed))
+    return rows
+
+
 def score_decisions(
     decisions: list[dict[str, Any]],
     labels: pl.DataFrame,
     *,
     candidate_count: int,
     above_threshold_count: int | None = None,
+    action_thresholds: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Agent-level precision and recall, plus the attrition breakdown.
 
     `decisions` are the records `pipelines/run_agent_fleet.py` writes, one
     per cycle. A drive decided more than once counts once, at the strongest
     action it received.
+
+    `action_thresholds` adds the per-tier precision breakdown, which is
+    where the useful detail is: an overall figure is dominated by `cordon`.
 
     `above_threshold_count` is how many drives cleared the lowest threshold
     before `--max-candidates` truncated the pool. Without it a capped run
@@ -88,22 +188,7 @@ def score_decisions(
     failing = failing_drives(labels)
     observed = set(labels["drive_id"].to_list())
 
-    strongest: dict[str, dict[str, Any]] = {}
-    order = [
-        ActionTier.MONITOR.value,
-        ActionTier.WARN.value,
-        ActionTier.CORDON.value,
-        ActionTier.MIGRATE.value,
-        ActionTier.DRAIN.value,
-    ]
-    rank = {tier: i for i, tier in enumerate(order)}
-    for decision in decisions:
-        drive_id = decision["drive_id"]
-        current = strongest.get(drive_id)
-        if current is None or rank.get(decision["proposed_action"], 0) > rank.get(
-            current["proposed_action"], 0
-        ):
-            strongest[drive_id] = decision
+    strongest = strongest_per_drive(decisions)
 
     acted = {d for d, rec in strongest.items() if rec["proposed_action"] in ACTIVE_ACTIONS}
     control = {d for d, rec in strongest.items() if rec.get("control_arm")}
@@ -144,6 +229,7 @@ def score_decisions(
         },
         "actions_by_tier": {
             tier: sum(1 for rec in strongest.values() if rec["proposed_action"] == tier)
-            for tier in order
+            for tier in TIER_ORDER
         },
+        "by_tier": precision_by_tier(decisions, labels, action_thresholds=action_thresholds),
     }
