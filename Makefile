@@ -3,7 +3,7 @@
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
 	build-sequences train-lstm score-fleet plots \
-	agent-demo dashboard api final-report
+	agent-demo agent-fleet dashboard api final-report
 
 # --- setup -----------------------------------------------------------------
 
@@ -166,6 +166,16 @@ final-report: plots
 
 agent-demo:
 	uv run python -m src.agent.demo
+
+# The MAPE-K loop against the real gold features and trained model, rather
+# than agent-demo's two hardcoded drives (src/agent/fleet.py). Execution is
+# still simulated. Pick the window with ARGS:
+#   make agent-fleet ARGS="--start-date 2026-06-01"                  # inference
+#   make agent-fleet ARGS="--start-date 2026-04-01 --end-date 2026-05-31 --cycles 50"
+# The second is a backtest on the test split and records a test-split
+# access (src/models/access_log.py).
+agent-fleet:
+	uv run python pipelines/run_agent_fleet.py $(ARGS)
 
 dashboard:
 	uv run streamlit run src/dashboards/app.py

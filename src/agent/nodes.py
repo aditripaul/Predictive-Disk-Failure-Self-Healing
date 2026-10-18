@@ -14,6 +14,7 @@ from typing import Any
 from langgraph.types import interrupt
 
 from data_contracts.schemas import ActionTier, FeatureMaturity
+from src.agent.control_arm import is_control_drive
 from src.agent.deps import AgentDependencies
 from src.agent.hysteresis import apply_hysteresis, is_in_cooldown, record_action_taken
 from src.agent.state import AgentState
@@ -67,6 +68,8 @@ def make_plan_node(
     min_confidence_for_destructive_action: float | None = None,
     hysteresis_cycles_required: int | None = None,
     cooldown_seconds: int | None = None,
+    control_fraction: float | None = None,
+    control_salt: str | None = None,
 ):
     """Thresholds default to configs/agent.yaml (via AgentSettings.load()),
     resolved lazily so tests/demos can still override them explicitly. The
@@ -91,6 +94,10 @@ def make_plan_node(
     resolved_cooldown_seconds: int = (
         cooldown_seconds if cooldown_seconds is not None else defaults.cooldown_seconds
     )
+    resolved_control_fraction: float = (
+        control_fraction if control_fraction is not None else defaults.control_fraction
+    )
+    resolved_control_salt: str = control_salt if control_salt is not None else defaults.control_salt
 
     def plan(state: AgentState) -> dict[str, Any]:
         drives = state["prediction_summary"].get("drives", [])
@@ -132,6 +139,19 @@ def make_plan_node(
         ):
             tier = ActionTier.WARN
 
+        # Control arm: a held-back drive is scored and recorded exactly like
+        # any other, then not acted on, so its outcome stays uncensored and
+        # usable as an unbiased label (src/agent/control_arm.py). Applied
+        # last, after hysteresis and cooldown, so the record shows the tier
+        # the agent WOULD have taken - that counterfactual is the entire
+        # value of holding the drive back.
+        control_arm = is_control_drive(
+            drive_id, control_fraction=resolved_control_fraction, salt=resolved_control_salt
+        )
+        withheld_action = tier.value if control_arm else None
+        if control_arm and tier != ActionTier.MONITOR:
+            tier = ActionTier.MONITOR
+
         action_id = _deterministic_action_id(state["run_id"], drive_id, tier)
         proposal = {
             "action_id": action_id,
@@ -149,6 +169,10 @@ def make_plan_node(
             "quorum_ok_after_action": top_drive.get("quorum_ok_after_action", True),
             "high_io_period": top_drive.get("high_io_period", False),
             "maintenance_window_active": top_drive.get("maintenance_window_active", False),
+            "control_arm": control_arm,
+            # The tier this drive would have received had it not been held
+            # back; None for every drive that was not.
+            "withheld_action": withheld_action,
         }
         guardrail_result = deps.guardrail_evaluator(proposal)
 
@@ -195,8 +219,10 @@ def make_human_review_node(deps: AgentDependencies):
 def make_execute_node(deps: AgentDependencies):
     def execute(state: AgentState) -> dict[str, Any]:
         rejected_by_human = state.get("human_decision") == "rejected"
-        if state.get("human_review_required") or rejected_by_human or not state.get(
-            "proposed_action"
+        if (
+            state.get("human_review_required")
+            or rejected_by_human
+            or not state.get("proposed_action")
         ):
             return {"execution_result": None}
 
