@@ -37,6 +37,7 @@ import yaml
 
 from src.agent.fleet import load_scoring_model, overlaps_test_split
 from src.agent.point_in_time import (
+    CONTEXT_COLUMNS,
     DEFAULT_FAR_BUDGETS,
     bootstrap_tier_ci,
     compare_looks,
@@ -56,6 +57,7 @@ DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
 AGENT_CONFIG_PATH = Path("configs/agent.yaml")
 DEFAULT_OUT = Path("data/audit/agent_point_in_time.json")
+DEFAULT_OBSERVATIONS = Path("data/audit/agent_point_in_time_observations.parquet")
 
 logger = get_logger(__name__)
 
@@ -81,6 +83,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--bootstrap", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    parser.add_argument(
+        "--observations-out",
+        type=Path,
+        default=DEFAULT_OBSERVATIONS,
+        help="Where to save every scored drive-snapshot with its context columns, "
+        "so scripts/analyze_false_positives.py can profile them without "
+        "re-scoring. Pass an empty string to skip.",
+    )
     return parser.parse_args(argv)
 
 
@@ -208,7 +218,14 @@ def main(argv: list[str] | None = None) -> None:
 
     by_date: dict[dt.date, pl.DataFrame] = {}
     for day in dates:
-        obs = snapshot_observations(features_path, labels_path, model, day, horizon_days=horizon)
+        obs = snapshot_observations(
+            features_path,
+            labels_path,
+            model,
+            day,
+            horizon_days=horizon,
+            context_columns=CONTEXT_COLUMNS,
+        )
         if obs.is_empty():
             logger.warning("point_in_time_no_rows", date=str(day))
             continue
@@ -222,7 +239,16 @@ def main(argv: list[str] | None = None) -> None:
     if not by_date:
         raise SystemExit("no snapshot had any labelled rows")
 
-    pooled = pl.concat(by_date.values())
+    pooled = pl.concat(by_date.values(), how="diagonal_relaxed")
+    if str(args.observations_out):
+        args.observations_out.parent.mkdir(parents=True, exist_ok=True)
+        pooled.write_parquet(args.observations_out, compression="zstd")
+        logger.info(
+            "point_in_time_observations_saved",
+            path=str(args.observations_out),
+            rows=pooled.height,
+            columns=pooled.columns,
+        )
     counts = tier_counts(pooled, thresholds)
     point = tier_metrics(counts)
     ci = bootstrap_tier_ci(counts, n_boot=args.bootstrap, seed=args.seed)

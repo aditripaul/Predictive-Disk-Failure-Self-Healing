@@ -1305,6 +1305,37 @@ precision on this telemetry. What can change the operating point is a cost
 model that chooses it, and what can raise the ceiling is evidence the model
 has not seen.
 
+### 4.9 Can the agent remove false positives? How to find out
+
+A policy cannot change the ranking, so the only false positives it can remove
+are ones that share something the score does not account for. Whether any
+such group exists is unmeasured. `make agent-pit` now saves every scored
+drive-snapshot with context columns (drive model, power-on hours, the six
+priority attributes) to
+`data/audit/agent_point_in_time_observations.parquet`, and
+`scripts/analyze_false_positives.py` profiles them without re-scoring:
+
+1. **Late hits** - flagged, healthy for 30 days, failing in days 31-60.
+   Counted only on snapshots whose days 31-60 lie inside the data. A
+   measurement of what the 30-day label calls a false alarm, not a fix, and
+   reported beside the 30-day figure, never instead of it.
+2. **Composition** by drive model and age, largest false-alarm count first,
+   with small groups folded together so a family with eight flags cannot
+   pose as a target.
+3. **Flag streaks** - precision of first-time flags against drives flagged in
+   several consecutive snapshots that never fail.
+4. **Attribute profile** - which priority attributes are non-zero among false
+   positives against true ones.
+5. **Other ways to combine two looks** - `max`, `mean` and `rising`
+   (`p_T + (p_T - p_T-lag)`) beside the `min` that already failed.
+
+What would justify a policy change: a group carrying a large share of the
+false alarms at clearly lower precision, with enough drives that the
+difference survives an interval - and then the change is a targeted rule
+for that group, measured point-in-time before it ships. What would not: a
+small group, a one-snapshot effect, or a precision gain bought with an equal
+loss of recall, which is a threshold move with extra steps.
+
 ## 5. What we learned
 
 ### 5.1 Evaluation is per drive, not per drive-day

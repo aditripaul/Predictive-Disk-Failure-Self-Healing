@@ -67,6 +67,24 @@ def select_snapshot_dates(start: dt.date, end: dt.date, step_days: int) -> list[
     return sorted(dates)
 
 
+#: Columns kept beside each scored observation so false positives can be
+#: profiled offline without re-scoring: what kind of drive, how old, and which
+#: of the priority attributes were non-zero. Only those present in the frame
+#: are kept, so a narrow frame is not an error.
+CONTEXT_COLUMNS = (
+    "drive_model",
+    "model_family",
+    "capacity_gb",
+    "power_on_hours",
+    "reallocated_sector_count",
+    "current_pending_sector_count",
+    "offline_uncorrectable",
+    "reported_uncorrectable_errors",
+    "command_timeout",
+    "reallocation_event_count",
+)
+
+
 def snapshot_observations(
     features_path: Path,
     labels_path: Path,
@@ -74,9 +92,11 @@ def snapshot_observations(
     day: dt.date,
     *,
     horizon_days: int,
+    context_columns: tuple[str, ...] = (),
 ) -> pl.DataFrame:
     """`drive_id, date, p_fail, label` for every drive reporting on `day`
-    that has an observable label there.
+    that has an observable label there, plus any of `context_columns` the
+    feature table carries.
 
     The feature scan is FILTERED and then collected, never sliced. Slicing a
     filtered scan forces Polars to evaluate the filter across the whole scan
@@ -97,7 +117,9 @@ def snapshot_observations(
                 "label": pl.Int8,
             }
         )
-    scored = score_snapshot(fleet, model).select(["drive_id", "date", "p_fail"])
+    scored = score_snapshot(fleet, model)
+    keep = ["drive_id", "date", "p_fail", *[c for c in context_columns if c in scored.columns]]
+    scored = scored.select(keep)
     del fleet
     labels = (
         pl.scan_parquet(labels_path)
@@ -278,9 +300,22 @@ def pair_observations(previous: pl.DataFrame, current: pl.DataFrame) -> pl.DataF
     )
 
 
+#: How two looks at one drive become a single score. `min` is the persistence
+#: rule - flag only if BOTH looks are high - and measured worse than one look
+#: (runbook 4.8). `max` flags if EITHER is; `mean` smooths; `rising` rewards a
+#: score that is climbing, which a `min` actively penalises.
+COMBINERS = {
+    "min": lambda cur, prev: np.minimum(cur, prev),
+    "max": lambda cur, prev: np.maximum(cur, prev),
+    "mean": lambda cur, prev: (cur + prev) / 2.0,
+    "rising": lambda cur, prev: cur + (cur - prev),
+}
+
+
 def compare_looks(
     pairs: pl.DataFrame,
     *,
+    combiner: str = "min",
     budgets: tuple[float, ...] = DEFAULT_FAR_BUDGETS,
     n_boot: int = 500,
     seed: int = 0,
@@ -297,7 +332,9 @@ def compare_looks(
         return []
     failed = pairs["label"].to_numpy() == 1
     one = pairs["p_cur"].to_numpy()
-    two = np.minimum(one, pairs["p_prev"].to_numpy())
+    if combiner not in COMBINERS:
+        raise ValueError(f"unknown combiner {combiner!r}; choose from {sorted(COMBINERS)}")
+    two = COMBINERS[combiner](one, pairs["p_prev"].to_numpy())
     curve_one, curve_two = _prepare_far(one, failed), _prepare_far(two, failed)
 
     codes = dense_drive_codes(pairs)
@@ -317,6 +354,7 @@ def compare_looks(
     lo, hi = 100 * alpha / 2, 100 * (1 - alpha / 2)
     return [
         {
+            "combiner": combiner,
             "false_alarm_budget": budget,
             "one_look_recall": base_one[i],
             "two_look_recall": base_two[i],

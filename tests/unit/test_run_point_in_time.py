@@ -94,7 +94,19 @@ def run_report(tmp_path):
         ),
         patch("mlflow.set_tracking_uri"),
     ):
-        runner.main(["--bootstrap", "40", "--out", str(out), "--start-date", "2026-05-17"])
+        runner.main(
+            [
+                "--bootstrap",
+                "40",
+                "--out",
+                str(out),
+                "--start-date",
+                "2026-05-17",
+                # Never the real data/audit: a test must not write into the repo.
+                "--observations-out",
+                str(tmp_path / "observations.parquet"),
+            ]
+        )
     return json.loads(out.read_text()), accesses
 
 
@@ -175,3 +187,44 @@ def test_a_lag_that_is_not_a_multiple_of_the_step_is_refused(tmp_path):
         pytest.raises(SystemExit, match="multiple"),
     ):
         runner.main(["--step-days", "7", "--lag-days", "10", "--out", str(tmp_path / "x.json")])
+
+
+def test_the_observations_are_saved_for_offline_analysis(run_report, tmp_path):
+    report, _ = run_report
+    saved = list(tmp_path.glob("observations.parquet"))
+    assert saved, "observations should be written where --observations-out points"
+    obs = pl.read_parquet(saved[0])
+    assert obs.height == report["pooled"]["observations"]
+    assert {"drive_id", "date", "p_fail", "label"} <= set(obs.columns)
+
+
+def test_the_false_positive_script_reads_what_the_pipeline_saved(run_report, tmp_path, capsys):
+    """The analysis consumes the run's JSON and saved observations; run it on
+    exactly those, so a schema drift between them fails here."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "analyze_false_positives", Path("scripts/analyze_false_positives.py")
+    )
+    assert spec and spec.loader
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+
+    capsys.readouterr()
+    with patch.object(script, "DATA_CONFIG_PATH", tmp_path / "data.yaml"):
+        script.main(
+            [
+                "--observations",
+                str(tmp_path / "observations.parquet"),
+                "--report",
+                str(tmp_path / "report.json"),
+                "--bootstrap",
+                "10",
+            ]
+        )
+    out = capsys.readouterr().out
+    assert "false positives at >= cordon" in out
+    # Three weekly dates ending 05-31: none has days 31-60 inside the data.
+    assert "nothing exact to report" in out
+    assert "need at least 4 snapshots" in out
+    assert "two looks 7d apart vs one" in out
