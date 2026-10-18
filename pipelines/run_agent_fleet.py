@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import tempfile
 import uuid
 from collections import Counter
 from pathlib import Path
@@ -73,12 +74,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument(
         "--checkpoint-path",
-        default=":memory:",
-        help="LangGraph checkpoint store. Defaults to :memory: - this is a "
-        "measurement tool, and a durable store would both grow by a "
-        "checkpoint per node per cycle and let one run resume another's "
-        "per-drive hysteresis and cooldown state. Pass the configured path "
-        "to exercise durability deliberately.",
+        default=None,
+        help="LangGraph checkpoint store. Default: a fresh temporary FILE, "
+        "deleted on exit. Not :memory: - the saver retains every checkpoint, "
+        "so a long run holds its whole history in RAM (10,000 cycles x a "
+        "checkpoint per node exhausted 20 GB). Not the configured path "
+        "either, because that would let one run resume another's per-drive "
+        "hysteresis and cooldown state. Pass a path to override.",
     )
     parser.add_argument(
         "--thread-id",
@@ -157,6 +159,16 @@ def main(argv: list[str] | None = None) -> None:
     decisions: list[dict] = []
     selections: dict[str, int] = {}
     removed: dict[str, str] = {}
+    # Carried across cycles and pruned to the live pool each time. Left
+    # alone it grows one entry per drive ever decided and - because
+    # apply_hysteresis rebuilds it as {**state, drive: ...} - the whole dict
+    # is copied every cycle and every copy is checkpointed. Pruning holds it
+    # at roughly one entry: a drive is decided twice, WARN then an action,
+    # and then leaves the pool.
+    risk_state: dict[str, dict] = {}
+    # Reported so a regression in the pruning is visible in the output
+    # rather than only as memory growth.
+    max_risk_entries = 0
     # Enough tries for hysteresis to escalate a drive before we give up on
     # it, plus one; fewer and no drive could ever reach a destructive tier.
     max_selections = AgentSettings.load().hysteresis_cycles_required + 1
@@ -168,13 +180,16 @@ def main(argv: list[str] | None = None) -> None:
     # from the same inputs.
     thread_id = args.thread_id or f"fleet-{fleet.snapshot_id}-{uuid.uuid4().hex[:8]}"
     config = {"configurable": {"thread_id": thread_id}}
-    with compiled_agent(
-        fleet.dependencies,
-        checkpoint_path=args.checkpoint_path,
-        plan_kwargs=fleet.plan_kwargs,
-    ) as app:
+    with (
+        tempfile.TemporaryDirectory(prefix="agent_fleet_ckpt_") as ckpt_dir,
+        compiled_agent(
+            fleet.dependencies,
+            checkpoint_path=args.checkpoint_path or str(Path(ckpt_dir) / "checkpoints.sqlite"),
+            plan_kwargs=fleet.plan_kwargs,
+        ) as app,
+    ):
         for cycle in range(args.cycles):
-            result = app.invoke({}, config=config)
+            result = app.invoke({"drive_risk_state": risk_state}, config=config)
             proposal = result.get("proposed_action")
             if proposal is None:
                 logger.info("agent_cycle_no_candidates", cycle=cycle)
@@ -197,6 +212,16 @@ def main(argv: list[str] | None = None) -> None:
             )
             if reason is not None:
                 removed[proposal["drive_id"]] = reason
+            # Prune to drives still in the pool: a drive that has left can
+            # never be selected again, so its counters are dead weight that
+            # every subsequent checkpoint would carry.
+            alive = {d["drive_id"] for d in fleet.candidates}
+            risk_state = {
+                drive_id: entry
+                for drive_id, entry in result.get("drive_risk_state", {}).items()
+                if drive_id in alive
+            }
+            max_risk_entries = max(max_risk_entries, len(risk_state))
             if not fleet.candidates:
                 logger.info("agent_candidate_pool_exhausted", cycle=cycle)
                 break
@@ -211,6 +236,7 @@ def main(argv: list[str] | None = None) -> None:
         "above_threshold_count": fleet.above_threshold_count,
         "action_thresholds": fleet.plan_kwargs["action_thresholds"],
         "cycles_run": len(decisions),
+        "peak_risk_state_entries": max_risk_entries,
         "actions_by_tier": dict(Counter(d["proposed_action"] for d in decisions)),
         "control_arm_decisions": sum(d["control_arm"] for d in decisions),
         "sent_to_human_review": sum(d["human_review_required"] for d in decisions),

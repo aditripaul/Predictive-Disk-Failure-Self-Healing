@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import polars as pl
 import yaml
 
@@ -69,6 +70,9 @@ AGENT_CONFIG_PATH = Path("configs/agent.yaml")
 #: ever acted on, so this bounds the checkpoint rather than the decision.
 DEFAULT_MAX_CANDIDATES = 100
 DEFAULT_JOIN_CHUNK_ROWS = 2_000_000
+#: Rows scored at a time. The fleet as one float64 matrix is ~0.7 GB at
+#: fleet scale, and it is copied twice on the way to the model.
+DEFAULT_SCORE_BATCH_ROWS = 50_000
 
 
 @dataclass(frozen=True)
@@ -213,15 +217,27 @@ def load_scoring_model(run_id: str, model_type: str) -> Any:
     return model
 
 
-def score_snapshot(snapshot: pl.DataFrame, model: Any) -> pl.DataFrame:
+def score_snapshot(
+    snapshot: pl.DataFrame, model: Any, *, batch_rows: int = DEFAULT_SCORE_BATCH_ROWS
+) -> pl.DataFrame:
     """`snapshot` with a `p_fail` column. Nulls are filled with 0.0, the same
     convention batch scoring uses (`src/models/serving.py`), so a drive is
-    never dropped for a missing feature."""
+    never dropped for a missing feature.
+
+    Scored in row batches. The whole fleet as a float64 matrix is ~0.7 GB at
+    356k drives x 246 features, and `fill_null` then `to_numpy` each copy it,
+    so an unbatched call peaks around 2 GB for a result that is one float per
+    drive. Batching bounds the peak at `batch_rows` x features and changes
+    nothing about the output: every row is scored independently."""
     feature_columns = select_feature_columns(snapshot)
-    x = snapshot.select(feature_columns).fill_null(0.0).to_numpy()
-    return snapshot.with_columns(
-        pl.Series("p_fail", predict_proba_positive(model, x)).cast(pl.Float64)
-    )
+    if snapshot.height == 0:
+        return snapshot.with_columns(pl.lit(None, dtype=pl.Float64).alias("p_fail"))
+
+    scores: list[np.ndarray] = []
+    for offset in range(0, snapshot.height, batch_rows):
+        batch = snapshot.slice(offset, batch_rows).select(feature_columns).fill_null(0.0)
+        scores.append(np.asarray(predict_proba_positive(model, batch.to_numpy())))
+    return snapshot.with_columns(pl.Series("p_fail", np.concatenate(scores)).cast(pl.Float64))
 
 
 def _recording_executor(executed: list[dict[str, Any]]):
@@ -329,11 +345,17 @@ def build_fleet_dependencies(
         end_date=str(end_date),
     )
 
-    as_of_by_drive = {
-        row["drive_id"]: row["date"]
-        for row in scored.select(["drive_id", "date"]).to_dicts()
-        if "date" in scored.columns
-    }
+    # Only the candidates are ever decided, so only they need a date. Built
+    # for the whole fleet this was 356k dict entries to serve 5,000.
+    candidate_ids = {d["drive_id"] for d in drives}
+    as_of_by_drive: dict[str, dt.date] = {}
+    if "date" in scored.columns and candidate_ids:
+        as_of_by_drive = {
+            row["drive_id"]: row["date"]
+            for row in scored.filter(pl.col("drive_id").is_in(candidate_ids))
+            .select(["drive_id", "date"])
+            .to_dicts()
+        }
 
     def fleet_state_provider() -> dict[str, Any]:
         """The highest-risk candidate still in the pool, and only it.

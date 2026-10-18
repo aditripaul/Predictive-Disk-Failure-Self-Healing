@@ -445,6 +445,18 @@ stops a horizon before `train_end`. Then the same commands as 2.2.
   holds several GB. Delete it with `make clean-kept` when you are done.
 - **Stale results after a code change:** re-run `make train` before judging
   any experiment. Runs made on older code are not comparable.
+- **`make agent-fleet` exhausting RAM on a long run:** three compounding
+  allocations, fixed on 2026-10-18. `apply_hysteresis` rebuilds
+  `drive_risk_state` as `{**state, drive: ...}` every cycle and never removes
+  an entry, so it grew one entry per drive ever decided and every copy was
+  checkpointed; the checkpoint store defaulted to `:memory:`, which retains
+  all history, so 10,000 cycles held ~19 GB; and `score_snapshot` built the
+  whole fleet as one float64 matrix (0.7 GB at 356k x 246, copied twice on
+  the way to the model). Now: scoring is batched, the runner prunes the risk
+  state to the live pool each cycle (which holds it at about one entry, since
+  a drive is decided twice and then leaves), and the default checkpoint is a
+  temporary file deleted on exit. `peak_risk_state_entries` is in the report
+  so a pruning regression shows up as a number rather than as memory growth.
 - **`memory_limit_exceeded` at the very end of `make ingest-backblaze`,
   after every file logged successfully:** this was Bronze profiling, not the
   ingest. It ran one 16-column `null_count()` over the whole Bronze dataset,
