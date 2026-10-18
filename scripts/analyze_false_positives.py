@@ -52,8 +52,30 @@ def _table(frame: pl.DataFrame, title: str) -> None:
     if frame.is_empty():
         print("   (column not present in the saved observations)")
         return
-    with pl.Config(tbl_rows=30, tbl_hide_dataframe_shape=True, float_precision=3):
-        print(frame)
+    # A fixed, readable column set: a wide table gets its middle columns
+    # elided by the terminal, and the columns that matter are in the middle.
+    wanted = [
+        c
+        for c in (
+            frame.columns[0],
+            "flagged",
+            "caught",
+            "precision",
+            "share_of_fp",
+            "base_rate",
+            "recall",
+            "plr",
+        )
+        if c in frame.columns
+    ]
+    with pl.Config(
+        tbl_rows=30,
+        tbl_cols=-1,
+        tbl_width_chars=160,
+        tbl_hide_dataframe_shape=True,
+        float_precision=4,
+    ):
+        print(frame.select(wanted) if len(wanted) > 1 else frame)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -128,7 +150,8 @@ def main(argv: list[str] | None = None) -> None:
     # and lift are shown. Low precision alone may just mean a low failure rate.
     _table(
         precision_by_group(flagged, "drive_model", population=obs),
-        "2a. by drive model (largest false-alarm count first; lift = precision / base rate)",
+        "2a. by drive model (most false alarms first; compare families on plr, "
+        "which ignores the base rate)",
     )
     _table(
         precision_by_group(

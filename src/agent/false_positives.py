@@ -90,7 +90,9 @@ def precision_by_group(
     group's own base rate and **lift** (precision / base rate). Without it a
     low-precision group is ambiguous: the model may be weak there, or the
     group may just fail less often, and precision moves with the base rate
-    (runbook 1.7). Only low lift says the model ranks that group badly."""
+    (runbook 1.7). Read `plr` (recall / false-alarm rate) to compare groups:
+    it does not move with the base rate. Lift does, mildly, once a group's
+    base rate is no longer tiny."""
     if column not in flagged.columns:
         return pl.DataFrame()
     total_fp = int((flagged["label"] == 0).sum())
@@ -124,10 +126,24 @@ def precision_by_group(
         .with_columns((pl.col("false_alarms") / max(total_fp, 1)).alias("share_of_fp"))
     )
     if with_population:
-        grouped = grouped.with_columns(
-            (pl.col("failing") / pl.col("observations")).alias("base_rate"),
-            (pl.col("caught") / pl.col("failing")).alias("recall"),
-        ).with_columns((pl.col("precision") / pl.col("base_rate")).alias("lift"))
+        grouped = (
+            grouped.with_columns(
+                (pl.col("failing") / pl.col("observations")).alias("base_rate"),
+                (pl.col("caught") / pl.col("failing")).alias("recall"),
+                (pl.col("false_alarms") / (pl.col("observations") - pl.col("failing"))).alias(
+                    "false_alarm_rate"
+                ),
+            )
+            .with_columns(
+                (pl.col("precision") / pl.col("base_rate")).alias("lift"),
+                # Lift still falls as a group's base rate rises at the same
+                # ranking quality; PLR does not. A family failing at 0.8% looked
+                # weak on lift and on precision for different reasons - PLR is
+                # the column to read across families.
+                (pl.col("recall") / pl.col("false_alarm_rate")).alias("plr"),
+            )
+            .drop("observations")
+        )
     return grouped.sort("false_alarms", descending=True).head(top)
 
 

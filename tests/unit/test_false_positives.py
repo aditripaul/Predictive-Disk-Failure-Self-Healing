@@ -228,3 +228,26 @@ def test_lift_separates_a_weak_model_from_a_rare_failure():
 def test_without_a_population_there_is_no_lift_column():
     flagged = _obs([("a", 0.9, 1)] * 40).with_columns(pl.Series("drive_model", ["A"] * 40))
     assert "lift" not in precision_by_group(flagged, "drive_model", min_flagged=10).columns
+
+
+def test_plr_matches_a_hand_count_and_ignores_the_base_rate():
+    """R: 10 caught of 20 failing (recall 0.5), 40 false alarms of 980
+    healthy. W: 10 of 50 (0.2), 40 of 200. PLR = recall / FAR."""
+
+    def rows(name, n, failing, flagged, caught):
+        out = []
+        for i in range(n):
+            if i < flagged:
+                fails = i < caught
+            else:
+                fails = i < flagged + (failing - caught)
+            out.append((f"{name}{i}", 0.9 if i < flagged else 0.1, int(fails)))
+        return out
+
+    obs = _obs(rows("r", 1000, 20, 50, 10) + rows("w", 250, 50, 50, 10)).with_columns(
+        pl.Series("drive_model", ["R"] * 1000 + ["W"] * 250)
+    )
+    table = precision_by_group(flagged_at(obs, 0.5), "drive_model", population=obs, min_flagged=10)
+    plr = {r["drive_model"]: r["plr"] for r in table.iter_rows(named=True)}
+    assert plr["R"] == pytest.approx(0.5 / (40 / 980))
+    assert plr["W"] == pytest.approx(0.2 / (40 / 200))

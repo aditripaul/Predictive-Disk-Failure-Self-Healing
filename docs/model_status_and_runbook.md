@@ -1349,23 +1349,49 @@ flagged, 1,121 caught, 3,679 false alarms):
   false-alarm rate: `max` within +/-1 point and never clear of zero, `mean`
   -0.5 to -1.6 points, `min` -0.5 to -3.3, and `rising` -3.6 to -16.8. The
   week-on-week change in score is mostly noise, so weighting it hurts.
-- **Family and age differences exist but are worth about a threshold move.**
-  The lowest-precision families (HGST HUH721212ALE604 at 15.5% carrying 14.5%
-  of false alarms, ST14000NM001G 13.4%, WDC WUH721816ALE6L4 6.2%,
-  ST24000NM002H 6.0%) together hold 23% of false alarms. Suppressing all four
-  takes precision from 23.4% to 26.6% and recall from 29.3% to 25.3%; raising
-  the global threshold to the same recall gives about 26.0%. The rule was
-  also chosen by looking at test data, so its real gain is smaller still. And
-  low precision alone does not show the model is weak there - a family that
-  fails rarely has low precision at the same ranking quality. The script now
-  reports each group's base rate and lift to separate the two; re-run it
-  (no re-scoring needed) before reading anything into a family.
+- **The model's ranking quality varies 73-fold across drive families.**
+  Measured on PLR (recall / false-alarm rate), which unlike precision and
+  lift does not move with a family's failure rate: from 22 (ST24000NM002H)
+  to 1,583 (WDC WUH722222ALE6L4), against 250 pooled. Six families sit below
+  100 - ST24000NM002H 22, TOSHIBA MG08ACA16TEY 60, ST14000NM0138 68, WDC
+  WUH721816ALE6L4 72, HGST HUH721212ALN604 78, HGST HUH721212ALE604 80. They
+  hold 33% of the false alarms and 35% of the failing drive-snapshots, and
+  recall inside them is 21.2% against 33.5% everywhere else. Pooled figures
+  hide this. Counts are drive-snapshots without intervals, and the smallest
+  families rest on a handful of failures (ST24000NM002H: 5 caught), so rank
+  the families, do not quote them to a decimal.
 
-**Conclusion: the agent cannot materially reduce the model's false positives
-with this telemetry.** They do not cluster on anything the score ignores. The
-remaining levers are outside the loop's filters: count late hits honestly
-when judging cheap actions, choose the operating point with a cost model, and
-add evidence the model has not seen.
+  This corrects an earlier reading in this section. Precision alone picked
+  the "worst" four families, and one of them, ST14000NM001G at 13.4%
+  precision, is not weak at all: PLR 207, near the pooled 250 - it simply
+  fails rarely (0.075%). Precision mistook a low base rate for a weak model,
+  which is the Section 1.7 trap again. Suppressing the low-precision families
+  still behaves like a threshold move (23.4% to 26.6% precision for 29.3% to
+  25.3% recall, against about 26.0% from a global threshold), but the reason
+  is not that the differences are illusory.
+
+  What it implies. A score that means different things in different families
+  makes one global threshold sub-optimal: the same `p_fail` carries a
+  different chance of failure depending on the drive model. Per-family
+  *calibration*, pooled toward the fleet so small families do not overfit,
+  is the principled way to use that - it reorders flags across families
+  rather than just raising the bar. Per-family *thresholds* were tried before
+  and lost on test (Section 1.5), tuned on 50-100 failing drives with lift
+  targets; calibration with shrinkage is a different test, and it has to be
+  fitted on the validation window and judged point-in-time on test, never fit
+  on the numbers above. On the model side, the six weak families are where
+  better features would pay: they are mixed-vendor, so the Seagate-only
+  attribute gap of ADR 0002 does not explain them by itself.
+
+**Conclusion.** The loop's filters cannot reduce the model's false
+positives: on SMART telemetry a false positive looks like a failing drive, and
+no streak, attribute or two-look combination separates them. One structure
+does exist - ranking quality differs sharply by drive family - and the only
+policy-layer use of it is per-family calibration, which is untested and must
+be validated out of sample before anyone believes it. Beyond that the levers
+are outside the loop: count late hits honestly when judging cheap actions,
+choose the operating point with a cost model, and add evidence the model has
+not seen.
 
 What would justify a policy change: a group carrying a large share of the
 false alarms at clearly lower precision, with enough drives that the
