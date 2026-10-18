@@ -292,6 +292,21 @@ def _score(fleet, decisions: list[dict], *, horizon_days: int | None = None) -> 
             hint=f"re-run with --end-date {last_scoreable}",
         )
 
+    if end < data_end:
+        # Not point-in-time. Two look-aheads (runbook 4.7): feature_maturity is
+        # assigned from the dataset's LAST date, so the migrate/drain gate
+        # reads whether a drive survived the snapshot; and "latest row" for a
+        # drive that left mid-window is its final row before it disappeared.
+        # The figures are real arithmetic on a biased setup - quote none of
+        # them as the agent's performance. scripts/check_agent_lookahead.py
+        # measures how much each contributes.
+        logger.warning(
+            "scoring_a_past_window_is_not_point_in_time",
+            window_end=str(end),
+            data_end=str(data_end),
+            see="docs/model_status_and_runbook.md section 4.7",
+        )
+
     labels = load_labels(
         labels_path,
         horizon_days=resolved_horizon,

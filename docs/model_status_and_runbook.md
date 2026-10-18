@@ -346,7 +346,9 @@ the window extends past the boundary.
 
 The test-split backtest is the other mode, with the primary horizon and
 ground truth, and it records a test-split access
-(`src/models/access_log.py`):
+(`src/models/access_log.py`). **Its results are not point-in-time** - the
+maturity gate and the latest-row snapshot both look ahead - so read Section
+4.7 before quoting any figure from it:
 
 ```bash
 make agent-fleet ARGS="--start-date 2026-04-01 --end-date 2026-05-31 \
@@ -1030,6 +1032,78 @@ against widening the window backwards again.
 The test: pull `train_end` forward with everything else fixed and compare
 `test_drive_recall_at_far_*` between the two runs. Both log it, so that is a
 direct read rather than the interpolation used above. Not yet run.
+
+### 4.7 The agent backtest is not point-in-time (2026-10-18): do not quote it
+
+First run of the agent over the test window (`make agent-fleet`, Apr-May
+2026, 30-day horizon, 2,173 candidates, none truncated): **61.8% precision at
+48.3% recall** on 1,157 labelled actions. **Neither figure is the agent's
+performance.** The per-tier breakdown (`scripts/score_agent_run.py`) shows
+why:
+
+| Tier | Drives | Labelled | Failed | Precision |
+|---|---|---|---|---|
+| warn | 982 | 978 | 203 | 20.8% |
+| cordon (scored) | 799 | 775 | 434 | 56.0% |
+| cordon (downgraded) | 321 | 311 | 281 | **90.4%** |
+| migrate | 62 | 62 | 0 | **0.0%** |
+| drain | 9 | 9 | 0 | **0.0%** |
+
+The two most extreme tiers are the wrong way round: the highest-scoring
+drives that passed the evidence gates were never right, and the ones the
+gates distrusted nearly always were. A trustworthy gate would show the
+reverse.
+
+**Cause 1 - the maturity gate reads the outcome.** `feature_maturity` is
+assigned from the dataset's last date (`src/preprocess/feature_maturity.py`):
+a drive whose final row is earlier than 2026-06-30 is DECOMMISSIONED, checked
+before every other state. `determine_action_tier` downgrades migrate/drain to
+cordon unless the drive is MATURE. In a window ending 2026-05-31 that makes
+"MATURE" mean "was still reporting a month after the snapshot", and a drive
+that reports on the last day cannot have failed inside a 30-day horizon. So
+migrate/drain are selected from drives that survived (0/71) and the
+downgraded cordons are the drives that vanished (281/311). The model never
+sees `feature_maturity`; only the gate does. Pinned in
+`tests/unit/test_maturity_lookahead.py`.
+
+**Cause 2 - "latest row" picks a dying drive's last day.** The snapshot takes
+each drive's most recent in-window row. For a drive that left mid-window that
+is the final row before it disappeared: maximum signal, zero lead time, and a
+drive that a fleet scored at a fixed date would not contain. This is the
+likelier source of the agent's recall (48.3%) beating the model's (12.0%) on
+the same window and the same 1,479 failing drives, and of PLR 387 against
+318. It is the same asymmetry `drive_level_table` documents, in the
+opposite direction. `scripts/check_agent_lookahead.py` reports how many acted
+drives left mid-window and the lead time of the ones it "caught".
+
+What this does and does not invalidate:
+
+- **Not invalidated:** the finding that the evidence filters remove nothing
+  on this data - hysteresis sees identical evidence on a fixed snapshot,
+  cooldown never fires because each drive leaves the pool once acted on, and
+  the guardrails carrying information the model lacks are fed defaults. The
+  gates downgrade migrate/drain to cordon, which still acts, so they never
+  prevent an action. `decided_but_not_acted` measures the width of the warn
+  band, not a filter's cost; an earlier claim here that 45% of drives were
+  "filtered" was wrong.
+- **Not invalidated:** `cordon (scored)` at 56.0% is free of Cause 1, because
+  the gates only touch destructive tiers. It is still exposed to Cause 2.
+- **Invalidated:** the 61.8% / 48.3% headline, the migrate/drain precision,
+  and any recommendation drawn from the downgraded-cordon row. An earlier
+  suggestion to return WARN instead of CORDON when the gates fail was based on
+  reading that row as evidence the score is untrustworthy there; it is
+  evidence of nothing, and acting on it would have been wrong.
+- **Also not comparable to the June run:** the 31.25% at 9.9% recall is
+  7-day, top 100, and shares Cause 2.
+
+**What a clean measurement needs:** a fleet at a fixed date T, containing only
+drives reporting on T, with maturity computed as of T
+(`build_drive_metadata(..., as_of_date=T)` on telemetry up to T), scored once
+and judged on `label` at T. Done daily across the window, that is also the
+only setting where hysteresis compares two independent scoring passes
+instead of the same frozen row twice. The row to compare against is the
+model's own figure under the same convention, not 57.1% (which uses
+`drive_level_table`'s max-over-rows rule).
 
 ## 5. What we learned
 
