@@ -218,7 +218,7 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
   windows - which is how you can tell the jump is the window and not the
   fleet.
 
-  This is the same mechanism as a longer label horizon (Section 2.3), which
+  This is the same mechanism as a longer label horizon (Section 2.4), which
   the project went looking for deliberately, arriving instead through a
   change nobody flagged as a base-rate change. Two different routes to the
   same inflation, so treat **any** edit to `splits` or `horizons_days` as a
@@ -301,7 +301,66 @@ and well under the 123,351,646 that surfaced the memory bugs in Section 3.
 Changing only model or split settings needs `make train` onwards, not a
 rebuild of features or labels.
 
-### 2.3 The 60-day horizon experiment (parked 2026-10-18, never run)
+### 2.3 Measuring the agent, not the model (`make agent-fleet`)
+
+**Not yet run.** Section 1.1's figures - 57.1% precision at 12.0% recall -
+describe a threshold applied to scores. They say nothing about the agent.
+Between a score and an action sit the guardrails, the 0.80 confidence
+floor, two-cycle hysteresis, the per-drive cooldown, the control arm and
+one-action-per-cycle. Every one can only *remove* actions, and nobody has
+measured by how much.
+
+`src/agent/fleet.py` binds the MAPE-K loop to the real gold features and
+the trained model (`make agent-fleet`); execution stays simulated, because
+there is no datacenter to cordon a drive in. `src/agent/backtest.py` scores
+the decisions against the label table.
+
+**Which window, and the horizon trap.** A row is scoreable only if the data
+outlives its horizon. With data to 2026-06-30:
+
+| Horizon | Last scoreable row | Usable June days |
+|---|---|---|
+| 7 days | 2026-06-23 | 23 |
+| 14 days | 2026-06-16 | 16 |
+| 30 days | 2026-05-31 | 0 |
+
+So the inference window has no 30-day label, but it *does* have 7- and
+14-day labels. That gives an agent-level measurement on data no model
+choice has ever touched - it does not consume the test split:
+
+```bash
+make agent-fleet ARGS="--start-date 2026-06-01 --end-date 2026-06-23 \
+    --cycles 200 --score --score-horizon-days 7"
+```
+
+Two things that figure is not. It is **7-day** precision and belongs in no
+column beside a 30-day one (Section 1.7). And the model is trained for 30
+days, so a drive that fails on day 20 is a 7-day false positive - expect
+the number to be lower than Section 1.1's for that reason alone, before any
+agent filter has removed anything.
+
+The `--end-date` matters more than it looks: `latest_row_per_drive` keeps
+each drive's *last* row, so snapshotting through 2026-06-30 yields rows
+that are censored at every horizon and nothing to score. The run warns when
+the window extends past the boundary.
+
+The test-split backtest is the other mode, with the primary horizon and
+ground truth, and it records a test-split access
+(`src/models/access_log.py`):
+
+```bash
+make agent-fleet ARGS="--start-date 2026-04-01 --end-date 2026-05-31 \
+    --cycles 500 --score"
+```
+
+**One action per cycle**, so `--cycles` bounds how many drives the agent can
+reach; drives never selected are reported as attrition rather than as
+policy rejections. The snapshot is fixed for the run and the candidate pool
+advances as drives are acted on or found permanently blocked - without
+that, the plan node's `max(drives, key=p_fail)` re-picks the same drive
+every cycle forever.
+
+### 2.4 The 60-day horizon experiment (parked 2026-10-18, never run)
 
 Set up, then parked before any result existed. Nothing in Sections 1 or 4
 comes from it. Recorded here because the setup cost a day and the reasoning
@@ -367,7 +426,7 @@ Three consequences to expect:
   precision figure earned that way does not satisfy the goal in Section 7,
   which names a 30-day horizon.
 
-### 2.4 Q1 2026 only (the configuration of Sections 4, 4.1 and 5)
+### 2.5 Q1 2026 only (the configuration of Sections 4, 4.1 and 5)
 
 `configs/data.yaml`: `sources.backblaze.end_date: "2026-03-31"`.
 `configs/model.yaml`: `primary_horizon_days: 14` and `splits` with
@@ -375,7 +434,7 @@ Three consequences to expect:
 "2026-03-17"`. One quarter is too short for the 30-day horizon once training
 stops a horizon before `train_end`. Then the same commands as 2.2.
 
-### 2.5 Things that go wrong, and where to look
+### 2.6 Things that go wrong, and where to look
 
 - **Empty or tiny test split:** the split dates do not match the data. Check
   `train_model_splits_loaded` in the log.
@@ -1104,7 +1163,7 @@ What could still change the picture:
 
 - **A longer horizon again (60-90 days).** On validation, 61 of 510
   false alarms failed 31 or more days after the alert. Set up and then
-  **parked on 2026-10-18 without being run** (Section 2.3); the data is
+  **parked on 2026-10-18 without being run** (Section 2.4); the data is
   downloaded, so resuming is a config change rather than a download.
 
   Read it in ROC space, because precision and AUPRC will both rise whether or
@@ -1216,7 +1275,7 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 | `configs/data.yaml` | `sources.backblaze.start_date` / `end_date` | 2025-10-01 / 2026-06-30 | Which raw daily CSVs `make ingest-backblaze` reads. Q3 2025 is downloaded but excluded (Section 2.2) |
 | `configs/data.yaml` | `download.backblaze.quarters` | Q3_2025, Q4_2025, Q1_2026, Q2_2026 | Quarterly archives `make download-backblaze` fetches. Wider than what is ingested, so the parked 60-day run needs no download |
 | `configs/model.yaml` | `primary_horizon_days` | 30 | Horizon the shipped model is trained and scored for (was 14) |
-| `configs/model.yaml` | `horizons_days` | [7, 14, 30] | Horizons whose labels exist (60 is parked, Section 2.3) |
+| `configs/model.yaml` | `horizons_days` | [7, 14, 30] | Horizons whose labels exist (60 is parked, Section 2.4) |
 | `configs/model.yaml` | `model.max_train_rows` | 5000000 | Training-row cap |
 | `configs/model.yaml` | `model.positive_weight_power` | 0.5 | Positive weight = (neg/pos)^0.5 |
 | `configs/model.yaml` | `model.early_stopping_rounds` | 50 | Early stopping patience (average precision) |

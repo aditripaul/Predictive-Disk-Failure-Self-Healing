@@ -82,6 +82,15 @@ class FleetAgent:
     drive_count: int
     candidate_count: int
     window: tuple[dt.date | None, dt.date | None]
+    #: The SAME list object `fleet_state_provider` returns. A multi-cycle
+    #: caller must advance it - see `pipelines/run_agent_fleet.py`. The plan
+    #: node takes `max(drives, key=p_fail)` from whatever this holds, so an
+    #: unchanged list means the same drive is chosen every cycle forever.
+    candidates: list[dict[str, Any]] = field(default_factory=list)
+    #: drive_id -> the date of the row it was scored from, so a backtest can
+    #: join decisions to labels on (drive_id, date, horizon_days). Kept here
+    #: rather than in the proposal because AgentState is checkpointed.
+    as_of_by_drive: dict[str, dt.date] = field(default_factory=dict)
     executed_actions: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -309,6 +318,13 @@ def build_fleet_dependencies(
         end_date=str(end_date),
     )
 
+    as_of_by_drive = {
+        row["drive_id"]: row["date"]
+        for row in scored.select(["drive_id", "date"]).to_dicts()
+        if "date" in scored.columns
+    }
+    # `drives` is handed to the provider by reference, so a caller that
+    # removes an entry changes what the next cycle sees.
     state = {"fleet_snapshot_id": snapshot_id, "drives": drives}
     executed: list[dict[str, Any]] = []
     execute, validate = _recording_executor(executed)
@@ -329,5 +345,7 @@ def build_fleet_dependencies(
         drive_count=scored.height,
         candidate_count=len(drives),
         window=(start_date, end_date),
+        candidates=drives,
+        as_of_by_drive=as_of_by_drive,
         executed_actions=executed,
     )

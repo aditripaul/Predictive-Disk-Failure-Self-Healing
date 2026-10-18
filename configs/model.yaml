@@ -195,7 +195,7 @@ splits:
   # comparable to Section 1.1's figures. The frozen run remains the reference
   # for the sealed quarter.
   #
-  # The 60-day horizon experiment is PARKED, not abandoned (Section 2.3):
+  # The 60-day horizon experiment is PARKED, not abandoned (Section 2.4):
   # start_date 2025-07-01, add 60 to horizons_days, and use
   # 2026-02-01 / 2026-03-17 / 2026-05-01 here.
   #
