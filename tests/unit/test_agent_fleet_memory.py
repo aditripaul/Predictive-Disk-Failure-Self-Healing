@@ -150,3 +150,68 @@ def test_the_default_checkpoint_is_a_file_not_memory():
 
     assert captured["path"] != ":memory:"
     assert captured["path"].endswith("checkpoints.sqlite")
+
+
+def test_the_wide_scan_reaches_the_join_unfiltered():
+    """The invariant that makes the snapshot bounded.
+
+    chunked_inner_join slices its left side with left.slice(offset, n).
+    Against a plain scan_parquet that pushes into the Parquet reader. Against
+    a filtered scan Polars must evaluate the filter across the whole scan to
+    resolve row offsets, so every slice materializes the entire window at
+    full width - 43 GB for a 61-day window at 246 columns. Filtering the wide
+    side is therefore not a performance detail; it is the bug.
+    """
+    import datetime as dt
+    from pathlib import Path
+
+    import polars as pl
+
+    from src.agent import fleet
+
+    captured: dict[str, object] = {}
+
+    def fake_join(left, right, *, on, chunk_rows):
+        captured["left_plan"] = left.explain() if hasattr(left, "explain") else ""
+        captured["chunk_rows"] = chunk_rows
+        return pl.DataFrame(
+            {"drive_id": ["d0"], "date": [dt.date(2026, 5, 1)], "smart_5_raw": [1.0]}
+        )
+
+    with (
+        patch.object(fleet, "chunked_inner_join", fake_join),
+        patch.object(
+            fleet.pl,
+            "read_parquet",
+            lambda *_a, **_k: pl.DataFrame({"drive_id": ["d0"], "feature_maturity": ["MATURE"]}),
+        ),
+        patch.object(
+            fleet.pl,
+            "scan_parquet",
+            lambda *_a, **_k: pl.DataFrame(
+                {
+                    "drive_id": ["d0", "d0"],
+                    "date": [dt.date(2026, 4, 1), dt.date(2026, 5, 1)],
+                    "smart_5_raw": [1.0, 2.0],
+                }
+            ).lazy(),
+        ),
+    ):
+        fleet.load_fleet_snapshot(
+            Path("features.parquet"),
+            Path("metadata.parquet"),
+            start_date=dt.date(2026, 4, 1),
+            end_date=dt.date(2026, 5, 31),
+        )
+
+    plan = str(captured["left_plan"]).upper()
+    assert "FILTER" not in plan, f"the wide scan was filtered:\n{captured['left_plan']}"
+
+
+def test_the_snapshot_chunk_is_smaller_than_the_training_join():
+    """Each slice is read at full width, so the training join's 2,000,000
+    would be 3.9 GB per slice for an output of one row per drive."""
+    from src.agent.fleet import DEFAULT_SNAPSHOT_CHUNK_ROWS
+
+    assert DEFAULT_SNAPSHOT_CHUNK_ROWS < 2_000_000
+    assert DEFAULT_SNAPSHOT_CHUNK_ROWS * 246 * 8 < 1.5e9

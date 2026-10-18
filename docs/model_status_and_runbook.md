@@ -457,6 +457,17 @@ stops a horizon before `train_end`. Then the same commands as 2.2.
   a drive is decided twice and then leaves), and the default checkpoint is a
   temporary file deleted on exit. `peak_risk_state_entries` is in the report
   so a pruning regression shows up as a number rather than as memory growth.
+- **`make agent-fleet` dying within seconds of starting, before any cycle:**
+  the snapshot loader, not the loop. `chunked_inner_join` slices its left
+  side with `left.slice(offset, n)`, which pushes into the Parquet reader
+  only when the scan is UNFILTERED. Filtered, Polars must evaluate the
+  filter across the whole scan to resolve row offsets, so each slice
+  materializes the entire window at full width: 16 GB for a 23-day window at
+  246 columns, 43 GB for a 61-day one. The first squeezed under the cap, the
+  second did not. `load_fleet_snapshot` now applies the window to a
+  two-column projection and joins those `(drive_id, date)` pairs against the
+  unfiltered scan - the shape `pipelines/score_fleet.py` uses. A test asserts
+  the plan reaching the join contains no FILTER.
 - **`memory_limit_exceeded` at the very end of `make ingest-backblaze`,
   after every file logged successfully:** this was Bronze profiling, not the
   ingest. It ran one 16-column `null_count()` over the whole Bronze dataset,

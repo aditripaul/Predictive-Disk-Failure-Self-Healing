@@ -51,8 +51,8 @@ from src.agent.deps import ActionLedger, AgentDependencies, InMemoryActionLedger
 from src.guardrails.adapter import build_guardrail_evaluator
 from src.logging_config import get_logger
 from src.models.access_log import record_test_access
-from src.models.features import select_feature_columns
-from src.models.serving import join_feature_maturity, latest_row_per_drive
+from src.models.features import _as_dataframe, chunked_inner_join, select_feature_columns
+from src.models.serving import join_feature_maturity
 from src.models.trained_thresholds import (
     action_thresholds_for_run,
     latest_run_id_for_horizon,
@@ -69,7 +69,11 @@ AGENT_CONFIG_PATH = Path("configs/agent.yaml")
 #: How many drives reach checkpointed state. Only the highest-scoring one is
 #: ever acted on, so this bounds the checkpoint rather than the decision.
 DEFAULT_MAX_CANDIDATES = 100
-DEFAULT_JOIN_CHUNK_ROWS = 2_000_000
+#: Left-side rows per slice of the snapshot join. Smaller than the training
+#: join's 2,000,000 because each slice is read at full width: 500k x 246
+#: float64 is under 1 GB, where 2M would be 3.9 GB for an output that is one
+#: row per drive either way.
+DEFAULT_SNAPSHOT_CHUNK_ROWS = 500_000
 #: Rows scored at a time. The fleet as one float64 matrix is ~0.7 GB at
 #: fleet scale, and it is copied twice on the way to the model.
 DEFAULT_SCORE_BATCH_ROWS = 50_000
@@ -129,22 +133,53 @@ def load_fleet_snapshot(
     *,
     start_date: dt.date | None = None,
     end_date: dt.date | None = None,
-    chunk_rows: int = DEFAULT_JOIN_CHUNK_ROWS,
+    chunk_rows: int = DEFAULT_SNAPSHOT_CHUNK_ROWS,
 ) -> pl.DataFrame:
     """One row per drive - its most recent gold-feature row inside the
     window - with `feature_maturity` joined in from Silver.
 
-    Scanned rather than read: the gold table is ~196 columns over every
-    drive-day, and only one row per drive survives
-    (`src/models/serving.py::latest_row_per_drive`). Filtering the window
-    before that keeps the date predicate in the scan, so a narrow window
-    reads proportionally less."""
-    lf = pl.scan_parquet(features_path)
+    The window is applied to a TWO-COLUMN projection only; the wide scan is
+    never filtered. That is not a style choice, it is the whole reason this
+    is bounded.
+
+    `chunked_inner_join` slices its left side with `left.slice(offset, n)`.
+    Against a plain `scan_parquet` that pushes into the Parquet reader and
+    only the slice is read. Against a FILTERED scan it cannot: Polars has to
+    evaluate the filter across the whole scan to know which rows fall in
+    `[offset, offset+n)`, so every slice materializes the entire window at
+    full width. At 246 columns that is 16 GB for a 23-day window and 43 GB
+    for a 61-day one - the first squeezed under the 20 GB cap, the second
+    died in three seconds.
+
+    So: find each drive's latest in-window date from `(drive_id, date)`,
+    where the filter is cheap and pushdown applies, then join those pairs
+    against the unfiltered scan. Both keys must match, so only in-window
+    rows survive, and a drive with nothing in the window is simply absent.
+    That is the same shape `pipelines/score_fleet.py` uses, which is the
+    shape known to hold."""
+    scan = pl.scan_parquet(features_path)
+
+    windowed = scan.select(["drive_id", "date"])
     if start_date is not None:
-        lf = lf.filter(pl.col("date") >= start_date)
+        windowed = windowed.filter(pl.col("date") >= start_date)
     if end_date is not None:
-        lf = lf.filter(pl.col("date") <= end_date)
-    latest = latest_row_per_drive(lf, chunk_rows=chunk_rows)
+        windowed = windowed.filter(pl.col("date") <= end_date)
+    # Collected eagerly: one row per drive, two columns. Left lazy, Polars
+    # treats both sides as the same scan and caches the whole table with
+    # every column for the join - the hazard documented in
+    # src/models/serving.py::latest_row_per_drive.
+    latest_dates = windowed.group_by("drive_id").agg(pl.col("date").max().alias("date")).collect()
+    if latest_dates.is_empty():
+        return pl.DataFrame(schema=scan.collect_schema()).join(
+            pl.read_parquet(metadata_path).select(["drive_id", "feature_maturity"]),
+            on="drive_id",
+            how="left",
+        )
+
+    latest = _as_dataframe(
+        chunked_inner_join(scan, latest_dates, on=["drive_id", "date"], chunk_rows=chunk_rows),
+        context="load_fleet_snapshot's chunked join",
+    )
     return join_feature_maturity(latest, pl.read_parquet(metadata_path))
 
 
@@ -323,9 +358,7 @@ def build_fleet_dependencies(
         metadata_path,
         start_date=start_date,
         end_date=end_date,
-        chunk_rows=data_config.get("resource_limits", {}).get(
-            "training_join_chunk_rows", DEFAULT_JOIN_CHUNK_ROWS
-        ),
+        chunk_rows=DEFAULT_SNAPSHOT_CHUNK_ROWS,
     )
     scored = score_snapshot(
         snapshot, load_scoring_model(resolved_run_id, model_config["model"].get("type", "lightgbm"))
