@@ -1329,6 +1329,44 @@ priority attributes) to
 5. **Other ways to combine two looks** - `max`, `mean` and `rising`
    (`p_T + (p_T - p_T-lag)`) beside the `min` that already failed.
 
+**What it found** (nine weekly snapshots, flagged at cordon and above: 4,800
+flagged, 1,121 caught, 3,679 false alarms):
+
+- **Late hits: 12.8% of false alarms are early, not wrong.** On the four
+  snapshots whose days 31-60 lie inside the data, 195 of 1,528 false alarms
+  failed in days 31-60. Precision there is 28.7% by the 30-day label and
+  37.8% crediting them. That matches the 61 of 510 (12%) seen on validation
+  in Section 7, so it is stable. It is a fact about the label, not a fix.
+- **No attribute separates false positives from true ones.** Each priority
+  attribute is non-zero in nearly the same share of both: reallocated sectors
+  83% / 80%, pending sectors 88% / 81%, reallocation events 82% / 81%. On
+  SMART telemetry, a false positive looks like a failing drive. This is the
+  informational ceiling seen directly.
+- **No chronic-flag group.** Precision by consecutive weekly flags is 18.6%,
+  20.6%, 22.2%, 21.9% for streaks of 0, 1, 2, 3+. Drives flagged for weeks
+  without failing are not a distinct, suppressible population.
+- **No combination of two looks helps.** Against one look at matched
+  false-alarm rate: `max` within +/-1 point and never clear of zero, `mean`
+  -0.5 to -1.6 points, `min` -0.5 to -3.3, and `rising` -3.6 to -16.8. The
+  week-on-week change in score is mostly noise, so weighting it hurts.
+- **Family and age differences exist but are worth about a threshold move.**
+  The lowest-precision families (HGST HUH721212ALE604 at 15.5% carrying 14.5%
+  of false alarms, ST14000NM001G 13.4%, WDC WUH721816ALE6L4 6.2%,
+  ST24000NM002H 6.0%) together hold 23% of false alarms. Suppressing all four
+  takes precision from 23.4% to 26.6% and recall from 29.3% to 25.3%; raising
+  the global threshold to the same recall gives about 26.0%. The rule was
+  also chosen by looking at test data, so its real gain is smaller still. And
+  low precision alone does not show the model is weak there - a family that
+  fails rarely has low precision at the same ranking quality. The script now
+  reports each group's base rate and lift to separate the two; re-run it
+  (no re-scoring needed) before reading anything into a family.
+
+**Conclusion: the agent cannot materially reduce the model's false positives
+with this telemetry.** They do not cluster on anything the score ignores. The
+remaining levers are outside the loop's filters: count late hits honestly
+when judging cheap actions, choose the operating point with a cost model, and
+add evidence the model has not seen.
+
 What would justify a policy change: a group carrying a large share of the
 false alarms at clearly lower precision, with enough drives that the
 difference survives an interval - and then the change is a targeted rule

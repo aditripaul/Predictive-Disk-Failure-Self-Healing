@@ -72,41 +72,63 @@ def late_hits(
 
 
 def precision_by_group(
-    flagged: pl.DataFrame, column: str, *, min_flagged: int = 30, top: int = 15
+    flagged: pl.DataFrame,
+    column: str,
+    *,
+    population: pl.DataFrame | None = None,
+    min_flagged: int = 30,
+    top: int = 15,
 ) -> pl.DataFrame:
     """Precision per value of `column`, largest false-positive count first.
 
     Groups under `min_flagged` are folded into "(other)": a family with eight
     flags and zero hits is noise, not a target. `share_of_fp` says how much of
     the false-positive problem a group is, which is what decides whether
-    fixing it matters."""
+    fixing it matters.
+
+    Pass `population` - every scored observation, flagged or not - to get each
+    group's own base rate and **lift** (precision / base rate). Without it a
+    low-precision group is ambiguous: the model may be weak there, or the
+    group may just fail less often, and precision moves with the base rate
+    (runbook 1.7). Only low lift says the model ranks that group badly."""
     if column not in flagged.columns:
         return pl.DataFrame()
     total_fp = int((flagged["label"] == 0).sum())
-    grouped = (
-        flagged.group_by(column)
-        .agg(
-            pl.len().alias("flagged"),
-            (pl.col("label") == 1).sum().alias("caught"),
+    stats = flagged.group_by(column).agg(
+        pl.len().alias("flagged"), (pl.col("label") == 1).sum().alias("caught")
+    )
+    with_population = population is not None and column in population.columns
+    if with_population:
+        assert population is not None
+        pop = population.group_by(column).agg(
+            pl.len().alias("observations"), (pl.col("label") == 1).sum().alias("failing")
         )
-        .with_columns(
+        stats = pop.join(stats, on=column, how="left").with_columns(
+            pl.col("flagged").fill_null(0), pl.col("caught").fill_null(0)
+        )
+    sums = ["flagged", "caught", *(["observations", "failing"] if with_population else [])]
+    grouped = (
+        stats.with_columns(
             pl.when(pl.col("flagged") >= min_flagged)
             .then(pl.col(column).cast(pl.String))
             .otherwise(pl.lit("(other)"))
             .alias(column)
         )
         .group_by(column)
-        .agg(pl.col("flagged").sum(), pl.col("caught").sum())
+        .agg([pl.col(c).sum() for c in sums])
+        .filter(pl.col("flagged") > 0)
         .with_columns(
             (pl.col("flagged") - pl.col("caught")).alias("false_alarms"),
             (pl.col("caught") / pl.col("flagged")).alias("precision"),
         )
-        .with_columns(
-            (pl.col("false_alarms") / max(total_fp, 1)).alias("share_of_fp"),
-        )
-        .sort("false_alarms", descending=True)
+        .with_columns((pl.col("false_alarms") / max(total_fp, 1)).alias("share_of_fp"))
     )
-    return grouped.head(top)
+    if with_population:
+        grouped = grouped.with_columns(
+            (pl.col("failing") / pl.col("observations")).alias("base_rate"),
+            (pl.col("caught") / pl.col("failing")).alias("recall"),
+        ).with_columns((pl.col("precision") / pl.col("base_rate")).alias("lift"))
+    return grouped.sort("false_alarms", descending=True).head(top)
 
 
 def age_bucket(flagged: pl.DataFrame) -> pl.DataFrame:

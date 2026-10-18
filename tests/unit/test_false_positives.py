@@ -189,3 +189,42 @@ def test_a_rising_score_is_rewarded_where_min_penalises_it():
 def test_an_unknown_combiner_is_rejected():
     with pytest.raises(ValueError, match="unknown combiner"):
         compare_looks(_pairs(), combiner="median")
+
+
+def test_lift_separates_a_weak_model_from_a_rare_failure():
+    """Two families with the same 20% precision. In R the family fails
+    rarely (2%), so 20% is ten times the base rate: the model ranks it well.
+    In W the family fails often (20%), so 20% is no better than chance: the
+    model has nothing there. Precision alone cannot tell them apart."""
+
+    def family(name, n, failing, flagged, caught):
+        rows = []
+        for i in range(n):
+            fails = i < failing
+            # The first `flagged` rows are flagged; arrange `caught` of them to fail.
+            if i < flagged:
+                fails = i < caught
+            elif i < flagged + (failing - caught):
+                fails = True
+            else:
+                fails = False
+            rows.append((f"{name}{i}", 0.9 if i < flagged else 0.1, int(fails)))
+        return rows
+
+    obs = _obs(family("r", 1000, 20, 50, 10) + family("w", 250, 50, 50, 10)).with_columns(
+        pl.Series("drive_model", ["R"] * 1000 + ["W"] * 250)
+    )
+    table = precision_by_group(flagged_at(obs, 0.5), "drive_model", population=obs, min_flagged=10)
+    rows = {r["drive_model"]: r for r in table.iter_rows(named=True)}
+    assert rows["R"]["precision"] == pytest.approx(0.2)
+    assert rows["W"]["precision"] == pytest.approx(0.2)
+    assert rows["R"]["base_rate"] == pytest.approx(0.02)
+    assert rows["W"]["base_rate"] == pytest.approx(0.2)
+    assert rows["R"]["lift"] == pytest.approx(10.0)
+    assert rows["W"]["lift"] == pytest.approx(1.0)
+    assert rows["R"]["recall"] == pytest.approx(0.5)
+
+
+def test_without_a_population_there_is_no_lift_column():
+    flagged = _obs([("a", 0.9, 1)] * 40).with_columns(pl.Series("drive_model", ["A"] * 40))
+    assert "lift" not in precision_by_group(flagged, "drive_model", min_flagged=10).columns

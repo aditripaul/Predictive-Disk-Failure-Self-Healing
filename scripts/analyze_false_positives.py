@@ -124,11 +124,18 @@ def main(argv: list[str] | None = None) -> None:
         print(f"   no snapshot is {2 * horizon} days before the data ends; nothing exact to report")
 
     # 2. composition
+    # Population = every scored drive-snapshot, so each group's own base rate
+    # and lift are shown. Low precision alone may just mean a low failure rate.
     _table(
-        precision_by_group(flagged, "drive_model"),
-        "2a. by drive model (largest false-alarm count first)",
+        precision_by_group(flagged, "drive_model", population=obs),
+        "2a. by drive model (largest false-alarm count first; lift = precision / base rate)",
     )
-    _table(precision_by_group(age_bucket(flagged), "age_years", min_flagged=1), "2b. by age")
+    _table(
+        precision_by_group(
+            age_bucket(flagged), "age_years", population=age_bucket(obs), min_flagged=1
+        ),
+        "2b. by age",
+    )
 
     # 3. streaks
     by_date = {d: obs.filter(pl.col("date") == d) for d in dates}
