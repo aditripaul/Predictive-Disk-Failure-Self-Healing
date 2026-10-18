@@ -1096,6 +1096,50 @@ What this does and does not invalidate:
 - **Also not comparable to the June run:** the 31.25% at 9.9% recall is
   7-day, top 100, and shares Cause 2.
 
+**What the diagnostic measured** (`scripts/check_agent_lookahead.py` on the
+run above, 2,173 flagged drives):
+
+| Maturity | Flagged | Failed | Precision |
+|---|---|---|---|
+| DECOMMISSIONED | 1,032 | 916 | 88.8% |
+| MATURE | 1,132 | 2 | 0.2% |
+| STALE | 9 | 0 | 0% |
+
+Maturity separates the flagged list almost perfectly, and it is knowledge of
+the future. 66.9% of acted drives (797 of 1,191) stopped reporting before the
+data ended (89.6% failed, against 0.3% for the rest), and 708 of 1,191
+(59.4%) were scored on a row that is not the window's last day - they left
+the fleet mid-window, so their "latest row" is the final one before they
+disappeared. Both causes are confirmed, not just argued.
+
+Two readings to avoid. The 2 MATURE failures are consistent with drives that
+failed on 2026-06-30 itself and so still reported that day. And "high-scoring
+survivors are almost never right" is **not** a finding about the model: for a
+drive that reports on the data's last day, failing inside the horizon is
+structurally impossible, so 0.2% would appear whatever the scores were.
+
+**A correction to the diagnostic itself.** Its first version reported a
+median lead time of 13 days for caught drives, on n=108 of 715. That sample
+was the easy 15%. The label definition uses `event_date > date`, strictly, so
+a drive's final row - the failure day - has a NULL label (no event falls
+strictly inside the horizon, and the drive is not observable to its end), and
+the script filtered to labelled scored rows, silently dropping exactly the
+drives caught on their last day. Lead time is now measured to the drive's
+last row, over every caught drive; `tests/unit/test_check_agent_lookahead.py`
+pins the label behaviour against the real labeller. The 13-day figure should
+not be quoted.
+
+**The clean number hiding in the run.** The 483 acted drives (1,191 - 708)
+whose scored row IS the last day were alive at a fixed date T=2026-05-31, so
+they are a legitimate snapshot: a real label at T, no dying-drive selection.
+Assigning tiers from `p_fail` and the thresholds alone, ignoring the maturity
+gate, gives point-in-time precision and recall at T. The script now prints
+it (section 5, against every drive alive at T for recall). My estimate before
+running it, from the table above: about 89 of those 483 vanished in June, at
+~90% failing, so roughly 80 caught - **precision near 17% at cordon and
+above**, an order of magnitude below the 61.8% headline. That is a prediction,
+not a result; replace it with the script's number.
+
 **What a clean measurement needs:** a fleet at a fixed date T, containing only
 drives reporting on T, with maturity computed as of T
 (`build_drive_metadata(..., as_of_date=T)` on telemetry up to T), scored once
