@@ -1157,7 +1157,7 @@ ignoring the maturity gate, and recall is against every drive alive at T.
 | >= migrate | 106 | 28 | 26.4% [19, 36] | 9.3% [7, 13] | 2.22e-04 | 419 |
 | >= drain | 18 | 9 | 50.0% [29, 71] | 3.0% [2, 6] | 2.56e-05 | 1,169 |
 
-This is the number the 61.8% headline was standing in for: **17.9%
+(Section 4.8 later showed this single date had the lowest base rate of nine; pooled over nine dates the cordon figure is 23.4% at 29.3%.) This is the number the 61.8% headline was standing in for: **17.9%
 precision at 26.6% recall at cordon and above**, 3.5x lower precision and
 half the recall. A prediction made before running it, from the maturity
 table, was about 80 caught and about 17%; the run gave 80 and 17.9%.
@@ -1223,6 +1223,87 @@ is ~0.7 GB at 356k drives x 246 features):
 /usr/bin/time -v make agent-pit ARGS="--start-date 2026-05-31 --end-date 2026-05-31 --bootstrap 200" \
     2>&1 | grep -iE "maximum resident|point_in_time_snapshot"
 ```
+
+### 4.8 Point-in-time over nine dates, and the second look (2026-10-18)
+
+`make agent-pit`, weekly snapshots 2026-04-05 to 2026-05-31, 30-day horizon,
+model run `0c183df0`. 3,142,390 drive-snapshots, 3,832 of them failing, pooled
+base rate 0.122%. Peak memory 5.9 GB, 62 seconds. The final date reproduces
+the earlier single-date diagnostic exactly (352,024 alive, 301 failing), so
+two separately written code paths agree on who was in the fleet.
+
+**Per snapshot, flagged at cordon and above:**
+
+| Date | Base rate | Precision | Recall | FAR | PLR | Lift |
+|---|---|---|---|---|---|---|
+| 04-05 | 0.150% | 26.8% | 26.3% | 1.08e-03 | 244 | 178 |
+| 04-12 | 0.150% | 29.6% | 30.9% | 1.11e-03 | 279 | 197 |
+| 04-19 | 0.160% | 31.3% | 30.6% | 1.07e-03 | 285 | 196 |
+| 04-26 | 0.140% | 27.1% | 30.7% | 1.16e-03 | 266 | 194 |
+| 05-03 | 0.114% | 20.9% | 27.1% | 1.17e-03 | 232 | 184 |
+| 05-10 | 0.108% | 18.8% | 28.7% | 1.34e-03 | 214 | 174 |
+| 05-17 | 0.101% | 19.7% | 32.5% | 1.34e-03 | 243 | 195 |
+| 05-24 | 0.091% | 17.6% | 29.2% | 1.24e-03 | 235 | 194 |
+| 05-31 | 0.086% | 17.9% | 26.6% | 1.04e-03 | 255 | 209 |
+
+Pooled (summed from the rows above): 4,800 flagged, 1,121 caught, **23.4%
+precision at 29.3% recall**, FAR 1.17e-03, PLR 250. At drain: 149 flagged, 60
+caught, 40.3% precision [29, 52] at 1.6% recall. The warn, migrate and
+interval rows for the other tiers are in `data/audit/agent_point_in_time.json`
+and the run's log.
+
+**Precision followed the base rate; the model did not move.** The 30-day
+failure rate fell 1.76x across the nine dates, from 0.150% to 0.086%.
+Precision fell 1.50x, from 26.8% to 17.9%. Recall stayed between 26.3% and
+32.5% and PLR between 214 and 285, with no trend. This is Section 1.7's
+warning on real data: the same model at the same thresholds gave anything from
+17.6% to 31.3% precision depending on the date. It also means:
+
+- **The single-date 17.9% in Section 4.7 was the lowest of the nine, not a
+  typical value.** It is the final date, which has the lowest base rate. The
+  pooled 23.4% is the better summary, and the honest statement is a range with
+  its base rate.
+- **There is no sign the model decays with distance from training.** Training
+  ends 2026-01-15. Recall on 04-05, nearest the training period, is 26.3%; on
+  05-31 it is 26.6%. That is further evidence against the staleness
+  hypothesis in Section 4.6.
+- **Failures per month fell about 40%** over the window (518 failing drives
+  per snapshot to 301). Whether that is a cohort passing, seasonality or
+  something in the data is unexplained.
+
+**The second look hurts.** Flagging a drive only when it scores above threshold
+at both T-7 and T, against flagging on T alone, on the same 2,783,355
+drive-pairs, at matched false-alarm rate:
+
+| FAR budget | One look | Two looks | Difference (95% CI) |
+|---|---|---|---|
+| 1e-04 | 5.0% | 4.5% | -0.5% [-1.2, +0.3] |
+| 2e-04 | 9.4% | 8.6% | -0.7% [-1.7, +0.2] |
+| 5e-04 | 18.5% | 16.4% | **-2.0%** [-3.1, -0.9] |
+| 1e-03 | 25.8% | 23.5% | **-2.3%** [-3.6, -1.2] |
+| 3e-03 | 41.9% | 38.7% | **-3.3%** [-4.4, -2.3] |
+
+Every difference is negative, and the intervals exclude zero at three of five
+budgets. A week-old reading is a weaker signal than today's for a drive that
+is deteriorating, and `min` lets it veto the current one, so requiring
+persistence discards true positives faster than it removes false alarms. This
+is the fourth refutation of persistence - three as a feature, now one as a
+decision - and the first measured at the decision level on a point-in-time
+fleet. It supports changing `loop.hysteresis_cycles_required` from 2 to 1 in
+`configs/agent.yaml`; not changed here because it is a policy setting.
+
+What is and is not established. Lag 7 only: a shorter lag makes the two looks
+nearly identical, so it can cost less but has less to add, and a longer lag
+should cost more. Two looks combined by `min` only; `max`, a mean or a trend
+were not tried, though slope and delta features already give the model the
+trend. And the loop's hysteresis operates per cycle, not per week, so the
+measured cost does not transfer exactly to a daily loop.
+
+What remains. Nothing in the loop's own mechanisms (hysteresis, cooldown,
+confidence and maturity gates, guardrails on defaulted topology) improves
+precision on this telemetry. What can change the operating point is a cost
+model that chooses it, and what can raise the ceiling is evidence the model
+has not seen.
 
 ## 5. What we learned
 
@@ -1341,7 +1422,10 @@ goal needs its evaluated base rate beside it (Section 1.7).
 **As the policy would actually run, the goal is further away than any figure
 above suggests.** Measured point-in-time on one date (Section 4.7): 26.4%
 precision at 9.3% recall at migrate and above, 17.9% at 26.6% at cordon and
-above, 50% (n=18, interval 29 to 71) at 3.0% at drain. The agent's earlier
+above, 50% (n=18, interval 29 to 71) at 3.0% at drain. That date had the
+lowest base rate of nine; pooled over nine weekly dates (Section 4.8), cordon
+and above is 23.4% at 29.3%, ranging 17.6% to 31.3% by date as the base rate
+moved. The agent's earlier
 61.8% / 48.3% headline came from a backtest that looked ahead and is not
 usable. None of these is 90%, and the evidence-gate and hysteresis stages
 added nothing to precision on this data.
