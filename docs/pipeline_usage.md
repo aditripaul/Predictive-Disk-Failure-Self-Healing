@@ -35,12 +35,19 @@ quarters are downloaded:
 ```yaml
 sources:
   backblaze:
-    start_date: "2026-01-01"
-    end_date: "2026-06-30"        # Q1 and Q2 (the repo default); "2026-03-31" for Q1 only
+    start_date: "2025-10-01"      # Q4 2025 onwards (the repo default)
+    end_date: "2026-06-30"        # through Q2 2026; "2026-03-31" for Q1 only
 download:
   backblaze:
-    quarters: ["Q1_2026"]         # or ["Q1_2026", "Q2_2026"]
+    quarters: ["Q3_2025", "Q4_2025", "Q1_2026", "Q2_2026"]
 ```
+
+The download list is deliberately wider than what is ingested: Q3 2025 is on
+disk for the parked 60-day horizon experiment but `start_date` excludes it.
+Bronze reflects whatever was last ingested and `make build-silver` reads
+Bronze rather than the raw CSVs, so narrowing `start_date` does not narrow
+what the pipeline sees until Bronze is rebuilt (`rm -rf
+data/bronze/backblaze`).
 
 **`configs/model.yaml`** controls the train, validation and test periods. The
 test period must end at least 30 days before the last day of data, because a
@@ -49,8 +56,8 @@ test period must end at least 30 days before the last day of data, because a
 ```yaml
 splits:
   strategy: chronological
-  train_end: "2026-04-15"         # Q1 + Q2 settings (the repo default)
-  validation_end: "2026-05-10"
+  train_end: "2026-02-14"         # the repo default: Q4 2025 + Q1 2026 train
+  validation_end: "2026-03-31"    # and validate, Q2 2026 tests
   test_end: "2026-05-31"
   sealed_start: "2026-07-01"      # read only by `make evaluate-frozen`
 ```
@@ -79,7 +86,7 @@ make download-backblaze           # skip if the quarters are already in data/raw
 make ingest-backblaze             # raw CSVs -> data/bronze/
 make build-silver                 # cleaned drive-day and canonical tables -> data/silver/
 make build-features               # gold feature table -> data/gold/features/
-make build-labels                 # labels and splits for horizons 7, 14, 30, 60 -> data/gold/labels/
+make build-labels                 # labels and splits for horizons 7, 14, 30 -> data/gold/labels/
 make train                        # trains the primary model and writes the model card
 make score-fleet                  # scores the latest row for each drive
 make plots                        # performance plots from the audit reports
@@ -214,7 +221,7 @@ target name change its behavior; the others take no arguments.
 | `make ingest-backblaze` | raw CSVs inside `sources.backblaze.start_date`/`end_date` | `data/bronze/` |
 | `make build-silver` | bronze | `data/silver/` |
 | `make build-features` | silver | `data/gold/features/` |
-| `make build-labels` | gold features | `data/gold/labels/` (horizons 7, 14, 30, 60; splits) |
+| `make build-labels` | gold features | `data/gold/labels/` (horizons 7, 14, 30; splits) |
 | `make train` | gold and labels | MLflow run, model card, evaluation and action-tier reports |
 | `make score-fleet` | latest row per drive, latest MLflow run for the primary horizon (30 days) | `data/audit/predictions/<date>.json` |
 | `make plots` | audit reports | `data/audit/plots/` |
