@@ -141,6 +141,42 @@ of those proposals was downgraded before a destructive action could fire,
 regardless of how confident the model was. The current fleet has not yet
 been re-scored with the fix in place.
 
+### 4.1 What the flagging policy does, measured at a fixed date
+
+The figures above score the model. This is the policy the agent runs - the
+score, the tier thresholds and the loop around them - measured the way it
+would run: the fleet as of a date, judged on what happens next
+(`make agent-pit`, ADR 0003). It is for the quarter-aligned model `0c183df0`
+(the repository default window), which is a different run from the frozen one
+above, on a longer test window and a different drive-level convention, so its
+precision does not compare directly with the table above.
+
+Pooled over nine weekly test snapshots (3.14M drive-snapshots, 3,832 failing,
+base rate 0.122%):
+
+| Flagged at | Precision (95% CI) | Recall | Likelihood ratio |
+|---|---|---|---|
+| warn and above | 14.9% [14, 16] | 44.4% | 143 |
+| cordon and above | **23.4%** [21, 25] | 29.3% | 250 |
+| migrate and above | 35.7% [32, 40] | 10.3% | 456 |
+| drain | 40.3% [29, 52] | 1.6% | 552 |
+
+- **Precision follows the base rate; the model does not move.** Over the nine
+  dates the failure rate fell 1.76x and cordon-and-above precision went from
+  26.8% to 17.9%, while recall stayed between 26% and 33%. Quote precision with
+  its base rate.
+- **A validation-window run agrees**: cordon and above 22.6% at 28.4% recall.
+- **12.8% of false alarms are early, not wrong** - they fail in days 31 to 60.
+  Crediting them gives 37.8% against 28.7% on the weeks where that window is
+  observed. Reported beside the 30-day figure, never instead of it.
+- **An earlier agent backtest reported 61.8% precision at 48.3% recall. That
+  figure is withdrawn.** It looked ahead twice (ADR 0003) and measured 17.9%
+  once corrected.
+
+Against the goal this is 23.4% at 29.3% recall for cordon and above, and no
+tier reaches 90%. Reaching it would need a likelihood ratio near 7,400 at the
+pooled base rate, against 250 for cordon and above.
+
 ## 5. What was tried to raise precision
 
 Each row was measured on real data and compared with the standard model on
@@ -156,13 +192,19 @@ the same drives.
 | More SMART attributes and velocity, recency and age features | No measurable change |
 | Second-stage model on the hard cases | No gain at 14 days. At 30 days, a five-seed repeat showed a repeatable gain in every seed (42.4% to 47.7% at the primary threshold). A direct paired-bootstrap test disagrees between runs: the void run gave a gap of 10.7 points, 95% CI [3.2, 18.5] (excludes 0); the current run gives 3.6 points, 95% CI [-5.5, 12.8] (includes 0). Kept as the default on the five-seed evidence; **not** claimed as a confirmed gain |
 | One fleet-wide threshold per action tier, against one threshold per drive model | Measured on test, 2026-10-09: worse. 7 of 81 models cleared the 50-failing-drive gate; against those models' own thresholds they lost 7 to 8 points of recall for under 1 point of precision at the lenient tiers, and at drain lost on both axes. Families sit at different operating points under one threshold because a calibrated score does that to populations of differing risk, not because the threshold is mis-set (ADR 0002) |
-| Requiring several consecutive high-score days | Lower precision |
+| Requiring several consecutive high-score days (as a feature) | Lower precision |
+| Requiring a second look, as a decision: flag only if the drive also scored high a week earlier | Costs 0.5 to 3.3 points of recall at matched false-alarm rate, and again on a second window. Combining the two looks by max, mean or rising score does no better. A fifth persistence refutation (ADR 0003) |
+| Evidence gates (confidence, maturity) and cooldown | No effect: they downgrade a destructive tier to cordon, which still acts, so they never prevent an action |
+| Filtering false positives by SMART attribute, by flag streak or by drive age | Nothing separates them: each priority attribute is non-zero in nearly the same share of true and false positives |
+| Per-family recalibration with shrinkage, fitted on validation and judged on test | No gain: recall changes of -1.4 to +0.6 points at matched false-alarm rate, intervals mostly straddling zero. Ranking quality does differ 73-fold by family, but that is within-family discrimination, which a calibration offset cannot repair |
 | 30-day horizon in place of 14 days | The one clear gain: 34% to 46% precision near 10% recall, same test period and same split rules |
 | Survival model (time to failure, XGBoost AFT) | Same as the classifier |
 | Anomaly detection (isolation forest): alone, as a filter, as a feature | Alone far worse; the others within noise |
 
-The consistent ceiling across model families, feature sets and framings
-indicates the limit is the information in daily SMART data, not the model.
+The consistent ceiling across model families, feature sets, framings and now
+policy mechanisms indicates the limit is the information in daily SMART data,
+not the model or the loop. On those attributes a false positive looks like a
+failing drive.
 Most false alarms are drives with abnormal readings that kept running: of 531
 healthy test drives alerted by the single model at the broadest threshold, 500
 were still in service when the data ended.
@@ -210,11 +252,22 @@ were still in service when the data ended.
   builds drives with every attribute already populated - the bug was only
   visible against real data. `build_gold_features` now refuses to produce a
   fleet where the floor is unreachable by anyone, as a standing check.
-- **The live agent loop is not yet driven by the trained model.** The model
-  scores the real fleet in batch and proposes actions, but the agent and API
-  run against a small demonstration fleet. The agent also still uses fixed
-  score cut-offs from `configs/agent.yaml` instead of the tier thresholds
-  derived in training.
+- **The agent runs on the real fleet only in simulation, and the API and demo
+  still use a demonstration fleet.** `make agent-fleet` binds the loop to the
+  real feature table and the trained model with a simulated executor, and the
+  agent, the API and batch scoring now all read the trained tier thresholds
+  from one place (`src/models/trained_thresholds.py`) rather than the
+  hand-picked cut-offs. The API and `make agent-demo` still run against a
+  two-drive demonstration fleet.
+- **No cost model.** Where to put the thresholds is an economic question - a
+  cordon pays when precision x P(save) x C_failure exceeds C_action - and the
+  costs have not been supplied. Until they are, the thresholds are operating
+  points rather than decisions.
+- **Real actions would censor their own outcomes.** Drain a drive about to
+  fail and its label is 0, which teaches the next model the wrong thing. The
+  control arm (`control_fraction` in `configs/agent.yaml`) holds back a share
+  of flagged drives to keep unbiased labels, but defaults to 0.0 and must be
+  set before a real executor is connected.
 - **Two fleet-safety guardrails need real topology data.** "Never the last
   healthy node" and "keep quorum" are implemented and tested, but in the
   default demonstration wiring nothing supplies them with node and
@@ -242,9 +295,12 @@ were still in service when the data ended.
 - **Action-tier targets are placeholders.** They are expressed as lift, so
   they at least compare across splits, but the numbers themselves should come
   from the real cost of a false alarm for each action.
-- **One test period.** All results come from a single three-week test window.
-  The sealed quarter exists to test stability over time, and has not been
-  scored yet.
+- **Limited test periods.** The frozen run's figures come from one
+  three-week window. The policy measurements use nine weekly snapshots over a
+  61-day window, which show base-rate drift alone moving precision between
+  17.6% and 31.3%. The sealed quarter exists to test stability over time and
+  has not been scored yet. Failures per month fell about 40% across the test
+  window, for a reason not yet identified.
 
 ## 8. Where to look
 
@@ -258,3 +314,4 @@ were still in service when the data ended.
 | Original goals and plan | `docs/design_goal.md`, `docs/project_plan.md` |
 | Why `make train` runs as four processes | `docs/adr/0001-training-memory-isolation.md` |
 | The confidence-floor bug and the attribute screen | `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md` |
+| How the flagging policy is measured, and what the loop cannot do | `docs/adr/0003-point-in-time-evaluation-and-the-limits-of-the-loop.md` |
