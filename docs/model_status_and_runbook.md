@@ -1400,7 +1400,7 @@ for that group, measured point-in-time before it ships. What would not: a
 small group, a one-snapshot effect, or a precision gain bought with an equal
 loss of recall, which is a threshold move with extra steps.
 
-### 4.10 Per-family recalibration (built 2026-10-18, not yet run)
+### 4.10 Per-family recalibration (2026-10-18): no gain out of sample
 
 Section 4.9 found ranking quality varies 73-fold by drive family, so the same
 score carries a different chance of failure by family and one global
@@ -1442,6 +1442,40 @@ test.
 ```bash
 make family-calibration
 ```
+
+**Result.** Fitted on seven validation snapshots (2026-02-17 to 03-31,
+2,389,104 drive-snapshots, 2,607 failing), judged on the nine test snapshots.
+
+- The family offsets do help *prediction* inside the fitting window, barely:
+  log-loss 0.006054 fleet-only to 0.006016 at the chosen `tau = 0.25`, a 0.6%
+  improvement. The offsets are modest - odds multipliers between 0.53 and
+  2.26 for families with real evidence (ST8000NM0055 x2.22 on 151 failures,
+  HGST HUH721212ALN604 x1.60 on 302, ST24000NM002H x0.57 on 169).
+- They do **not** improve ranking on test. Recall at matched false-alarm rate,
+  recalibrated minus raw: -0.2, +0.1, -1.4, -0.2, +0.6, +0.1 points at the six
+  budgets. Five intervals straddle zero; the one that excludes it is negative
+  (-1.4 [-2.6, -0.0] at 5e-04).
+
+Why, in hindsight. The 73-fold spread in Section 4.9 is a spread in PLR - how
+well the model ranks drives *within* a family. A per-family intercept can
+only move a whole family up or down relative to the others; it cannot repair
+a family whose failing and healthy drives are interleaved in score. The
+families that are weak are weak in discrimination, not in calibration level,
+so this was the wrong instrument for them. Better within-family ranking needs
+features, not a policy.
+
+This closes the last policy-layer idea for reducing false positives on this
+telemetry. With per-family thresholds (Section 1.5), it is the second family
+method to fail out of sample.
+
+**Replication, as a by-product.** The validation-window snapshots reproduce
+the test window independently: cordon and above 22.6% [20, 25] at 28.4%
+recall, PLR 267, against the test window's 23.4% at 29.3%, PLR 250. And the
+second look hurts again on data it never saw: -3.1 points [-4.3, -1.7] at
+1e-03 and -2.0 [-3.4, -0.6] at 3e-03. Persistence has now failed five times.
+Drain is the unstable tier - 67.2% [50, 84] on validation against 40.3%
+[29, 52] on test, on 64 and 149 flags - so do not quote one drain figure
+without the other.
 
 ## 5. What we learned
 
@@ -1548,6 +1582,16 @@ precision at 35-50% recall per drive; it was later set to 90% at >= 10%
 recall (`configs/model.yaml` `threshold`). The frozen model gives 49.6% at
 10.5% recall and 28.7% at 32.4% (Section 1.1). At the validation threshold
 for 95% precision it flags a single test drive.
+
+**What the agent can and cannot do about it (Sections 4.7 to 4.10).** Every
+policy-layer mechanism has now been measured point-in-time and none raises
+precision on this telemetry: the evidence gates, hysteresis, cooldown, a
+second look combined five ways, and per-family recalibration. The reason is
+in Section 4.9 - on SMART attributes a false positive looks like a failing
+drive. What remains is to choose the operating point by cost, to report late
+hits (12.8% of false alarms fail in days 31-60) beside the 30-day figure, to
+improve within-family ranking with features, and to add evidence the model
+has not seen.
 
 **The goal is stated on the frozen run's 21-day test window too, not only its
 horizon.** The quarter-aligned run of Section 4.6 shows 57.1% precision at
