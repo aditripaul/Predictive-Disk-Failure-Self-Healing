@@ -190,7 +190,7 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
   hypotheses the screen refuted, is in
   `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md`.
 
-### 1.7 Two conventions these numbers depend on
+### 1.7 Three conventions these numbers depend on
 
 - **Action tiers are set in lift, not precision.**
   `threshold.action_tier_lift` (56.6 / 94.3 / 151.0 / 226.4) replaces the
@@ -207,6 +207,29 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
   and 0.132% on validation (`data_build.evaluated_failure_rate` in the
   evaluation report). Quote the evaluated rate, and compare models across
   splits on drive-level lift rather than on raw precision.
+- **The length of the TEST WINDOW moves the base rate, so precision is not
+  comparable across split dates.** A drive counts as failing if any of its
+  test rows falls inside a failure's horizon, so a longer test period catches
+  proportionally more failing drives while the healthy denominator stays the
+  size of the fleet. Lengthening the test window from 21 to 61 days took the
+  evaluated base rate from 0.175% to 0.417% and precision from 48.6% to
+  57.1%, with a model that is not better (Section 4.6). Per test-day the rate
+  barely moves - 0.836, 0.717 and 0.683 x 10^-4 across 21-, 45- and 61-day
+  windows - which is how you can tell the jump is the window and not the
+  fleet.
+
+  This is the same mechanism as a longer label horizon (Section 2.3), which
+  the project went looking for deliberately, arriving instead through a
+  change nobody flagged as a base-rate change. Two different routes to the
+  same inflation, so treat **any** edit to `splits` or `horizons_days` as a
+  change to what precision means.
+
+  Compare runs whose windows differ in ROC space, where neither axis depends
+  on the base rate: drive-level `auroc`, `positive_likelihood_ratio`
+  (= recall / false_alarm_rate) and `test_drive_recall_at_far_*`, all logged
+  by `make train`. Precision may be restated at a common base rate with
+  `precision_at_failure_rate`, but that is arithmetic on the measured rates,
+  not a second measurement, and it does not fix a mismatch in recall.
 
 ## 2. How to run the pipeline
 
@@ -218,8 +241,9 @@ make install
 
 ### 2.2 Q4 2025 - Q2 2026, quarter-aligned (the repository default)
 
-**Not yet run.** This is the configuration as it stands; no results exist for
-it. Section 1.1's numbers come from the frozen run's narrower window, below.
+**Run once, on 2026-10-18** - results in Section 4.6. Section 1.1's numbers
+still come from the frozen run's narrower window, below, and this window's
+precision is not comparable to them (Section 1.7).
 
 Q4 2025 and Q1 2026 train and validate; Q2 2026 tests. `configs/data.yaml`
 ingests 2025-10-01 to 2026-06-30 (273 days). `configs/model.yaml` uses a
@@ -869,6 +893,62 @@ precision and recall (test, drive level, thresholds from validation):
   scored 363,548 drives and proposed an action for 3,973. `make final-report`
   passed its chaos, guardrail-latency and crash-recovery sections.
 
+### 4.6 Quarter-aligned splits (2026-10-18): the window moved, the model did not
+
+First run on the quarter-aligned window of Section 2.2 - Q4 2025 and Q1 2026
+train and validate, Q2 2026 tests. 93,507,195 drive-days over 273 days, nine
+Bronze partitions, 47 silver batches. Both memory fixes from Section 3 held;
+nothing in the chain exceeded the 20 GB cap.
+
+| | test days | base rate | recall | false-alarm rate | precision | PLR |
+|---|---|---|---|---|---|---|
+| Frozen run (Section 1.1) | 21 | 0.175% | 8.70% | 1.61e-04 | 48.6% | 539 |
+| This run, validation | 45 | 0.323% | 10.05% | 2.25e-04 | 59.2% | 447 |
+| **This run, test** | **61** | **0.417%** | **12.04%** | **3.79e-04** | **57.1%** | **318** |
+
+Test held 1,479 failing and 353,552 healthy drives; 178 caught, 134 alerted
+in error. Drive AUPRC 0.339, AUROC 0.923.
+
+**The 8.5-point precision gain is not a model improvement.** The evaluated
+base rate rose 2.4x because the test window tripled, for the reason in
+Section 1.7. Converting the frozen run's three published operating points to
+ROC points and interpolating to this run's false-alarm rate:
+
+| | false-alarm rate | recall |
+|---|---|---|
+| This run, test | 3.79e-04 | 12.0% |
+| Frozen run, same false-alarm rate | 3.79e-04 | 15.3% (interpolated) |
+
+**At matched false-alarm rate the frozen model catches 3.3 points more**, and
+neither axis there depends on the base rate. Restating precision at a common
+base rate agrees: at the frozen run's 0.175% this model gives 35.8% against
+the frozen run's 48.6%.
+
+Read as "the wider window did not improve the ranking and plausibly cost a
+little", not as a confirmed regression. The interpolation spans a wide gap in
+the curve, the two operating points sit at different recall (12.0% against
+8.7%), and the runs saw different fleets over different calendar periods.
+
+What the run did buy:
+
+- **1,479 failing test drives against 621.** The drive-level bootstrap CI
+  should narrow by roughly 1.5x, which was the point of the wider test
+  period. The frozen run's [38.9%, 58.2%] was 19 points wide.
+- **Validation AUROC 0.9232, test AUROC 0.9226** - the first AUROC this
+  project has logged, and they are near-identical, so threshold selection on
+  validation is not overfitting the split boundary.
+
+**The hypothesis for why it is slightly worse: the training data is older, not
+just more.** Training now ends 2026-01-15 against a test starting 2026-04-01;
+the frozen run trained to 2026-03-16 for a test starting 2026-05-11. 107 days
+of training instead of 75, but further from the period being predicted. If
+recency beats volume here, that is worth knowing on its own, and it argues
+against widening the window backwards again.
+
+The test: pull `train_end` forward with everything else fixed and compare
+`test_drive_recall_at_far_*` between the two runs. Both log it, so that is a
+direct read rather than the interpolation used above. Not yet run.
+
 ## 5. What we learned
 
 ### 5.1 Evaluation is per drive, not per drive-day
@@ -974,6 +1054,14 @@ precision at 35-50% recall per drive; it was later set to 90% at >= 10%
 recall (`configs/model.yaml` `threshold`). The frozen model gives 49.6% at
 10.5% recall and 28.7% at 32.4% (Section 1.1). At the validation threshold
 for 95% precision it flags a single test drive.
+
+**The goal is stated on the frozen run's 21-day test window too, not only its
+horizon.** The quarter-aligned run of Section 4.6 shows 57.1% precision at
+12.0% recall, which is *not* 8 points of progress towards 90%: its 61-day
+test window carries a 0.417% base rate against the frozen run's 0.175%.
+Restated at the frozen run's rate it is 35.8%, and at matched false-alarm
+rate it catches 3.3 points *less*. Any precision figure quoted against this
+goal needs its evaluated base rate beside it (Section 1.7).
 
 **The goal is stated at a 30-day horizon, and the horizon is part of it.**
 Precision moves with the base rate, so a longer label raises it mechanically:
