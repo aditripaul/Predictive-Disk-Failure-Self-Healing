@@ -1546,6 +1546,42 @@ validation:
   `model_evaluation_report.json`, `action_tiers.json` and the 30-day model
   card were restored after the runs; the 7- and 14-day cards were not kept.
 
+### 5.9 A sequence model reading the raw history does no better (run 2026-10-22)
+
+`make train-sequence` (`pipelines/train_sequence_model.py`): a 2-layer LSTM over
+each drive's raw 30 days of nine SMART attributes (log1p, with a per-attribute
+"reported" flag), drive age, vendor and capacity. It is trained and scored on the
+same labelled drive-days, split date rules and drive-level metrics as `make
+train`, 30-day horizon, so the columns below are the same drives. One seed,
+untuned; trained on a 3,000,000-row sample (LightGBM: 5,000,000).
+
+| Test, 1,479 failing / 353,552 healthy drives | LSTM | LightGBM |
+|---|---|---|
+| Drive AUROC | 0.9146 | 0.9226 |
+| Drive AUPRC | 0.248 | 0.339 |
+| Recall at 1e-4 false-alarm rate | 3.5% | 3.7% |
+| Recall at 2e-4 | 6.4% | 7.0% |
+| Recall at 5e-4 | 12.8% | 15.7% |
+| Recall at 1e-3 | 20.1% | 26.8% |
+| Precision at 10% recall | 55.2% (95% CI 49.2-61.0%) | 57.1% (51.6-62.6%) |
+| Precision at 35% recall | 29.1% | 48.8% |
+
+- **No gain, and a loss at looser budgets.** At the strictest false-alarm rates
+  the two are within noise; the gap grows as more false alarms are allowed. The
+  LSTM's validation average precision peaked after epoch 1 and then fell while
+  training loss kept falling, so it began memorizing training drives.
+- **Not a pure architecture test.** LightGBM also has model-family z-scores,
+  feature confidence and a two-stage re-ranker, and more training rows. A tuned
+  LSTM would probably close part of the gap; nothing here suggests it would
+  open one.
+- **Not tested: whether it catches different drives.** The LightGBM runs do not
+  save per-drive scores, so a blend or overlap check on the same drives was not
+  possible.
+- Together with Sections 4.3, 5.6 and 5.8 this is a fourth independent route
+  (survival model, anomaly score, a different horizon, a different input
+  representation) to the same ceiling, which points at the telemetry, not the
+  model. The run adds one entry to `data/audit/test_access_log.jsonl`.
+
 ## 6. The experiment tool
 
 ```bash
