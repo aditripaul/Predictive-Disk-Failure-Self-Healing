@@ -1521,6 +1521,31 @@ but its test split had only 2,862 rows, all positive. The data ends
 after 2026-03-01 lost its label. Treat 30 days as promising but unproven until
 the splits end at least 30 days before the data does.
 
+### 5.8 Discrimination does not depend on the horizon (run 2026-10-22)
+
+`make train TRAIN_ARGS="--horizon-days H"` for H = 7, 14 and 30 on the
+current gold tables and the current splits (`configs/model.yaml`, `splits`), default
+settings, two-stage on, one seed. Drive-level, thresholds chosen on
+validation:
+
+| Horizon | Validation AUROC | Test AUROC | Test recall at 1e-4 false-alarm rate | Test recall at 2e-3 |
+|---|---|---|---|---|
+| 7 days | 0.9154 | 0.9246 | 2.3% | 12.5% |
+| 14 days | 0.9168 | 0.9236 | 4.0% | 13.7% |
+| 30 days | 0.9232 | 0.9226 | 3.7% | 15.7% |
+
+- **Test AUROC is flat** (spread 0.002, within noise for one seed and no
+  interval). The precision gain from 14 to 30 days (Sections 4.2, 4.3) is
+  therefore the higher base rate, not better separation.
+- **A shorter horizon does not give a high-precision alert.** At the
+  threshold chosen for 10% validation recall, test precision is 46.2% at 7
+  days (recall 8.4%), 53.4% at 14 days (11.5%) and 57.1% at 30 days (12.0%). Nothing here supports a 24-72 hour model reaching 90%.
+- Test rows differ by horizon (1171, 1308 and 1479 failing test drives), so
+  the columns are comparable in ROC space, not in precision.
+- Each run adds an entry to `data/audit/test_access_log.jsonl`. The shipped
+  `model_evaluation_report.json`, `action_tiers.json` and the 30-day model
+  card were restored after the runs; the 7- and 14-day cards were not kept.
+
 ## 6. The experiment tool
 
 ```bash
