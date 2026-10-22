@@ -43,6 +43,18 @@ dev = [
     "hypothesis>=6.112",
 ]
 
+# The torch extra (the LSTM branch and `make train-sequence`) runs on CPU, so
+# resolve it from PyTorch's CPU index. PyPI's Linux wheel drags in ~3GB of CUDA
+# libraries (16 nvidia-* packages) that are never used here. macOS wheels only
+# exist on PyPI, so it keeps the default there.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform != 'darwin'", extra = "torch" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

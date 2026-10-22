@@ -219,6 +219,40 @@ splits:
   purge_label_window: true
   validation_after_train_only: true
 
+# Sequence-model comparison (pipelines/train_sequence_model.py, `make
+# train-sequence`; needs `uv sync --extra torch`). An LSTM over each drive's raw
+# 30-day history, scored on the same labelled drive-days, splits and drive-level
+# metrics as the tree model, to test whether the ceiling is the feature set or
+# the data. Not used by `make train`, score-fleet or the agent.
+sequence_model:
+  window_days: 30
+  # Gold feature-table columns. seek_error_rate, raw_read_error_rate and
+  # spin_retry_count are left out: ADR 0002 measured them as weak (single
+  # attribute separation < 0.07), and seek_error_rate is a packed vendor value.
+  attributes:
+    - reallocated_sector_count
+    - current_pending_sector_count
+    - offline_uncorrectable
+    - reported_uncorrectable_errors
+    - command_timeout
+    - reallocation_event_count
+    - power_on_hours
+    - udma_crc_error_count
+    - temperature_celsius
+  hidden_size: 64
+  num_layers: 2
+  dropout: 0.1
+  learning_rate: 0.002
+  batch_size: 2048
+  max_epochs: 12
+  early_stopping_patience: 3
+  # Training rows: every positive plus random negatives up to this total (the
+  # tree model's model.max_train_rows is 5,000,000; an LSTM on CPU is slower per
+  # row, so this is smaller). null = every row.
+  max_train_rows: 3000000
+  early_stopping_max_negatives: 500000
+  seed: 0
+
 mlflow:
   tracking_uri: sqlite:///mlflow/mlflow.db
   experiment_name: disk-failure-prediction
