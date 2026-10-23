@@ -1582,6 +1582,46 @@ untuned; trained on a 3,000,000-row sample (LightGBM: 5,000,000).
   representation) to the same ceiling, which points at the telemetry, not the
   model. The run adds one entry to `data/audit/test_access_log.jsonl`.
 
+### 5.10 The LSTM catches some different drives; a blend gains a little (run 2026-10-23)
+
+Same rows as Section 5.9 (the 30-day horizon, 1,479 failing and 353,552 healthy
+test drives). `make train TRAIN_ARGS=--save-scores` saved LightGBM's final
+scores (two-stage included; it reproduced Section 5.9's figures exactly) and
+`scripts/compare_sequence_vs_tree.py` matched them to the LSTM's on (drive,
+date). Drive-level scores correlate at Spearman 0.65.
+
+Failing test drives caught at a matched false-alarm rate (each model alone):
+
+| False-alarm rate | LightGBM | LSTM | Both | Only LightGBM | Only LSTM |
+|---|---|---|---|---|---|
+| 1e-4 | 54 | 51 | 14 | 40 | 37 |
+| 5e-4 | 232 | 189 | 121 | 111 | 68 |
+| 1e-3 | 397 | 297 | 216 | 181 | 81 |
+
+The two overlap less than their AUROCs suggest: at the strictest budget only 14
+of 54 are shared. The union is not free, since each model spends its own
+false-alarm budget, so it is not the gain a combined system would see.
+
+A rank-average blend, with the LSTM's weight chosen on validation only (0.1,
+by recall at a 5e-4 false-alarm rate) and applied to test:
+
+| Test recall at false-alarm rate | LightGBM | Blend | Blend minus LightGBM, 95% bootstrap CI |
+|---|---|---|---|
+| 1e-4 | 3.65% | 5.00% | +1.35 pts [-0.20, +2.39] |
+| 5e-4 | 15.7% | 17.4% | +1.7 pts [+0.03, +3.27] |
+| 1e-3 | 26.8% | 29.4% | +2.6 pts [+0.58, +4.10] |
+
+- **A small gain, not a break in the ceiling.** AUROC is unchanged (0.9226). The
+  gain is 1.4 to 2.6 points of recall, about 10% relative at the loosest budget;
+  at the strictest budget the interval includes zero. Recall at 1e-4 is still 5%.
+- **Treat it as promising, not settled.** One seed, an untuned LSTM, three
+  budgets compared, and the bootstrap resamples drives with the weight fixed.
+  The first two intervals only just exclude zero.
+- **It does not move the precision goal.** The blend is a ranking improvement
+  at the margin; nothing here approaches the 95% target.
+- This run added two entries to `data/audit/test_access_log.jsonl` (the
+  LightGBM re-run and the comparison).
+
 ## 6. The experiment tool
 
 ```bash
