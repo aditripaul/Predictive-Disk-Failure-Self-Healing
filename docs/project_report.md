@@ -649,8 +649,9 @@ At drain, pooled: 40.3% precision (interval 29% to 52%) at 1.6% recall.
 - **No sign of decay with distance from training.** Recall is 26.3% on the
   date nearest training and 26.6% on the furthest.
 - **A second look does not help.** Flagging only drives above the threshold at
-  both T-7 and T lowers recall by 2.0 to 3.3 points at matched false-alarm rate,
-  with intervals excluding zero at three of five budgets.
+  both T-7 and T lowers recall at every false-alarm budget tested, by 0.5 to 3.3
+  points, with intervals excluding zero at the three looser budgets (2.0, 2.3 and
+  3.3 points) and including zero at the two stricter ones.
 
 ### 8.6 Failures among the false alarms, over a longer horizon
 
@@ -856,7 +857,7 @@ drives.
 | 11 | Second-stage model | **Not confirmed.** See below |
 | 12 | One fleet-wide action-tier threshold against one per drive model | **Fleet-wide is better.** 7 of 81 models had enough failing validation drives to earn their own thresholds; against those, per-model thresholds lost 7-8 points of recall for under 1 point of precision at the lenient tiers, and lost on both axes at drain (64 caught from 173 alerts against 76 from 162) |
 | 13 | A wider, older training window (quarter-aligned, Q4 2025 and Q1 2026) | Same ranking: within 1.2-1.3 recall points of the frozen run at matched false-alarm rate, inside sampling error (Section 8.4) |
-| 14 | A second look a week apart before flagging | Lower recall: -2.0 to -3.3 points at matched false-alarm rate (Section 8.5) |
+| 14 | A second look a week apart before flagging | Lower recall at every budget: -0.5 to -3.3 points, clear of zero at the three looser budgets (Section 8.5) |
 | 15 | Per-family recalibration (a shrunk score offset per drive model) | Same as the raw score: within 0.6 points at five of six budgets, -1.4 at the sixth |
 | 16 | 7- and 14-day horizons beside 30, same data and splits | AUROC flat (0.925, 0.924, 0.923); 7 days is less precise near 10% recall (46% against 57%) |
 | 17 | LSTM over each drive's raw 30-day history | Close behind LightGBM: AUROC 0.915 against 0.923; recall at a 1-in-1,000 false-alarm rate 20.1% against 26.8% |
@@ -1088,7 +1089,8 @@ same claim, and this project had, for a time, only checked the first one.
    next model of record.
 5. Credit early warnings where they are useful: a cost model per action, so
    that an alert 30 to 60 days ahead counts for the mild tiers (Section 8.6).
-   The 60-day horizon run is configured and ready.
+   The 60-day horizon run is set up but not run: the data is downloaded, and
+   resuming needs a config change and a rebuild.
 6. Feed the LSTM's score to the second stage, with out-of-fold scores for the
    training rows so the second stage never sees the LSTM's memorized ones.
 7. Add signals beyond daily SMART: I/O latency, error logs and workload.
