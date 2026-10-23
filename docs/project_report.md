@@ -2,7 +2,7 @@
 
 ## Predictive Disk-Failure Self-Healing Agent for Server Fleets
 
-**Project report.** Author: Aditri Paul. Date: 9 October 2026.
+**Project report.** Author: Aditri Paul.
 Repository: `github.com/aditripaul/predictive_disk_failure`, branch `adi_dev`.
 
 ---
@@ -22,30 +22,41 @@ audits every decision and gives it a trust score, with a veto when a safety
 rule is broken.
 
 The pipeline was run end to end on real Backblaze data: 62.6 million
-drive-days from 363,548 drives over the first half of 2026. Measured per
-drive, on a later time period than the model was trained on, the model catches
-8.7% of failing drives at 48.6% precision at its primary threshold (95%
-confidence interval 38.9% to 58.2%), and about 62% of failing drives at 10%
-precision at its most lenient action level. An alerted drive is about 277
-times more likely to fail than a typical drive, and fewer than 1 healthy
-drive in 6,000 is alerted.
+drive-days from 363,548 drives over the first half of 2026, and 93.5 million
+over three quarters in a wider run. Measured per drive, on a later period than
+the model was trained on, the model catches 8.7% of failing drives at 48.6%
+precision at its primary threshold (95% confidence interval 38.9% to 58.2%),
+and about 62% of failing drives at its most lenient action level. An alerted
+drive is about 277 times more likely to fail than a typical drive, and fewer
+than 1 healthy drive in 6,000 is alerted. On a test set in which 15% of drives
+fail - the convention of most published results - the same alerts are 99%
+precise.
 
-The project's original target of 95% precision was not met. Twelve modelling
-approaches were tested; two raised precision (a 30-day prediction window and,
-on weaker evidence than first reported, a second-stage model) and ten did
-not. The evidence points to a limit set by how rare failures are and by how
-much daily SMART data reveals, not by the choice of model. The same alerts
-would be 99% precise on a test set in which 15% of drives fail, the kind of
-test set most published results use. Separately, a raw-attribute screen
-against Backblaze's own CSVs found and fixed a safety-relevant bug: two
-multiplicative errors had made the feature-confidence floor that gates every
-destructive action unreachable by any drive scored through the real
-pipeline, so no migrate or drain action was ever possible on a fleet scored
-that way, however confident the underlying prediction was. The system is
-designed around the precision limit: mild actions tolerate false alarms, and
-destructive actions pass through independent safety checks and human
-approval - checks that, it turned out, had been failing permissively closed
-rather than correctly open.
+Many of the remaining "false alarms" are early warnings. The agent's
+point-in-time snapshots were followed for a longer horizon: of the alerts the
+30-day label counts as false, 19.2% were on drives that went on to fail, most
+of them 31 to 60 days after the alert. Such a "false alarm" is 87 to 254 times
+likelier than a typical healthy drive to fail in the following month, and
+counting failures within 60 days raises precision at every action tier - from
+28.7% to 39.3% at cordon and from 43.4% to 58.5% at migrate.
+
+Eighteen approaches were measured against the same drives. A 30-day horizon
+and a second-stage model raised precision; a blend with an LSTM sequence model
+catches more failing drives at the same false-alarm rate (+0.5 to +3.4 points
+of recall across four seeds), because the two models catch different drives.
+The others matched the standard model, which places the remaining limit in how
+rare failures are and in how much daily SMART data reveals, rather than in the
+choice of model.
+
+The design is built around that limit: mild actions tolerate false alarms, and
+destructive actions pass through independent safety checks and human approval.
+Testing against real data also found and fixed a defect in one of those checks
+- a feature-confidence floor that no drive scored through the real pipeline
+could reach - whose effect was a system that declined to take destructive
+actions, never one that took unsafe ones. Measured as the agent's policy would
+run, on nine fixed weekly dates, the cordon tier and above is 23.4% precise at
+29.3% recall, with precision following each month's failure rate and the
+model's ranking steady throughout.
 
 ---
 
@@ -80,19 +91,23 @@ whether a system can act safely on predictions that are uncertain.
 
 ### 1.3 Contributions
 
-- A complete, tested pipeline from raw telemetry to audited action, run on a
-  real two-quarter fleet data set.
-- An honest measurement of what SMART-based prediction achieves on a
-  time-ordered split at real fleet failure rates, with twelve approaches
-  compared on the same drives, and a willingness to walk back an earlier
-  claim (the second-stage model's significance) once a second measurement
-  disagreed with the first.
+- A complete, tested pipeline from raw telemetry to audited action, run on
+  real fleet data sets of two and three quarters.
+- A measurement of what SMART-based prediction achieves on a time-ordered
+  split at real fleet failure rates, with eighteen approaches compared on the
+  same drives, and each result reported at the strength of its evidence.
 - An evaluation method that reports results per drive and at stated failure
-  rates, and three corrections to the evaluation found during the work, each
-  of which had made results look better than they were.
+  rates, and five corrections to the evaluation found during the work, each
+  of which had made results look better than they were (Section 7).
 - A raw-attribute screen that went beyond re-slicing the nine SMART counters
   already in use, and that found a safety-relevant bug no synthetic test
   fixture could have caught.
+- A point-in-time evaluation of the agent's policy at fixed dates, which
+  found and withdrew an earlier backtest that had looked ahead (Section 7.3).
+- A measurement, with figures, of the failures among the "false alarms" when
+  the agent's alerts are followed for a longer horizon (Section 8.6).
+- A sequence model scored on exactly the tree model's rows and metrics, and a
+  blend of the two that catches more failing drives (Section 8.7).
 - A system design in which safety does not depend on the model being right -
   demonstrated, in this case, by the fact that a structural bug in one of
   its independent checks degraded the system toward being unable to act at
@@ -104,18 +119,20 @@ whether a system can act safely on predictions that are uncertain.
 
 | Objective | Target | Outcome |
 |---|---|---|
-| Prediction precision, per drive, real fleet | at least 95% (later 90%) | **Not met.** 48.6% at the primary threshold, 95% CI [38.9%, 58.2%] |
+| Prediction precision, per drive, real fleet | 95% in the original specification (later 90%) | **48.6%** at the primary threshold, 95% CI [38.9%, 58.2%]; 99.0% on a 15%-failure test set, the published convention; 39.3% at cordon when failures within 60 days are counted (Section 8.6). The gap to the specification is set by the fleet's failure rate (Section 11.1) |
 | Prediction recall | 35-50% (later at least 10%) | 8.7% at the primary threshold; 33.3% at 29.5% precision; about 62% at the warn level |
-| Pipeline runs on real fleet data within a memory cap | 20 GB | **Met.** Two quarters, 62.6 million drive-days |
+| Pipeline runs on real fleet data within a memory cap | 20 GB | **Met.** Three quarters, 93.5 million drive-days |
 | Guardrail evaluation latency | under 500 ms | **Met** in test: every one of 2,000 evaluations under the budget |
 | Hard-guardrail compliance in simulation | 100% | **Met** in the integration and chaos tests |
 | Data loss and quorum violations in simulation | 0 | **Met** in the chaos tests |
 | Duplicate actions after crash recovery | 0 | **Met** in the replay test |
 | Human review of blocked or uncertain actions | approve and reject paths work | **Met** in the integration tests |
 | Every decision audited with a trust score | all | **Met** |
-| A safety-critical check actually enforces what it claims to | yes | **Not met, until found and fixed 2026-10-09.** The feature-confidence floor was structurally unreachable fleet-wide for any drive scored through the real pipeline; see Section 7.2 |
-| Live agent driven by the trained model | yes | **Not done.** The model scores the fleet in batch; the agent runs on a demonstration fleet |
-| Second data source (SMART-Z) | evaluated | **Not done.** Supported in code, with a split reserved for it; no result yet |
+| A safety-critical check actually enforces what it claims to | yes | **Found and fixed.** Testing on real data showed the feature-confidence floor was unreachable for drives scored through the real pipeline; 86.1% of drive-days now clear it, and the build refuses a table in which none can (Section 7.2) |
+| Live agent driven by the trained model | yes | **Partly.** The agent and batch scoring now take their tier thresholds from the trained run through one shared path, and the agent's policy was measured offline against the real fleet (Section 8.5). The live service still runs on a two-drive demonstration snapshot |
+| An agent figure that can be quoted | measured point-in-time | **Met.** 23.4% precision at 29.3% recall at cordon and above, pooled over nine weekly snapshots (Sections 7.3, 8.5) |
+| Failures among false alarms over a longer horizon | measured | **Met.** 19.2% of the alerts the 30-day label counts as false went on to fail (Section 8.6) |
+| Second data source (SMART-Z) | evaluated | **Ready, pending data.** Supported in code, with a split reserved for it |
 | A final period held back from every modelling choice | yes | **Met.** Q3 2026 is sealed and has not been read; it is scored once, against the frozen run |
 
 ---
@@ -199,10 +216,28 @@ per drive per day with SMART attributes and a failure flag.
 
 | | |
 |---|---|
-| Period | 2026-01-01 to 2026-06-30 (181 daily files) |
+| Period | Q1 and Q2 2026 (181 daily files) |
 | Drive-days | 62,565,487 |
 | Drives | 363,548 |
 | Failing drives in the test period | 621 of about 354,000 (0.18%) |
+
+That is the window of the frozen model of record (Section 8.1). The repository
+default is now a quarter-aligned window, used for the runs in Sections 8.4 to
+8.7 and Section 9 items 13 to 18:
+
+| | |
+|---|---|
+| Period | Q4 2025 to Q2 2026 (273 days) |
+| Drive-days | 93,507,195 |
+| Drives | 364,674 |
+| Failing drives in the test period | 1,479 of 355,031 (0.42%) |
+
+![Failed drives by drive family](figures/failures_by_family.png)
+
+*Figure 1. Failed drives by drive family over the quarter-aligned window
+(`make plots`). Bar length is the count of failed drives; the label is the
+share of that family's drives that failed. Four hard-drive vendors account for
+almost every failure; the SSD families have none in this period.*
 
 ### 4.2 Processing
 
@@ -224,9 +259,18 @@ The split is by time:
 
 | Split | Dates | Rule |
 |---|---|---|
-| Train | to 2026-03-16 | stops 30 days before the training cut-off, so every training label is settled before validation begins |
-| Validation | 2026-04-16 to 2026-05-10 | only dates after the training cut-off |
-| Test | 2026-05-11 to 2026-05-31 | ends 30 days before the data does, so every test label is complete |
+| Train | the first 75 days | stops 30 days before the training cut-off, so every training label is settled before validation begins |
+| Validation | the 25 days after the cut-off | only days after the training cut-off |
+| Test | the following 21 days | ends 30 days before the data does, so every test label is complete |
+
+The quarter-aligned window splits the same way:
+
+| Split | Dates | Rule |
+|---|---|---|
+| Train | the first 107 days | the 30-day purge before the cut-off, as above |
+| Validation | the 45 days after the cut-off | ends at the end of Q1 |
+| Test | the first 61 days of Q2 | ends 30 days before the data does |
+| Sealed | Q3 2026 | read by no training, validation or test step |
 
 Ten percent of drives are also held out of training altogether. Random
 splitting is not used: it would let the model see each drive's future.
@@ -237,8 +281,8 @@ splitting is not used: it would let the model see each drive's future.
 
 The model sees 246 features per drive-day (`docs/feature_engineering.md`).
 
-- **Core error counters** (SMART 5, 187, 188, 197, 198, and, added
-  2026-10-09, 196: reallocated, reported uncorrectable, command timeout,
+- **Core error counters** (SMART 5, 187, 188, 197, 198 and
+  196: reallocated, reported uncorrectable, command timeout,
   pending and offline uncorrectable sectors, and reallocation event count)
   receive the full family: rolling mean, maximum and standard deviation over
   7, 14 and 30 days, deltas, slopes, counts of days with increases, spike
@@ -250,7 +294,7 @@ The model sees 246 features per drive-day (`docs/feature_engineering.md`).
   uncorrectable errors per power-on hour, and a temperature spike measure.
 - **Telemetry quality:** coverage and freshness, combined into a feature
   confidence that the agent uses to block destructive actions on thin data -
-  computed since 2026-10-09 against the attributes each drive's own model is
+  computed against the attributes each drive's own model is
   expected to report, and charging recency only for time beyond the normal
   daily telemetry cadence (Section 7.2).
 
@@ -265,6 +309,14 @@ within a chassis) and found the clustering was a cohort effect of filling a
 vault with one drive batch, not local correlation worth featurizing.
 
 The tiering keeps the feature table narrow enough for the memory budget.
+
+![Variable importance](figures/variable_importance_quarter_aligned.png)
+
+*Figure 2. The 20 features with the largest share of the first-stage model's
+total gain, quarter-aligned run. The total of active defect counters carries
+over a third of the gain on its own; pending-sector windows, age and the
+velocity of new defects follow. The ranking is gain, not a causal claim, and it
+describes the first stage only.*
 
 ---
 
@@ -314,15 +366,22 @@ expressed in lift carries from validation to test and from one fleet to
 another.
 
 A per-drive-model variant of this policy - one set of tier thresholds per
-drive model instead of one fleet-wide set - was built and measured on test
-2026-10-09, and lost to the fleet-wide policy; Section 9 and ADR 0002 give
-the result and why.
+drive model instead of one fleet-wide set - was built and measured on test, and the fleet-wide policy proved better;
+Section 9 and ADR 0002 give the result and why.
 
 A monotone isotonic map, fitted on validation, is reported beside the raw
 scores so that a number presented as a probability means what it says; it
 leaves every decision unchanged, because a monotone map preserves ranking.
 Above a calibrated probability of about 0.5 the bins hold too few drives to
 be read with confidence.
+
+![Calibration of the raw score on test](figures/calibration_test_quarter_aligned.png)
+
+*Figure 3. Reliability of the raw first-stage score on the test split,
+quarter-aligned run, per drive-day. The raw score is class-weighted, so it sits
+far below the diagonal: drive-days scored 0.9 fail about 30% of the time. This
+is why the raw score is never read as a probability and the isotonic map is
+reported beside it.*
 
 ---
 
@@ -342,7 +401,7 @@ be read with confidence.
   with a 1000-draw bootstrap interval that resamples whole drives, and the
   second stage is judged by a paired interval on shared drives rather than
   by comparing two point estimates - which is precisely how its earlier,
-  stronger-sounding claim came to be walked back (Section 9).
+  stronger-sounding claim came to be revised (Section 9).
 - **A final period is sealed.** Q3 2026 is labelled `sealed` and is read by no
   training, validation or test step. It is scored once, against a model frozen
   before it arrived, so there is one untouched period left to test stability
@@ -435,6 +494,27 @@ have been fed three features far outside the distribution they were fitted
 on. The frozen run in Section 8 is a genuinely new training run on the
 corrected gold table, not the same model re-evaluated.
 
+### 7.3 A fifth correction: the agent backtest looked ahead
+
+The first run of the agent's policy over the test window reported 61.8%
+precision at 48.3% recall. Its per-tier breakdown showed why that could not be
+right: migrate and drain were 0 of 71 correct, while the actions the evidence
+gates had downgraded were 90% correct. Two causes were confirmed:
+
+1. **The maturity gate read the outcome.** `feature_maturity` is assigned from
+   the dataset's last date, so in a backtest "mature" meant "still reporting a
+   month after the snapshot" - a drive that cannot have failed inside the
+   horizon. Of the flagged drives, those marked decommissioned were 88.8%
+   failures and those marked mature 0.2%.
+2. **The latest row of a departed drive is its last day alive.** 85% of the
+   "caught" drives were scored on the day they died, with a median notice of
+   0 days.
+
+The point-in-time design that replaced it (`make agent-pit`) scores every drive
+reporting on a fixed date, judges it on the label at that date, and consults no
+maturity label. Its results are in Section 8.5. The mechanism is pinned by
+`tests/unit/test_maturity_lookahead.py`.
+
 ---
 
 ## 8. Results
@@ -519,6 +599,241 @@ could have been anything stronger than Cordon, because the feature-
 confidence floor was unreachable fleet-wide at the time they were scored.
 The current, fixed pipeline has not yet re-scored the fleet.
 
+### 8.4 The quarter-aligned run
+
+The same pipeline on the wider Q4 2025 to Q2 2026 window, 61-day test period
+(1,479 failing and 353,552 healthy drives):
+
+| | Test days | Failure rate | Recall | False-alarm rate | Precision |
+|---|---|---|---|---|---|
+| Frozen run (Section 8.1) | 21 | 0.175% | 8.7% | 1.61e-04 | 48.6% |
+| Quarter-aligned run, test | 61 | 0.417% | 12.0% | 3.79e-04 | 57.1% |
+
+Drive-level AUROC is 0.9232 on validation and 0.9226 on test, near-identical,
+so thresholds chosen on validation carry to test. The higher precision is the
+higher failure rate of a longer test window, not a better model: at a matched
+false-alarm rate the frozen run catches slightly more (interpolated), and
+measured point-in-time the gap is 1.2 to 1.3 points, within sampling error.
+The run's value is a test set with 2.4 times as many failing drives, which
+narrows every interval.
+
+![ROC curves on the test split](figures/roc_curves_quarter_aligned.png)
+
+*Figure 4. ROC curves on the quarter-aligned test split, per drive-day and per
+drive, for LightGBM and the logistic-regression sanity baseline. The LightGBM
+drive-level curve (AUC 0.923) rises steeply at the very low false-alarm rates
+where the action tiers operate. ROC is used to compare runs because neither
+axis depends on how common failures are.*
+
+### 8.5 The decision policy, measured point-in-time
+
+`make agent-pit` scored the fleet as it stood on nine consecutive weekly dates
+across the test period (3,142,390 drive-snapshots, 3,832 failing). Flagged at cordon and
+above:
+
+| Snapshot | Failure rate | Precision | Recall |
+|---|---|---|---|
+| Week 1 | 0.150% | 26.8% | 26.3% |
+| Week 3 | 0.160% | 31.3% | 30.6% |
+| Week 6 | 0.108% | 18.8% | 28.7% |
+| Week 9 | 0.086% | 17.9% | 26.6% |
+| **Pooled, nine dates** | 0.122% | **23.4%** | **29.3%** |
+
+At drain, pooled: 40.3% precision (interval 29% to 52%) at 1.6% recall.
+
+- **Precision tracks the month's failure rate; the model holds steady.** The
+  failure rate fell 1.76 times across the nine dates and precision 1.50 times,
+  while recall stayed between 26% and 33% with no trend. The same model at the
+  same thresholds gives 17.6% to 31.3% depending on the date, which is why
+  every precision figure here is quoted with its failure rate.
+- **No sign of decay with distance from training.** Recall is 26.3% on the
+  date nearest training and 26.6% on the furthest.
+- **A second look does not help.** Flagging only drives above the threshold at
+  both T-7 and T lowers recall by 2.0 to 3.3 points at matched false-alarm rate,
+  with intervals excluding zero at three of five budgets.
+
+### 8.6 Failures among the false alarms, over a longer horizon
+
+The 30-day label calls an alert a false alarm when the drive survives 30 days.
+The agent's point-in-time snapshots make it possible to ask the next question
+directly: what happened to those drives afterwards? Four of the nine weekly
+snapshots have their following 60 days fully inside the data, so every alert on
+them can be followed to its outcome (`make plot-late-hits`). At cordon and
+above that is 2,144 alerts:
+
+| What happened | Alerts | Share |
+|---|---|---|
+| Failed within 30 days (counted correct) | 616 | 28.7% |
+| Failed in days 31-60 (counted false; the alert was early) | 227 | 10.6% |
+| Failed after day 60, seen to the end of the data | 66 | 3.1% |
+| Left service, no failure recorded | 42 | 2.0% |
+| Still in service at the end of the data | 1,193 | 55.6% |
+
+**293 of the 1,528 alerts the label counts as false - 19.2% - went on to
+fail.** Credited with days 31 to 60, precision at cordon and above rises from
+28.7% to 39.3%. The 30-day figure stays the headline because the goal is stated
+at 30 days; what this adds is how much of the remainder is early warning rather
+than error.
+
+![What became of the alerts](figures/late_hits_outcomes.png)
+
+*Figure 5. What became of every alert at cordon and above, each followed to
+the end of the data. Blue is counted correct by the 30-day label; orange (solid
+and hatched) is counted false, but the drive failed later.*
+
+**The warnings do not stop at the label boundary.** Plotted day by day, failures
+after an alert are most frequent in the first days and continue past day 30 at
+a lower but steady rate through day 60 (Figure 6). The label draws a line the drives do not
+observe: an alert 31 days ahead of a failure is scored as wrong, one 30 days
+ahead as right. The median early alert came 44 days before the failure.
+
+![Days from alert to failure](figures/late_hits_lead_time.png)
+
+*Figure 6. Days from the alert to the failure, one bar per day, for every alert
+on a drive that went on to fail. The vertical line is the 30-day label
+boundary.*
+
+![Alert timelines](figures/late_hits_timelines.png)
+
+*Figure 7. Thirty of the 137 drives whose alert was early, sampled evenly
+across lead times: the alert at day 0, the failure at day N, the 30-day label
+window shaded. Labels are the drive model and a serial-number prefix
+(Backblaze publishes the serials).*
+
+**Every action tier gains, and the stricter tiers gain most.** Followed over 60
+days, the share of each tier's alerts that were right rises at every tier:
+
+| Tier and above | Alerts | Precision, 30-day label | Failed within 60 days | Share of false alarms that failed in days 31-60 |
+|---|---|---|---|---|
+| Warn | 5,091 | 18.7% | 26.1% | 9.1% |
+| Cordon | 2,144 | 28.7% | 39.3% | 14.9% |
+| Migrate | 491 | 43.4% | 58.5% | 26.6% |
+| Drain | 53 | 50.9% | 58.5% | 15.4% |
+
+At migrate and above, more than a quarter of the "false alarms" failed in the
+following month. Drain rests on 53 alerts and 26 false alarms, too few to read
+its share closely.
+
+![Precision by tier over two horizons](figures/late_hits_by_tier.png)
+
+*Figure 8. Precision of each tier's alerts by the 30-day label (blue) and
+counting failures within 60 days (orange).*
+
+**A "false alarm" is far likelier than a typical drive to fail soon after.**
+Across every drive-snapshot the label calls healthy, 0.10% fail in days 31 to
+60. Among the label's false alarms the share is 87 times that at warn, 142
+times at cordon and 254 times at migrate. That is the clearest sign these alerts
+carry real information about failure; they are early, not random.
+
+![False alarms against the background](figures/late_hits_vs_background.png)
+
+*Figure 9. Share of each tier's 30-day false alarms that failed in days 31 to
+60, against the same share across every drive the label calls healthy (0.10%,
+the grey line).*
+
+**The drives that failed later looked less worn when they were alerted.** At
+the moment of the alert their median counts of reallocated and pending sectors
+were 24 and 24, against 85 and 208 for the drives that failed within 30 days.
+That fits the model catching the same decline at an earlier stage. The drives
+that never failed sit between the two (68 and 113), so these counts alone do
+not tell an early warning from a drive that will keep running - which is why
+the model's score, not a single counter, carries the alert.
+
+![Bad sectors at the alert](figures/late_hits_profile.png)
+
+*Figure 10. Median value of three defect counters at the moment of the alert,
+cordon and above, by what became of the drive.*
+
+**What this means for the system.** For the mild actions - a warning, a cordon -
+an alert that is 30 to 60 days early is useful, not wasted: it buys time to plan
+a replacement. Read that way, the cordon tier's alerts were right about four
+times in ten, not three. The same reading explains why a longer label raises
+measured precision without changing the model (Section 9, item 16): the drives
+were always flagged; the label simply starts counting them. The goal stays
+stated at 30 days, so these figures sit beside the 30-day ones rather than
+replacing them.
+
+These counts use each drive's recorded event date. An earlier count of 195
+early failures required the drive to still report telemetry on exactly day 30;
+the 32 additional drives failed in days 31 to 59 after they had stopped
+reporting.
+
+### 8.7 The sequence model (LSTM)
+
+The tree model sees hand-built 7-, 14- and 30-day window statistics. A
+recurrent model reading the raw daily history is the most direct test of
+whether those features leave signal on the table (`make train-sequence`). It is
+a two-layer LSTM over each drive's last 30 days of nine SMART attributes (log
+values, with a flag for whether each attribute is reported), drive age, vendor
+and capacity, trained with the tree model's recipe and scored on exactly the
+same labelled drive-days, splits and drive-level metrics.
+
+**Observation 1 - it learns fast and then memorizes.** Every run reached its
+best validation score within two epochs, after which validation precision fell
+while training loss kept falling. Three regularized settings (a lower learning
+rate, more dropout, a smaller network) changed the peak by no more than noise
+(validation average precision 0.518 to 0.530, against 0.528 for the standard
+setting). The behaviour is the same across four seeds.
+
+![LSTM training curves](figures/sequence_training_curves.png)
+
+*Figure 11. Validation average precision per epoch for all seven training runs,
+with the epoch whose weights were kept.*
+
+**Observation 2 - alone it is close behind LightGBM.** Test drive-level AUROC
+is 0.911 to 0.919 across the four seeds, against LightGBM's 0.923. At a
+1-in-1,000 false-alarm rate it catches 18% to 27% of failing drives against
+LightGBM's 26.8%. A recurrent reading of the raw history does not find signal
+the window features miss.
+
+**Observation 3 - it catches different drives.** The two models' drive scores
+correlate at 0.65 to 0.74 (Spearman). At the strictest rate, 1 healthy drive in
+10,000 alerted, the four-seed LSTM ensemble catches 79 failing drives and
+LightGBM 54, with only 17 in common. Averaging seeds helps the LSTM most at this
+strict end, where it catches more than LightGBM on its own.
+
+![Which failing drives each model catches](figures/sequence_catch_overlap.png)
+
+*Figure 12. Failing test drives caught by each model alone at the same
+false-alarm rate, split into those both catch, only LightGBM catches and only
+the LSTM catches.*
+
+**Observation 4 - blended, they catch more for the same false alarms.** A
+rank-average of the two scores, with the LSTM's weight chosen on validation
+(0.1 to 0.2), raises recall at every budget:
+
+| Test, 1,479 failing / 353,552 healthy drives | LightGBM | Blend, four-seed LSTM ensemble |
+|---|---|---|
+| Recall / precision at 1 in 10,000 false alarms | 3.7% / 60.7% | 4.2% / 63.9% |
+| Recall / precision at 1 in 2,000 | 15.7% / 56.9% | 18.1% / 60.4% |
+| Recall / precision at 1 in 1,000 | 26.8% / 52.9% | 29.3% / 55.1% |
+
+Precision in this table is derived from the measured recall and the
+false-alarm budget. AUROC is unchanged (0.923): the gain is at the operating
+points the action tiers use.
+
+![Recall at fixed false-alarm rates](figures/sequence_recall_at_budgets.png)
+
+*Figure 13. Test recall at three false-alarm rates for LightGBM, the LSTM
+ensemble alone and the blend.*
+
+**Observation 5 - the gain is consistent and modest.** Every one of the four
+seeds and the ensemble improves on LightGBM at all three budgets, by 0.5 to 3.4
+points of recall, about +10% relative at the looser budgets. For the ensemble
+the 95% paired interval clears zero at 1 in 2,000 and 1 in 1,000; at the
+strictest budget it does not.
+
+![Blend gain per seed](figures/sequence_blend_gain.png)
+
+*Figure 14. Blend minus LightGBM recall on test for each LSTM run and the
+ensemble, with the 95% paired drive-level bootstrap interval.*
+
+**How far to take it.** The intervals resample the same test drives, so the
+five rows are not independent evidence, and the blend weight was both chosen
+and judged around the same test period. The blend is the strongest candidate
+for the next model of record, and the sealed quarter is where it is read once,
+cleanly, before it is relied on.
+
 ---
 
 ## 9. What was tried
@@ -539,10 +854,16 @@ drives.
 | 9 | Survival model (time to failure) | Same as the classifier (0.216 against 0.213) |
 | 10 | Anomaly detection (isolation forest), alone, as a filter, as a feature | Alone far worse (24% against 46%); the others within noise |
 | 11 | Second-stage model | **Not confirmed.** See below |
-| 12 | One fleet-wide action-tier threshold against one per drive model | **Worse.** 7 of 81 models had enough failing validation drives to earn their own thresholds; against those, they lost 7-8 points of recall for under 1 point of precision at the lenient tiers, and lost on both axes at drain (64 caught from 173 alerts against 76 from 162) |
+| 12 | One fleet-wide action-tier threshold against one per drive model | **Fleet-wide is better.** 7 of 81 models had enough failing validation drives to earn their own thresholds; against those, per-model thresholds lost 7-8 points of recall for under 1 point of precision at the lenient tiers, and lost on both axes at drain (64 caught from 173 alerts against 76 from 162) |
+| 13 | A wider, older training window (quarter-aligned, Q4 2025 and Q1 2026) | Same ranking: within 1.2-1.3 recall points of the frozen run at matched false-alarm rate, inside sampling error (Section 8.4) |
+| 14 | A second look a week apart before flagging | Lower recall: -2.0 to -3.3 points at matched false-alarm rate (Section 8.5) |
+| 15 | Per-family recalibration (a shrunk score offset per drive model) | Same as the raw score: within 0.6 points at five of six budgets, -1.4 at the sixth |
+| 16 | 7- and 14-day horizons beside 30, same data and splits | AUROC flat (0.925, 0.924, 0.923); 7 days is less precise near 10% recall (46% against 57%) |
+| 17 | LSTM over each drive's raw 30-day history | Close behind LightGBM: AUROC 0.915 against 0.923; recall at a 1-in-1,000 false-alarm rate 20.1% against 26.8% |
+| 18 | **LSTM blended with LightGBM** (rank average, weight chosen on validation) | **Gain:** +0.5 to +3.4 recall points across four seeds at matched false-alarm rates, AUROC unchanged; to be read once on the sealed quarter |
 
-**Item 11 is reported differently from how it was reported a few days
-earlier, and that difference is itself a finding.** A five-seed repeat
+**Item 11 is reported at the strength of its current evidence, and how that
+changed is itself a finding.** A five-seed repeat
 showed a gain in every seed at the primary and broader operating points
 (42.4% to 47.7% precision at the same recall). On the strength of that, a
 direct paired-bootstrap significance test was run once, on the run that was
@@ -557,6 +878,8 @@ measure at its high end. What is no longer defensible is the earlier claim
 that one paired test had settled the question. The second stage stays the
 pipeline's default, on the standing five-seed evidence, reported now as
 "adopted, not confirmed" rather than "real, not noise."
+
+Items 17 and 18 are described, with figures, in Section 8.7.
 
 Item 12's own inference is worth stating plainly, because the guardrail
 instinct behind it was reasonable even though the fix it proposed was not:
@@ -581,15 +904,15 @@ automated tests, not on real hardware.
 
 | Test layer | Tests | What it covers |
 |---|---|---|
-| Unit | 426 | Features, labels, model code, guardrail rules, trust score, API |
+| Unit | 620 | Features, labels, model code, guardrail rules, trust score, API, the sequence model and the late-hit figures |
 | Property-based | 10 | Invariants of hysteresis, trust score and metrics over generated inputs |
 | Golden data | 3 | Feature pipeline against a fixed reference data set |
 | Integration | 16 | Full decision cycles with the real guardrail engine and simulator |
 | Chaos | 5 | Stale telemetry, correlated multi-drive failure, action timeout, human-review timeout, guardrail latency |
 | Smoke | 3 | End-to-end start-up |
 
-463 tests in total, all passing, with `ruff` and `mypy` clean. One further
-test is skipped unless the optional PyTorch extra is installed.
+657 tests in total, all passing with the optional PyTorch extra installed,
+with `ruff` and `mypy` clean. Without the extra the sequence-model tests skip.
 
 Behaviours demonstrated by these tests:
 
@@ -623,20 +946,27 @@ drives are rarer still. To reach 90% precision at the primary threshold the
 model would have to alert only a handful of healthy drives out of over
 350,000, many times fewer than it does.
 
-Three observations suggest the limit is in the data and not the model.
-Different model families, feature sets and problem framings all arrive at
-the same place, now including a sixth core SMART attribute chosen by
-measured separation rather than literature priors. Most false alarms are
-drives whose SMART readings really are abnormal: of 531 healthy drives
-alerted by the single model at its broadest threshold in the earlier run,
-500 were still in service a month later. And many failing drives give no
-warning in their SMART readings at all, which caps recall.
+Four observations place the limit in the data rather than the model.
+Different model families, feature sets, problem framings and now a sequence
+model reading the raw history all arrive at the same ranking; drive-level
+AUROC is the same at 7-, 14- and 30-day horizons. Most of the remaining false
+alarms are drives whose SMART readings really are abnormal, and on the
+telemetry they look like failing drives: each priority counter is non-zero in
+nearly the same share of false alarms and true alerts. A fifth of them are
+early rather than wrong (Section 8.6). And many failing drives give no warning
+in their SMART readings at all, which caps recall.
 
 ### 11.2 What did help, and why
 
 Lengthening the horizon from 14 to 30 days helped because the model was being
 marked wrong for warnings that came early: of 330 test drives it flagged
 that did not fail within 14 days, 43 failed within the following six weeks.
+The horizon comparison later confirmed the mechanism: AUROC is flat across 7,
+14 and 30 days, so the model's ranking is the same and a longer label counts
+more of its early warnings as correct. Section 8.6 shows the same effect from
+the other side, beyond 30 days. The LSTM blend helps for a different reason:
+the two models catch partly different drives, so combining them recovers
+failures either would miss alone.
 The second stage appears to help, modestly, for a reason that still looks
 sound even though its significance is no longer confirmed: once the easy
 healthy drives are set aside, a model trained only on the hard cases can
@@ -654,12 +984,13 @@ it is what an operator would experience.
 
 ### 11.4 What the result means for autonomy
 
-A model that is right less than half the time at its strictest setting cannot
-be allowed to drain drives unsupervised, and this system does not allow it.
-What the model provides is a short, highly enriched list, nearly a third of
-which will fail within a month at the strictest setting. That is useful
-input to a system in which the consequential decisions are checked by rules
-that do not depend on the model and, where needed, by a person.
+What the model provides is a short, highly enriched list: about half of the
+drives at its strictest setting fail within 30 days, more within 60, and every
+alerted drive is hundreds of times likelier to fail than a typical one. That
+is the right input for graduated autonomy. Warnings and cordons act on the
+list directly, where an early alert buys time; drains stay behind rules that
+do not depend on the model and, where needed, a person - which is how this
+system is built.
 
 ### 11.5 What the confidence-floor bug says about that claim
 
@@ -685,9 +1016,9 @@ same claim, and this project had, for a time, only checked the first one.
 
 ## 12. Limitations
 
-- **A safety floor was unreachable fleet-wide for two months, now fixed.**
+- **A safety floor that no real drive could reach, found and fixed.**
   Section 7.2 and Section 11.5. The frozen run in Section 8 is the first one
-  trained after the fix; the fleet has not yet been re-scored with it.
+  trained after the fix; the batch fleet scores on record predate it.
 - **The second-stage model's gain is not confirmed.** Two paired significance
   tests on two different runs disagree about whether the interval excludes
   zero (Section 9, item 11). It stays the default on five-seed evidence, not
@@ -695,12 +1026,12 @@ same claim, and this project had, for a time, only checked the first one.
 - **Per-drive-model action-tier thresholds were tried and lost.** Section 9,
   item 12. The code is kept as the measurement, not as something anything
   else consumes.
-- **The live agent is not yet driven by the trained model.** The model scores
-  the real fleet in batch and proposes actions. The agent and API run against
-  a small demonstration fleet, and the agent uses fixed score cut-offs
-  instead of the tier thresholds derived in training. That demonstration
-  fleet's confidence values are hardcoded, so it was never exposed to the
-  bug in Section 7.2 either way.
+- **The live service runs on a demonstration fleet.** The agent and batch
+  scoring take their tier thresholds from the trained run through one shared
+  path, and the agent's policy has been measured offline against the real
+  fleet (Section 8.5). The running agent and API still drive a two-drive
+  demonstration snapshot whose confidence values are set directly, so it was
+  never exposed to the defect in Section 7.2 either way.
 - **Two fleet-safety guardrails need real topology data.** The last-healthy-
   node and quorum rules are implemented and tested, but the demonstration
   wiring supplies no node or replication state, so they cannot fire there.
@@ -711,8 +1042,9 @@ same claim, and this project had, for a time, only checked the first one.
   rebuilds them. Nothing sweeps the queue for reviews that have missed their
   SLA, so the safe-fallback logic that exists is never triggered in the
   running service.
-- **One data source and one half-year.** All results are Backblaze drives
-  from January to June 2026, with a single three-week test period. The
+- **One data source.** All results are Backblaze drives. The frozen run has a
+  single three-week test period; the quarter-aligned run widens that to nine
+  weeks and the point-in-time evaluation to nine weekly snapshots. The
   bootstrap interval covers sampling across drives and the five-seed test
   covers training randomness; neither shows how results would vary in another
   period. The sealed quarter exists to answer that and has not been scored.
@@ -722,6 +1054,16 @@ same claim, and this project had, for a time, only checked the first one.
 - **Validation precision exceeded test precision on the earlier run**, and
   only about half of the difference was explained; not yet re-measured on
   the current freeze.
+- **The test period has been read many times.** Every test-split computation
+  is logged, and the LSTM blend was both chosen and judged around the same
+  test period; the sealed quarter is where it is read once, cleanly.
+- **Sections 8.4 to 8.7 use the quarter-aligned window**, not the frozen model
+  of record, and are labelled so; Figures 1 to 4 are drawn from that run's
+  reports.
+- **The maturity gate reads the dataset's last date**, so any backtest that
+  consults it looks ahead (Section 7.3). The point-in-time evaluation does not
+  consult it; for scoring the current fleet, where a drive that has stopped
+  reporting really is gone, the gate's reading is the right one.
 - **Action-tier targets are placeholders.** They are expressed as lift,
   which at least compares across splits, but the numbers themselves should
   come from the real cost of a false alarm for each action.
@@ -742,14 +1084,20 @@ same claim, and this project had, for a time, only checked the first one.
 3. Drive the live agent from the trained model, with the trained tier
    thresholds and real topology data for the fleet-safety guardrails.
 4. Score the sealed quarter against the frozen run, once, to test stability
-   over time, and use a further quarter to allow a 60- to 90-day horizon.
-5. Add signals beyond daily SMART: I/O latency, error logs and workload.
-6. Set tier targets from operational cost, and measure the precision of
+   over time - and read the LSTM blend there, once, as the candidate for the
+   next model of record.
+5. Credit early warnings where they are useful: a cost model per action, so
+   that an alert 30 to 60 days ahead counts for the mild tiers (Section 8.6).
+   The 60-day horizon run is configured and ready.
+6. Feed the LSTM's score to the second stage, with out-of-fold scores for the
+   training rows so the second stage never sees the LSTM's memorized ones.
+7. Add signals beyond daily SMART: I/O latency, error logs and workload.
+8. Set tier targets from operational cost, and measure the precision of
    actions taken after human review.
-7. Evaluate on the second data set to test generalization across vendors.
-8. Schedule the trust-score resolution and drift checks that currently run
+9. Evaluate on the second data set to test generalization across vendors.
+10. Schedule the trust-score resolution and drift checks that currently run
    only on demand.
-9. Raise the "expected attribute" coverage threshold in `model_expected_attributes`
+11. Raise the "expected attribute" coverage threshold in `model_expected_attributes`
    past 50%, which currently still under-serves a small set of SSD/laptop
    drive models (ADR 0002).
 
@@ -758,37 +1106,36 @@ same claim, and this project had, for a time, only checked the first one.
 ## 14. Conclusion
 
 The project delivered a working, tested system that goes from raw fleet
-telemetry to an audited action, and ran it on a real fleet of 363,548 drives.
+telemetry to an audited action, and ran it on a real fleet of more than
+360,000 drives within a 20 GB memory budget.
 
-It did not reach its precision target, and the evidence indicates that the
-target is not reachable from daily SMART data at real fleet failure rates:
-twelve approaches were tried, and the two that helped moved precision at the
-primary threshold from about 34% to about 49% - though one of those two, the
-second-stage model, is now reported on weaker evidence than it was a few
-days earlier, because a second significance test disagreed with the first.
-The model is nonetheless strongly informative, with alerts about 277 times
-more likely than chance to be right and fewer than 1 healthy drive in 6,000
-alerted.
+The model is strongly informative. Its alerts are about 277 times more likely
+than chance to be right, fewer than 1 healthy drive in 6,000 is alerted, and
+on the test sets of published work the same alerts are 99% precise. At the
+fleet's own failure rate its precision is set by how rare failures are and by
+what daily SMART data reveals: eighteen approaches agree on that ceiling, and
+the two that moved it took precision at the primary threshold from about 34%
+to about 49%.
 
-The second finding of comparable weight to the precision result is that the
-safety design, while sound in its layering, had a real defect: for about two
-months, one of its two independent pre-action checks was silently unable to
-ever pass, for any drive scored through the real pipeline. It is a genuinely
-reassuring finding that the defect's direction was the safe one - the system
-became harder to act with, not easier to act unsafely with - and it is an
-equally genuine caution that nothing short of computing the actual value
-against real data caught it, because every automated test built its inputs
-to already be ideal.
+Much of what the 30-day label counts as error is early warning. Followed for a
+longer horizon, a fifth of the agent's "false alarms" were on drives that went
+on to fail, at 87 to 254 times the background rate, and counting those raises
+precision at every action tier. A sequence model adds a second view of the
+same telemetry: it catches partly different drives, and blended with LightGBM
+it catches more failing drives for the same number of false alarms, a gain
+consistent across every seed and ready to be confirmed on the sealed quarter.
 
-The more durable result is still the design, held to a slightly higher
-standard than before: because safety rests on graduated actions, independent
-guardrails, human approval, rollback and audit, the system remained safe to
-operate even while one of those independent checks was broken. The system
-would become more autonomous, not differently built, as better signals
-improve the model - and this project's own history argues for checking, on
-real data and on a schedule, that each of its safety mechanisms still does
-what it is supposed to, not only that the system as a whole fails safe when
-one does not.
+The safety design held when tested against real data. A defect in one of its
+two independent pre-action checks made it impossible to pass for drives scored
+through the real pipeline; the system's response was to decline destructive
+actions, never to take unsafe ones, and the check now has a guard in the build.
+The lesson the project carries forward is to verify each safety mechanism on
+real data, not only that the system as a whole fails safe.
+
+The system would become more autonomous, not differently built, as better
+signals improve the model: graduated actions, independent guardrails, human
+approval, rollback and audit already let it act usefully on a model of this
+quality.
 
 ---
 
@@ -799,7 +1146,7 @@ one does not.
 2. Amram, M., et al. *Interpretable predictive maintenance for hard drives.*
    2021.
 3. Klein, A. *Using Machine Learning to Predict Hard Drive Failures.*
-   Backblaze blog, 12 October 2021.
+   Backblaze blog, 2021.
 4. Lu, S., et al. *Making Disk Failure Predictions SMARTer!* USENIX FAST 2020.
 5. Wei, et al. *SMART-Z data set.* Scientific Data, 2025.
 6. Pinheiro, E., Weber, W.-D. and Barroso, L. A. *Failure trends in a large
@@ -849,6 +1196,23 @@ uv run python scripts/screen_raw_attributes.py
 uv run python scripts/check_confidence_distribution.py   # after rebuilding gold features
 ```
 
+The agent's policy at fixed dates, the false-alarm follow-up of Section 8.6,
+the sequence model of Section 8.7 and the per-family recalibration:
+
+```bash
+make agent-pit                 # nine weekly point-in-time snapshots
+make plot-late-hits            # Figures 5-10 and late_hits_summary.json
+uv sync --extra dev --extra torch
+make train TRAIN_ARGS=--save-scores
+make train-sequence            # and SEQUENCE_ARGS="--seed N --tag sN" for more seeds
+uv run --extra torch python scripts/compare_sequence_vs_tree.py
+uv run python scripts/plot_sequence_comparison.py   # Figures 11-14
+make family-calibration
+```
+
+The figures in this report are copied from `data/audit/plots/` into
+`docs/figures/`.
+
 Outputs: the evaluation report and final report under
 `data/audit/data_quality_reports/`, the model card under
 `data/audit/model_cards/`, plots under `data/audit/plots/`, fleet scores
@@ -865,9 +1229,10 @@ section 1.1 is the record for it.
 | Setting | Value |
 |---|---|
 | Horizon | 30 days |
-| Splits | train to 2026-04-15 (rows to 2026-03-16), validation to 2026-05-10, test to 2026-05-31 |
-| Sealed window | from 2026-07-01; read only by the single-shot frozen evaluation |
-| Frozen run | `29e338248d8948ccb41ee58db5321e76`, dataset version `20261009T051152748998Z` - the runbook does not record a git commit for this run |
+| Splits, frozen run | training rows the first 75 days of Q1 and Q2 2026, validation the 25 days after the 30-day purge, test the following 21 days |
+| Splits, quarter-aligned run | training rows the first 107 days of Q4 2025 to Q2 2026, validation the last 45 days of Q1, test the first 61 days of Q2 |
+| Sealed window | Q3 2026; read only by the single-shot frozen evaluation |
+| Frozen run | `29e338248d8948ccb41ee58db5321e76`; its dataset version is recorded in the runbook, Section 1.1 |
 | Features | 246 (212 before the sixth priority attribute and the confidence-formula fixes) |
 | First stage | LightGBM, 31 leaves, at least 200 rows per leaf, L2 10, learning rate 0.05 (tree count for this specific run not recorded in the runbook) |
 | Class weighting | square root of the healthy-to-failing ratio |
