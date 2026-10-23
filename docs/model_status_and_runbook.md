@@ -1622,6 +1622,51 @@ by recall at a 5e-4 false-alarm rate) and applied to test:
 - This run added two entries to `data/audit/test_access_log.jsonl` (the
   LightGBM re-run and the comparison).
 
+### 5.11 The blend gain holds across four LSTM seeds, but stays small (run 2026-10-23)
+
+Four LSTM runs (the original plus seeds 1-3, same settings), each scored on the
+same 1,479 failing / 353,552 healthy test drives, then blended with LightGBM by
+rank-average. A short tuning pass first (`--train-only`, validation only: lower
+learning rate, more dropout, a smaller network) found no setting better than
+the current one by more than noise (best validation average precision 0.5276 for
+the current setting, 0.5295, 0.5286 and 0.5176 for the three variants), so the
+current setting was kept. Every run peaks after one or two epochs and then
+overfits, whatever the regularization.
+
+Test, drive level. `Blend` uses the LSTM weight chosen on validation for that
+run (0.1, or 0.2 for seed 3 and the ensemble). `Gain` is blend minus LightGBM
+recall, in points, with the 95% paired bootstrap interval.
+
+| Run | LSTM alone AUROC | Blend AUROC | Gain at 1e-4 | Gain at 5e-4 | Gain at 1e-3 |
+|---|---|---|---|---|---|
+| seed 0 | 0.9146 | 0.9227 | +1.4 [-0.2, +2.4] | +1.7 [+0.0, +3.3] | +2.6 [+0.6, +4.1] |
+| seed 1 | 0.9191 | 0.9230 | +1.0 [-0.3, +2.1] | +0.9 [-0.1, +2.6] | +0.9 [-0.5, +2.8] |
+| seed 2 | 0.9172 | 0.9229 | +0.8 [-0.4, +2.1] | +1.4 [+0.1, +3.1] | +1.4 [-0.4, +3.7] |
+| seed 3 | 0.9111 | 0.9221 | +0.8 [-0.7, +2.5] | +3.0 [+1.0, +4.6] | +3.4 [+1.7, +5.6] |
+| mean-rank ensemble of the four | 0.9185 | 0.9229 | +0.5 [-0.5, +2.9] | +2.4 [+0.7, +4.1] | +2.5 [+0.8, +4.9] |
+
+LightGBM alone: AUROC 0.9226; recall 3.65%, 15.7% and 26.8% at false-alarm
+rates of 1e-4, 5e-4 and 1e-3.
+
+- **The sign is consistent, the size is small.** All five blends beat LightGBM
+  at all three budgets (+0.5 to +3.4 points), so the earlier single-seed gain
+  was not a lucky seed. Only the ensemble and seed 3 have intervals clearly
+  above zero at the two looser budgets; the strictest budget never does.
+  AUROC is unchanged at 0.922-0.923.
+- **Read the intervals as optimistic.** They resample the same test drives, so
+  the four runs are not independent evidence; three budgets were compared; the
+  weight was fitted per run on validation. Roughly +2 points of recall at a
+  5e-4 to 1e-3 false-alarm rate (about +10% relative) is the supported claim.
+- **The LSTM ensemble alone** catches 79 failing drives at a 1e-4 false-alarm
+  rate against LightGBM's 54 (17 in common), ties it at 5e-4 and loses at 1e-3
+  (22.6% against 26.8%). Averaging seeds helps it at the strict end only.
+- **It does not change the goal status.** Recall at a 1e-4 false-alarm rate is
+  still about 5%, and nothing here approaches 95% precision.
+- **Test-split accesses.** `data/audit/test_access_log.jsonl` now has 46
+  entries; this section added the three seed runs, a check run and the
+  comparison. Any further use of these test numbers
+  to choose a method (including this blend) needs the sealed quarter.
+
 ## 6. The experiment tool
 
 ```bash
