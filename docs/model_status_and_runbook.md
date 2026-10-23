@@ -1383,6 +1383,21 @@ flagged, 1,121 caught, 3,679 false alarms):
   better features would pay: they are mixed-vendor, so the Seagate-only
   attribute gap of ADR 0002 does not explain them by itself.
 
+**Seeing the late hits.** `make plot-late-hits` (`scripts/plot_late_hits.py`)
+draws them from the same saved snapshots: what became of every flagged
+drive-snapshot, days from the alert to the failure (one bar per day, so the
+30-day boundary falls between day 30 and day 31), and one row per early alert
+with the alert at day 0 and the failure at day N. It reads the event date from
+the label table, so on the four snapshots whose days 31-60 are observed (cordon
+and above; 2,144 flagged, 1,528 false alarms by the 30-day label) it counts 227
+drives that failed in days 31-60, not the 195 above. The 195 comes from
+requiring the drive to still report telemetry on exactly day 30; 32 drives
+failed in days 31-59 after they stopped reporting, and every one of the 195 is
+among the 227. A further 66 failed after day 60 (a lower bound, seen only to the
+end of the data), so 293 of the 1,528 (19.2%) went on to fail. Precision by the
+30-day label is 28.7%; crediting days 31-60 it is 39.3% (37.8% by the 195
+count). The 30-day figure stays the headline: the goal is pinned to it.
+
 **Conclusion.** The loop's filters cannot reduce the model's false
 positives: on SMART telemetry a false positive looks like a failing drive, and
 no streak, attribute or two-look combination separates them. One structure

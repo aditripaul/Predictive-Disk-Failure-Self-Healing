@@ -345,6 +345,7 @@ Expect it to take well over an hour on Q1 alone.
 | `make experiment-model` | See above. |
 | `make build-sequences`, `make train-lstm` | Optional LSTM branch (one window per drive; a rough comparison only). Needs `uv sync --extra dev --extra torch` first. |
 | `make train-sequence` | LSTM over each drive's raw 30-day history, evaluated exactly like `make train` (same labelled drive-days, split rules and drive-level metrics), so the two can be compared. Options go in `SEQUENCE_ARGS`; see below. |
+| `make plot-late-hits` | Draws what became of the drives the model flagged: three figures in `data/audit/plots/` (`late_hits_outcomes.png`, `late_hits_lead_time.png`, `late_hits_timelines.png`) plus `late_hits_summary.json`. Shows that alerts the 30-day label counts as false alarms often failed in days 31 to 60. Needs `make agent-pit` first; options in `ARGS` (`--tier`, `--max-lanes`). |
 | `make evaluate-frozen` | Scores one sealed or external split, once, against a frozen run (section 2.5). `ARGS="--run-id <id> --split sealed"`. |
 | `make final-report` | Writes `data/audit/data_quality_reports/final_evaluation_report.json`: the model's drive-level results and action tiers, a goal-status section (target met or not, and the gap), the data period, and the chaos, latency and crash-recovery test results. Runs those tests, so it takes a few minutes. |
 | `make agent-demo` | Runs the decision-agent demo once. |
