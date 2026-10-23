@@ -26,6 +26,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402 - backend must be set first
+import matplotlib.ticker  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
@@ -279,4 +280,154 @@ def plot_alert_timelines(
         "Ordered by lead time; sampled evenly across the range.",
     )
     fig.subplots_adjust(top=1 - 1.35 / height, left=0.26, right=0.97, bottom=0.8 / height)
+    return fig
+
+
+def plot_precision_by_tier(rows: Sequence[dict[str, Any]], *, horizon_days: int) -> plt.Figure:
+    """Precision per action tier by the label, and with days `horizon+1` to
+    `2*horizon` credited. `rows`: `tier`, `alerts`, `precision_label`,
+    `precision_credited`, in tier order (mildest first)."""
+    fig, ax = plt.subplots(figsize=(9.2, 4.8))
+    _style(ax)
+    ax.xaxis.grid(False)
+    ax.yaxis.grid(True, color=GRID, linewidth=0.8)
+    x = np.arange(len(rows))
+    width = 0.34
+    label = [r["precision_label"] * 100 for r in rows]
+    credited = [r["precision_credited"] * 100 for r in rows]
+    ax.bar(x - width / 2 - 0.01, label, width=width, color=BLUE, linewidth=0)
+    ax.bar(x + width / 2 + 0.01, credited, width=width, color=ORANGE, linewidth=0)
+    for i, (a, b) in enumerate(zip(label, credited, strict=True)):
+        ax.text(
+            i - width / 2,
+            a + 1,
+            f"{a:.1f}%",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            color=TEXT_PRIMARY,
+        )
+        ax.text(
+            i + width / 2,
+            b + 1,
+            f"{b:.1f}%",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            color=TEXT_PRIMARY,
+        )
+    ax.set_xticks(x, [f"{r['tier']} and above\n{r['alerts']:,} alerts" for r in rows])
+    ax.tick_params(axis="x", labelsize=9.5, colors=TEXT_PRIMARY)
+    ax.set_ylabel("Precision of the alerts", color=TEXT_SECONDARY, fontsize=9.5)
+    top = max([*credited, 1.0])
+    ax.set_ylim(0, top * 1.25)
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    ax.legend(
+        handles=[
+            Patch(facecolor=BLUE, label=f"Failed within {horizon_days} days (the label)"),
+            Patch(facecolor=ORANGE, label=f"Failed within {2 * horizon_days} days"),
+        ],
+        loc="upper left",
+        frameon=False,
+        fontsize=9,
+        labelcolor=TEXT_PRIMARY,
+    )
+    _heading(
+        fig,
+        "Followed for 60 days, every tier's alerts are more often right",
+        "Same alerts, two horizons. The gain grows from warn to migrate; drain rests on "
+        f"{rows[-1]['alerts'] if rows else 0} alerts.",
+    )
+    fig.subplots_adjust(top=0.82, left=0.08, right=0.97, bottom=0.14)
+    return fig
+
+
+def plot_later_failure_rate(
+    rows: Sequence[dict[str, Any]], *, background: float, horizon_days: int
+) -> plt.Figure:
+    """Share of each tier's label-false alerts that failed in days
+    `horizon+1` to `2*horizon`, against the share among every healthy-by-label
+    drive-snapshot (`background`). `rows`: `tier`, `false_alarms`,
+    `failed_later_share`."""
+    fig, ax = plt.subplots(figsize=(9.2, 4.6))
+    _style(ax)
+    ax.xaxis.grid(False)
+    ax.yaxis.grid(True, color=GRID, linewidth=0.8)
+    x = np.arange(len(rows))
+    shares = [r["failed_later_share"] * 100 for r in rows]
+    ax.bar(x, shares, width=0.5, color=ORANGE, linewidth=0)
+    for i, r in enumerate(rows):
+        lift = r["failed_later_share"] / background if background else 0.0
+        ax.text(
+            i,
+            shares[i] + 0.6,
+            f"{shares[i]:.1f}%\n{lift:,.0f}x background",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            color=TEXT_PRIMARY,
+        )
+    ax.axhline(background * 100, color=TEXT_SECONDARY, linewidth=1.2)
+    ax.set_xticks(x, [f"{r['tier']} and above\n{r['false_alarms']:,} false alarms" for r in rows])
+    ax.tick_params(axis="x", labelsize=9.5, colors=TEXT_PRIMARY)
+    ax.set_ylabel(
+        f"Failed in days {horizon_days + 1}-{2 * horizon_days}", color=TEXT_SECONDARY, fontsize=9.5
+    )
+    ax.set_ylim(0, max([*shares, 1.0]) * 1.35)
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    _heading(
+        fig,
+        'A "false alarm" is far likelier than a typical drive to fail soon after',
+        f"Share of each tier's {horizon_days}-day false alarms that failed in the next "
+        f"{horizon_days} days. The grey line at the base is the same share across every drive "
+        f"the label calls healthy: {background:.2%}.",
+    )
+    fig.subplots_adjust(top=0.82, left=0.08, right=0.97, bottom=0.15)
+    return fig
+
+
+def plot_alert_profile(
+    profile: dict[str, dict[str, float]], *, attributes: dict[str, str], counts: dict[str, int]
+) -> plt.Figure:
+    """Median value of each attribute at the moment of the alert, per outcome
+    group (`correct`, `failed_later`, `never_failed`). `attributes` maps a
+    column to its display name; one panel per attribute."""
+    groups = ("correct", "failed_later", "never_failed")
+    names = {
+        "correct": "Failed within 30 days",
+        "failed_later": "Failed later",
+        "never_failed": "Never failed in the data",
+    }
+    colors = {"correct": BLUE, "failed_later": ORANGE, "never_failed": GRAY}
+    fig, axes = plt.subplots(1, len(attributes), figsize=(9.2, 4.4), sharey=False)
+    axes = np.atleast_1d(axes)
+    for ax, (column, title) in zip(axes, attributes.items(), strict=True):
+        _style(ax)
+        ax.xaxis.grid(False)
+        ax.yaxis.grid(True, color=GRID, linewidth=0.8)
+        values = [profile[g][column] for g in groups]
+        ax.bar(np.arange(3), values, width=0.6, color=[colors[g] for g in groups], linewidth=0)
+        for i, v in enumerate(values):
+            ax.text(i, v, f"{v:,.0f}", ha="center", va="bottom", fontsize=9, color=TEXT_PRIMARY)
+        ax.set_xticks([])
+        ax.set_title(title, fontsize=10, color=TEXT_PRIMARY, loc="left")
+        ax.set_ylim(0, max([*values, 1.0]) * 1.2)
+    fig.legend(
+        handles=[
+            Patch(facecolor=colors[g], label=f"{names[g]} ({counts.get(g, 0):,} alerts)")
+            for g in groups
+        ],
+        loc="lower center",
+        ncol=3,
+        frameon=False,
+        fontsize=9,
+        labelcolor=TEXT_PRIMARY,
+    )
+    _heading(
+        fig,
+        "Drives that failed later had fewer bad sectors when they were alerted",
+        "Median at the moment of the alert, cordon and above. Consistent with catching the same "
+        "decline earlier; the counts alone do not separate the three groups.",
+    )
+    fig.subplots_adjust(top=0.78, left=0.07, right=0.98, bottom=0.14, wspace=0.25)
     return fig

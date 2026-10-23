@@ -94,3 +94,76 @@ def test_figures_survive_empty_input():
     plot_lead_time_histogram([], horizon_days=30)
     plot_alert_outcomes({}, horizon_days=30, tier="cordon", snapshots=0)
     plot_alert_timelines([], horizon_days=30, total_early=0)
+
+
+def test_tier_figures_report_the_credited_gain_and_background_lift():
+    from src.reporting.late_hit_figures import plot_later_failure_rate, plot_precision_by_tier
+
+    rows = [
+        {
+            "tier": "warn",
+            "alerts": 100,
+            "false_alarms": 80,
+            "precision_label": 0.2,
+            "precision_credited": 0.3,
+            "failed_later_share": 0.1,
+        },
+        {
+            "tier": "drain",
+            "alerts": 10,
+            "false_alarms": 5,
+            "precision_label": 0.5,
+            "precision_credited": 0.6,
+            "failed_later_share": 0.2,
+        },
+    ]
+    fig = plot_precision_by_tier(rows, horizon_days=30)
+    assert "drain rests on 10 alerts" in fig.texts[1].get_text()
+    labels = [t.get_text() for t in fig.axes[0].texts]
+    assert "20.0%" in labels and "30.0%" in labels
+    fig = plot_later_failure_rate(rows, background=0.001, horizon_days=30)
+    labels = [t.get_text() for t in fig.axes[0].texts]
+    assert any("100x background" in t for t in labels)  # 0.1 / 0.001
+    assert "0.10%" in fig.texts[1].get_text()
+
+
+def test_profile_figure_draws_one_panel_per_attribute():
+    from src.reporting.late_hit_figures import plot_alert_profile
+
+    profile = {g: {"a": 1.0, "b": 2.0} for g in ("correct", "failed_later", "never_failed")}
+    fig = plot_alert_profile(profile, attributes={"a": "A", "b": "B"}, counts={"correct": 3})
+    assert len(fig.axes) == 2
+
+
+def test_sequence_figures_render_from_report_shapes():
+    from src.reporting.sequence_figures import (
+        plot_blend_gain,
+        plot_catch_overlap,
+        plot_recall_at_budgets,
+        plot_training_curves,
+    )
+
+    history = [
+        {"epoch": 1, "validation_average_precision": 0.5},
+        {"epoch": 2, "validation_average_precision": 0.4},
+    ]
+    fig = plot_training_curves({"s0": history, "s1": history})
+    assert "(2)" in fig.axes[0].get_legend().get_texts()[0].get_text()
+    budgets = ("0.0001", "0.001")
+    rows = [
+        {"name": n, "kind": k, "recall_at_far_0.0001": 0.04, "recall_at_far_0.001": 0.3}
+        for n, k in (("LightGBM", "tree"), ("LSTM", "lstm"), ("Blend", "blend"))
+    ]
+    assert len(plot_recall_at_budgets(rows, budgets).axes[0].patches) == 6
+    fig = plot_catch_overlap(
+        [{"false_alarm_budget": 0.0001, "both": 17, "only_tree": 37, "only_ensemble": 62}]
+    )
+    assert "17 of LightGBM's 54" in fig.texts[1].get_text()
+    gains = [
+        {
+            "name": "Ensemble",
+            "gain": dict.fromkeys(budgets, 0.02),
+            "ci": dict.fromkeys(budgets, [0.0, 0.04]),
+        }
+    ]
+    assert len(plot_blend_gain(gains, budgets).axes) == 2

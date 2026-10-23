@@ -15,6 +15,10 @@ Writes three figures and a summary to data/audit/plots/:
                             30-day label boundary marked
   late_hits_timelines.png   one row per early alert: alert at day 0, failure
                             at day N, the label window shaded
+  late_hits_by_tier.png     precision per tier by the label and over 60 days
+  late_hits_vs_background.png  share of each tier's false alarms that failed
+                            in days 31-60, against every healthy drive
+  late_hits_profile.png     median bad-sector counts at the alert, by outcome
   late_hits_summary.json    the numbers behind the figures
 
 Only snapshots whose days 31-60 are fully observed are used, as in
@@ -44,14 +48,69 @@ from src.agent.false_positives import (
 )
 from src.reporting.late_hit_figures import (
     plot_alert_outcomes,
+    plot_alert_profile,
     plot_alert_timelines,
+    plot_later_failure_rate,
     plot_lead_time_histogram,
+    plot_precision_by_tier,
 )
 from src.reporting.plots import save_figure
 
 DEFAULT_OBSERVATIONS = Path("data/audit/agent_point_in_time_observations.parquet")
 DEFAULT_REPORT = Path("data/audit/agent_point_in_time.json")
 DATA_CONFIG_PATH = Path("configs/data.yaml")
+TIERS = ("warn", "cordon", "migrate", "drain")
+PROFILE_ATTRIBUTES = {
+    "reallocated_sector_count": "Reallocated sectors",
+    "current_pending_sector_count": "Pending sectors",
+    "reallocation_event_count": "Reallocation events",
+}
+
+
+def tier_rows(obs: pl.DataFrame, events: pl.DataFrame, thresholds: dict, horizon: int) -> list:
+    """Per tier: alerts, precision by the label and with days 31-60 credited,
+    and the share of the label's false alarms that failed in days 31-60."""
+    rows = []
+    for tier in TIERS:
+        out = alert_outcomes(flagged_at(obs, thresholds[tier]), events, horizon_days=horizon)
+        n = out.height
+        correct = int((out["outcome"] == "correct").sum())
+        early = int((out["outcome"] == "early").sum())
+        false_alarms = n - correct
+        rows.append(
+            {
+                "tier": tier,
+                "alerts": n,
+                "false_alarms": false_alarms,
+                "precision_label": correct / n if n else 0.0,
+                "precision_credited": (correct + early) / n if n else 0.0,
+                "failed_later_share": early / false_alarms if false_alarms else 0.0,
+            }
+        )
+    return rows
+
+
+def outcome_profile(outcomes: pl.DataFrame) -> tuple[dict, dict]:
+    """Median of each profile attribute at the alert, by outcome group."""
+    group = (
+        pl.when(pl.col("outcome") == "correct")
+        .then(pl.lit("correct"))
+        .when(pl.col("outcome").is_in(["early", "later"]))
+        .then(pl.lit("failed_later"))
+        .otherwise(pl.lit("never_failed"))
+    )
+    table = (
+        outcomes.with_columns(group.alias("group"))
+        .group_by("group")
+        .agg(pl.len().alias("n"), *[pl.col(c).median().alias(c) for c in PROFILE_ATTRIBUTES])
+    )
+    profile = {
+        r["group"]: {c: float(r[c] or 0.0) for c in PROFILE_ATTRIBUTES}
+        for r in table.iter_rows(named=True)
+    }
+    for g in ("correct", "failed_later", "never_failed"):
+        profile.setdefault(g, dict.fromkeys(PROFILE_ATTRIBUTES, 0.0))
+    return profile, {r["group"]: int(r["n"]) for r in table.iter_rows(named=True)}
 
 
 def early_alert_rows(outcomes: pl.DataFrame, max_lanes: int) -> tuple[list[dict], int]:
@@ -110,7 +169,8 @@ def main(argv: list[str] | None = None) -> None:
     )
     if not dates:
         raise SystemExit("no snapshot has its days 31-60 inside the data; nothing to show")
-    flagged = flagged_at(obs, threshold).filter(pl.col("date").is_in(dates))
+    observed = obs.filter(pl.col("date").is_in(dates))
+    flagged = flagged_at(observed, threshold)
     events = (
         pl.scan_parquet(labels_path)
         .filter((pl.col("horizon_days") == horizon) & pl.col("date").is_in(dates))
@@ -152,6 +212,23 @@ def main(argv: list[str] | None = None) -> None:
         out_dir / "late_hits_timelines.png",
     )
 
+    by_tier = tier_rows(observed, events, report["thresholds"], horizon)
+    everyone = alert_outcomes(observed, events, horizon_days=horizon)
+    healthy = everyone.filter(pl.col("outcome") != "correct")
+    background = float((healthy["outcome"] == "early").mean()) if healthy.height else 0.0
+    save_figure(
+        plot_precision_by_tier(by_tier, horizon_days=horizon), out_dir / "late_hits_by_tier.png"
+    )
+    save_figure(
+        plot_later_failure_rate(by_tier, background=background, horizon_days=horizon),
+        out_dir / "late_hits_vs_background.png",
+    )
+    profile, group_counts = outcome_profile(outcomes)
+    save_figure(
+        plot_alert_profile(profile, attributes=PROFILE_ATTRIBUTES, counts=group_counts),
+        out_dir / "late_hits_profile.png",
+    )
+
     total = sum(counts.values())
     false_alarms = total - counts["correct"]
     summary = {
@@ -170,6 +247,10 @@ def main(argv: list[str] | None = None) -> None:
         if total
         else 0,
         "early_alert_drives": early_drives,
+        "by_tier": by_tier,
+        "background_failed_in_days_31_to_60": background,
+        "profile_medians_at_alert": profile,
+        "profile_group_counts": group_counts,
         "runbook_method_late_hits": runbook_method["late_hits"],
         "runbook_method_note": (
             "analyze_false_positives.py counts a late hit only if the drive still has a "
