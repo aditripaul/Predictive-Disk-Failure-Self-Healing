@@ -1387,7 +1387,7 @@ flagged, 1,121 caught, 3,679 false alarms):
 positives: on SMART telemetry a false positive looks like a failing drive, and
 no streak, attribute or two-look combination separates them. One structure
 does exist - ranking quality differs sharply by drive family - and the only
-policy-layer use of it is per-family calibration, which is untested and must
+policy-layer use of it is per-family calibration, which was untested here and had to
 be validated out of sample before anyone believes it. Beyond that the levers
 are outside the loop: count late hits honestly when judging cheap actions,
 choose the operating point with a cost model, and add evidence the model has
@@ -1400,7 +1400,7 @@ for that group, measured point-in-time before it ships. What would not: a
 small group, a one-snapshot effect, or a precision gain bought with an equal
 loss of recall, which is a threshold move with extra steps.
 
-### 4.10 Per-family recalibration (built 2026-10-18, not yet run)
+### 4.10 Per-family recalibration (built and run 2026-10-18: no gain)
 
 Section 4.9 found ranking quality varies 73-fold by drive family, so the same
 score carries a different chance of failure by family and one global
@@ -1442,6 +1442,36 @@ test.
 ```bash
 make family-calibration
 ```
+
+**Result** (`data/audit/family_calibration.json`, written 2026-10-18). Fitted on
+the validation snapshots 2026-02-17 to 2026-03-31, judged on the test snapshots
+2026-04-05 to 2026-05-31; `tau` chosen at 0.25 by the time split inside the
+fitting window (log loss 0.006016, against 0.006054 at `tau = 0`); three
+families in the test window were never seen in the fit. Recall at matched
+false-alarm rate, raw score against recalibrated:
+
+| False-alarm rate | Raw | Recalibrated | Difference (95% CI, drive-cluster bootstrap) |
+|---|---|---|---|
+| 1e-4 | 5.11% | 4.88% | -0.23 pts [-1.26, +0.82] |
+| 2e-4 | 9.19% | 9.32% | +0.13 pts [-1.40, +1.28] |
+| 5e-4 | 19.65% | 18.24% | **-1.41 pts** [-2.58, -0.03] |
+| 1e-3 | 28.11% | 27.92% | -0.18 pts [-0.82, +0.73] |
+| 2e-3 | 37.24% | 37.87% | +0.63 pts [-0.27, +1.50] |
+| 3e-3 | 43.76% | 43.87% | +0.10 pts [-0.78, +0.90] |
+
+- **No gain.** Five of six intervals straddle zero with differences of at most
+  0.6 points either way; at 5e-4 the interval excludes zero on the wrong side.
+  Precision moves the same way (for example 32.4% to 30.8% at 5e-4).
+- **This closes the last policy-layer idea for false positives on this
+  telemetry**, as Section 4.9 said it would if the interval straddled zero. A
+  family-level offset on the score does not recover the 73-fold difference in
+  ranking quality between families; that difference is in how well the
+  features rank drives within a family, which an intercept cannot change.
+- The remaining levers are the ones Section 4.9 named: count late hits honestly
+  when judging cheap actions, choose the operating point with a cost model, and
+  add evidence the model has not seen (for which the LSTM blend of Sections 5.9
+  to 5.12 is the only candidate measured so far, and it is a ranking change, not
+  a way to classify a false positive).
 
 ## 5. What we learned
 
