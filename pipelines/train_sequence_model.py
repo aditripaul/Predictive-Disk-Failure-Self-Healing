@@ -150,6 +150,24 @@ def main() -> None:
         "writes to sequence_evaluation_report.smoke.json and is not a result.",
     )
     parser.add_argument("--threads", type=int, default=16)
+    parser.add_argument(
+        "--seed", type=int, help="Training seed (initial weights, batch order, which negatives)."
+    )
+    parser.add_argument(
+        "--tag",
+        help="Suffix for this run's report, scores and weights, so runs do not overwrite each "
+        "other (e.g. --tag s1 -> sequence_evaluation_report_s1.json).",
+    )
+    parser.add_argument("--learning-rate", type=float, help="override sequence_model.learning_rate")
+    parser.add_argument("--dropout", type=float, help="override sequence_model.dropout")
+    parser.add_argument("--hidden-size", type=int, help="override sequence_model.hidden_size")
+    parser.add_argument(
+        "--train-only",
+        action="store_true",
+        help="Stop after training and write sequence_tuning_<tag>.json (validation average "
+        "precision per epoch). Reads no test rows and logs no test access: for choosing "
+        "settings on validation before a full run.",
+    )
     args = parser.parse_args()
 
     import torch  # deferred: the extra is optional
@@ -164,7 +182,11 @@ def main() -> None:
     horizon_days = args.horizon_days or model_config["primary_horizon_days"]
     window_days = seq_cfg["window_days"]
     attributes = list(seq_cfg["attributes"])
-    seed = seq_cfg.get("seed", 0)
+    # `seed` varies the run; `subsample_seed` is fixed so every run early-stops on the same
+    # validation subsample and the runs differ only in the model.
+    subsample_seed = seq_cfg.get("seed", 0)
+    seed = args.seed if args.seed is not None else subsample_seed
+    tag_suffix = f"_{args.tag}" if args.tag else ""
     torch.set_num_threads(args.threads)
 
     gold_dir = Path(data_config["gold_dir"])
@@ -213,7 +235,7 @@ def main() -> None:
     max_negatives = None if max_train_rows is None else max(max_train_rows - train_positives, 0)
     train_rows = _cap_negatives(parts["train"], max_negatives, seed)
     early_rows = _cap_negatives(
-        parts["validation"], seq_cfg.get("early_stopping_max_negatives"), seed
+        parts["validation"], seq_cfg.get("early_stopping_max_negatives"), subsample_seed
     )
     y_train = train_rows["label"].to_numpy().astype(np.float32)
     y_early = early_rows["label"].to_numpy()
@@ -223,9 +245,9 @@ def main() -> None:
     model = SequenceNet(
         n_channels=dense.n_channels,
         n_static=static_feature_count(),
-        hidden_size=seq_cfg["hidden_size"],
+        hidden_size=args.hidden_size or seq_cfg["hidden_size"],
         num_layers=seq_cfg["num_layers"],
-        dropout=seq_cfg["dropout"],
+        dropout=args.dropout if args.dropout is not None else seq_cfg["dropout"],
     )
 
     def validation_average_precision(current: SequenceNet) -> float:
@@ -248,7 +270,7 @@ def main() -> None:
         y_train,
         evaluate=validation_average_precision,
         positive_weight_power=model_config["model"].get("positive_weight_power", 0.5),
-        learning_rate=seq_cfg["learning_rate"],
+        learning_rate=args.learning_rate or seq_cfg["learning_rate"],
         batch_size=seq_cfg["batch_size"],
         max_epochs=args.max_epochs or seq_cfg["max_epochs"],
         patience=seq_cfg["early_stopping_patience"],
@@ -261,6 +283,25 @@ def main() -> None:
         epochs=len(history),
         elapsed_seconds=round(time.perf_counter() - t_train, 1),
     )
+
+    if args.train_only:
+        audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
+        tuning = {
+            "tag": args.tag,
+            "seed": seed,
+            "hidden_size": args.hidden_size or seq_cfg["hidden_size"],
+            "dropout": args.dropout if args.dropout is not None else seq_cfg["dropout"],
+            "learning_rate": args.learning_rate or seq_cfg["learning_rate"],
+            "best_validation_average_precision": max(
+                h["validation_average_precision"] for h in history
+            ),
+            "history": history,
+        }
+        (audit_dir / f"sequence_tuning{tag_suffix}.json").write_text(json.dumps(tuning, indent=2))
+        logger.info(
+            "sequence_tuning_written", **{k: v for k, v in tuning.items() if k != "history"}
+        )
+        return
 
     def score_split(name: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         part = parts[name].sort(["drive_idx", "day_idx"])
@@ -293,6 +334,11 @@ def main() -> None:
         "horizon_days": horizon_days,
         "model_type": "lstm",
         "drive_fraction": args.drive_fraction,
+        "seed": seed,
+        "tag": args.tag,
+        "hidden_size": args.hidden_size or seq_cfg["hidden_size"],
+        "dropout": args.dropout if args.dropout is not None else seq_cfg["dropout"],
+        "learning_rate": args.learning_rate or seq_cfg["learning_rate"],
         "attributes": attributes,
         "window_days": window_days,
         "channels": dense.n_channels,
@@ -313,7 +359,7 @@ def main() -> None:
     audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
     audit_dir.mkdir(parents=True, exist_ok=True)
     suffix = "" if args.drive_fraction >= 1.0 else ".smoke"
-    report_path = audit_dir / f"sequence_evaluation_report{suffix}.json"
+    report_path = audit_dir / f"sequence_evaluation_report{suffix}{tag_suffix}.json"
     report_path.write_text(json.dumps(report, indent=2, default=str))
 
     scratch = Path(
@@ -322,7 +368,7 @@ def main() -> None:
     out_dir = scratch / f"sequence_model{suffix}"
     out_dir.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
-        out_dir / f"scores_h{horizon_days}.npz",
+        out_dir / f"scores_h{horizon_days}{tag_suffix}.npz",
         drive_ids=np.array(dense.drive_ids, dtype=str),
         validation_drive_idx=val_ids,
         validation_label=y_val,
@@ -331,7 +377,7 @@ def main() -> None:
         test_label=y_test,
         test_score=test_scores,
     )
-    torch.save(model.state_dict(), out_dir / f"lstm_h{horizon_days}.pt")
+    torch.save(model.state_dict(), out_dir / f"lstm_h{horizon_days}{tag_suffix}.pt")
     logger.info(
         "sequence_report_written",
         path=str(report_path),
