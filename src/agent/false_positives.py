@@ -26,6 +26,12 @@ import datetime as dt
 import numpy as np
 import polars as pl
 
+from src.labels.event_types import (
+    FAILURE_EVENT_TYPES,
+    PREVENTIVE_REPLACEMENT,
+    REMOVED_WITHOUT_FAILURE,
+)
+
 #: power_on_hours bucket edges, in years of continuous operation.
 AGE_EDGES_YEARS = (1, 2, 3, 4, 5, 6)
 HOURS_PER_YEAR = 8760
@@ -69,6 +75,53 @@ def late_hits(
         "precision_30d": caught / n if n else 0.0,
         "precision_with_late_credit": (caught + late) / n if n else 0.0,
     }
+
+
+#: What became of a flagged drive, in the order a reader should see it.
+OUTCOME_ORDER = ("correct", "early", "later", "removed", "active")
+
+
+def alert_outcomes(
+    flagged: pl.DataFrame, events: pl.DataFrame, *, horizon_days: int
+) -> pl.DataFrame:
+    """`flagged` with `days_to_failure` and an `outcome` for each drive-snapshot.
+
+    `events` is `drive_id, date, event_date, event_type` from the label table
+    (one row per drive-day; the event is the drive's, so any row of the drive
+    carries it). The outcome is where the alert sits against the label:
+
+      * `correct` - failed within `horizon_days`: counted right by the label;
+      * `early`   - failed in days `horizon+1` to `2*horizon`: counted a false
+        alarm by the label, but the drive did fail - the alert was early;
+      * `later`   - failed after that, seen only up to the end of the data;
+      * `removed` - left service with no failure recorded;
+      * `active`  - still in service when the data ends.
+
+    Run it only on snapshots whose days `horizon+1` to `2*horizon` are fully
+    observed (`late_hit_dates`), or `early` is undercounted."""
+    joined = flagged.join(
+        events.select("drive_id", "date", "event_date", "event_type"),
+        on=["drive_id", "date"],
+        how="left",
+    )
+    days = (pl.col("event_date") - pl.col("date")).dt.total_days()
+    is_failure = pl.col("event_type").is_in(list(FAILURE_EVENT_TYPES))
+    is_removed = pl.col("event_type").is_in([REMOVED_WITHOUT_FAILURE, PREVENTIVE_REPLACEMENT])
+    outcome = (
+        pl.when(is_failure & (days <= horizon_days))
+        .then(pl.lit("correct"))
+        .when(is_failure & (days <= 2 * horizon_days))
+        .then(pl.lit("early"))
+        .when(is_failure)
+        .then(pl.lit("later"))
+        .when(is_removed)
+        .then(pl.lit("removed"))
+        .otherwise(pl.lit("active"))
+    )
+    return joined.with_columns(
+        outcome.alias("outcome"),
+        pl.when(is_failure).then(days).otherwise(None).alias("days_to_failure"),
+    )
 
 
 def precision_by_group(

@@ -3,7 +3,7 @@
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
 	build-sequences train-lstm train-sequence score-fleet plots \
-	agent-demo agent-fleet agent-pit family-calibration dashboard api final-report
+	agent-demo agent-fleet agent-pit family-calibration plot-late-hits dashboard api final-report
 
 # --- setup -----------------------------------------------------------------
 
@@ -197,6 +197,13 @@ family-calibration:
 		--out data/audit/agent_pit_validation.json \
 		--observations-out data/audit/agent_pit_validation_observations.parquet
 	uv run python scripts/evaluate_family_calibration.py $(ARGS)
+
+# Figures showing that many alerts the 30-day label calls false were early: the
+# drive failed in days 31-60 (runbook 4.9). Needs `make agent-pit` first.
+#   make plot-late-hits
+#   make plot-late-hits ARGS="--tier migrate --max-lanes 20"
+plot-late-hits:
+	uv run python scripts/plot_late_hits.py $(ARGS)
 
 dashboard:
 	uv run streamlit run src/dashboards/app.py
