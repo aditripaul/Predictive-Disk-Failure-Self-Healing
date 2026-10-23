@@ -115,6 +115,9 @@ would fail with "ruff: command not found."
 | `make plots` | Renders performance plots (calibration, ROC curves, feature importance, failures by drive family, class imbalance, metric comparison; SHAP when enabled) to `data/audit/plots/` (§5.9) |
 | `make final-report` | `pipelines/generate_final_report.py` - aggregates chaos/latency/model reports, the goal status against `configs/model.yaml` and the plot list; runs `make plots` first |
 | `make agent-demo` | One MAPE-K cycle against the hardcoded demo fleet (§6) |
+| `make agent-fleet` | The MAPE-K loop on the real gold features and trained model, executor simulated (§6.5) |
+| `make agent-pit` | The flagging policy measured at fixed dates, with drive-cluster intervals (§6.5) |
+| `make family-calibration` | Per-family recalibration fitted on validation snapshots, judged on test (§6.5) |
 | `make dashboard` | Streamlit UI (§10) |
 | `make api` | FastAPI service (§10) |
 
@@ -1328,7 +1331,7 @@ first - see `_normalize_prediction_summary` in `nodes.py` for the pattern.
 | Field | Type | Real implementation lives in |
 |---|---|---|
 | `fleet_state_provider` | `() -> dict` | `src/simulator/fleet.py::FleetSimulator.snapshot`, or a real fleet API client |
-| `predictor` | `(dict) -> dict` | Phase 5 model inference (not yet wired to a real model - see §11) |
+| `predictor` | `(dict) -> dict` | `src/agent/fleet.py::build_fleet_dependencies` scores the real fleet once, eagerly, so this is a pass-through there; the demo and the API use hardcoded drives (§6.5) |
 | `guardrail_evaluator` | `(dict) -> dict` | `src/guardrails/adapter.py::build_guardrail_evaluator` |
 | `post_action_guardrail_evaluator` | `(dict, dict) -> dict` | `src/guardrails/adapter.py::build_post_action_guardrail_evaluator` |
 | `executor` | `(dict) -> dict` | `src/simulator/actions.py::apply_action` |
@@ -1434,6 +1437,51 @@ wall-clock time, so this is an approximation), `horizon_days` (from
 decision back to its resolved label later.
 
 ---
+
+### 6.5 Running the loop on the real fleet, and measuring the policy
+
+Three modules and four entry points, none of which touch hardware.
+
+| Piece | Where | Purpose |
+|---|---|---|
+| Real-fleet dependencies | `src/agent/fleet.py` | `build_fleet_dependencies` loads the latest MLflow run for the horizon, its tier thresholds and second stage, snapshots the gold features in a window, scores them once, and returns an `AgentDependencies` with a simulated executor. `make agent-fleet` drives it |
+| Shared thresholds | `src/models/trained_thresholds.py` | The one place `action_tiers.json` is read; batch scoring, the agent and the API all call it, and a test fails if any other module loads the artifact |
+| Control arm | `src/agent/control_arm.py` | A stable hash of the drive id holds back `control_fraction` of flagged drives so their outcomes stay uncensored. Default 0.0; set before connecting a real executor |
+| Point-in-time measurement | `src/agent/point_in_time.py` | Fixed-date snapshots, tier metrics, the cluster bootstrap, and `compare_scorings` for paired recall at matched false-alarm rate. `make agent-pit` drives it |
+| False-positive profiling | `src/agent/false_positives.py`, `scripts/analyze_false_positives.py` | Late hits, precision and PLR by drive model and age, flag streaks, attribute profile, other ways to combine two looks |
+| Per-family calibration | `src/agent/family_calibration.py`, `scripts/evaluate_family_calibration.py` | A shrunk per-family intercept on the score's log-odds; refuses to fit on or after the test window |
+| Look-ahead diagnostic | `scripts/check_agent_lookahead.py` | Re-reads a saved `agent-fleet` run and measures how much of its result is look-ahead |
+
+Things that will bite you:
+
+- **`AgentState` is checkpointed on every node of every cycle, so the fleet
+  cannot go in it.** `fleet_state_provider` returns only the highest-scoring
+  remaining candidate; the pool lives in the harness. Putting the pool in state
+  was the cause of one memory failure.
+- **Never filter the wide feature scan before slicing it.** `chunked_inner_join`
+  slices its left side with `left.slice(offset, n)`, which pushes into the
+  Parquet reader only for an unfiltered scan; a filtered one materializes the
+  whole window at full width (43 GB for 61 days). Apply the window to a
+  `(drive_id, date)` projection and join back, as `load_fleet_snapshot` does.
+  A filter then a plain collect, as `snapshot_observations` does, is fine.
+- **`feature_maturity` comes from the dataset's last date**, so it is the
+  outcome in any backtest over a past window (`tests/unit/test_maturity_lookahead.py`).
+  Use `build_drive_metadata(..., as_of_date=T)` on telemetry up to T if you
+  need it point-in-time.
+- **A drive's last row, the failure day, has a null label**
+  (`event_date > date` in `src/labels/labeling.py`), so code that filters to
+  labelled rows silently drops the drives caught on their last day.
+- **The multi-cycle runner must advance the pool** (`advance_pool` in
+  `pipelines/run_agent_fleet.py`) and prune the per-drive risk state, or the
+  same drive is chosen every cycle and the state grows without bound. The
+  checkpoint defaults to a temporary file, not `:memory:`, which retains every
+  checkpoint in RAM.
+- **`GuardrailResult` is built with `model_dump(mode="json")`** so no enum
+  enters checkpointed state.
+
+What the measurements say, and why the loop gets no precision mechanism, is in
+`docs/adr/0003-point-in-time-evaluation-and-the-limits-of-the-loop.md` and
+runbook Sections 4.7 to 4.10.
 
 ## 7. Guardrail engine (`src/guardrails/`)
 
@@ -1550,9 +1598,10 @@ GuardrailMultiplier = 0 hard violation, 0.5 soft violation, 1.0 none
 against `AgentSettings.load().checkpoint_path` (a real SQLite file, not
 `:memory:` - a paused thread must survive an API process restart). It
 defaults to `build_demo_dependencies()` (the same hardcoded two-drive demo
-fleet as `make agent-demo`); swap `app.state.orchestrator` for a real
+fleet as `make agent-demo`), but compiles the graph with the trained model's
+tier thresholds (`live_plan_kwargs`). Swap `app.state.orchestrator` for a real
 `AgentOrchestrator` (built with real `fleet_state_provider`/`predictor`) to
-run against a real fleet/model.
+run against a real fleet/model; `src/agent/fleet.py` is the template.
 
 `src/api/store.py` has two layers. `InMemoryAuditStore` holds everything in
 process and is what the tests use. `SQLiteAuditStore` subclasses it and
@@ -1817,9 +1866,10 @@ fully clean slate between experiments.
    `capacity_bytes`, `failure` (`src/ingest/backblaze.py::REQUIRED_COLUMNS`)
    - true for every quarterly archive Backblaze has published.
 
-3. **`make score-fleet` output is a standalone batch report, not wired
-   into `make agent-demo`/`make api`.** Those still run against the
-   hardcoded demo fleet regardless of whether you've trained a real model
+3. **`make score-fleet` output is a standalone batch report. `make
+   agent-demo`/`make api` still run against the hardcoded demo fleet**
+   (though they now use the trained tier thresholds; `make agent-fleet` runs
+   the loop on the real fleet, see §6.5), regardless of whether you've trained a real model
    - see §5.8 for exactly why (the live loop's lean `AgentState` can't
    carry `PredictionOutput`'s full nested `FeatureConfidence`). To see the
    trained model's real predictions, read

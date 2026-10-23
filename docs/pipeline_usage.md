@@ -171,6 +171,39 @@ Options: `--run-id` (required), `--split` (`sealed` or `external_smartz`),
 `--n-boot` (bootstrap draws, default 1000), `--frame` (otherwise the newest
 `data/tmp/train_model_frame_*/frame.parquet`).
 
+### 2.8 Running and measuring the decision loop
+
+Needs a trained run (`make train`) and the gold tables.
+
+```bash
+make agent-pit                               # the figures to quote
+make agent-pit ARGS="--step-days 3 --bootstrap 2000"
+make family-calibration                      # per-family recalibration test
+make agent-fleet ARGS="--start-date 2026-06-01 --end-date 2026-06-23 --cycles 200"
+```
+
+`make agent-pit` snapshots the fleet at weekly dates across the test window:
+every drive with a feature row on that date, scored once, judged on the label
+at that same row. It prints pooled precision and recall per tier with
+drive-cluster bootstrap intervals, the base rate precision lives at, a
+per-date table, and one look against two at a matched false-alarm rate. It
+saves the scored snapshots to `data/audit/agent_point_in_time_observations.parquet`
+so `scripts/analyze_false_positives.py` can profile them without re-scoring.
+Peak memory is about 6 GB (one date's fleet at a time) and a run takes about a
+minute. The dates are test-split data, so each run is recorded in the
+test-access log.
+
+`make agent-fleet` exercises the loop itself and writes
+`data/audit/agent_fleet_run.json`. With `--score` it also joins the decisions
+to the labels, but those figures look ahead twice - maturity comes from the
+dataset's last date, and "latest row" is a dying drive's last day - and the
+run warns when it scores a window that ends before the data does. Use
+`agent-pit` for anything you intend to quote (ADR 0003). The checkpoint
+defaults to a temporary file; `--checkpoint-path` overrides it.
+
+The decision loop never touches hardware: the executor and validator are
+simulated and logged.
+
 ### 2.6 Where the outputs go
 
 | Output | Location |
@@ -349,6 +382,9 @@ Expect it to take well over an hour on Q1 alone.
 | `make evaluate-frozen` | Scores one sealed or external split, once, against a frozen run (section 2.5). `ARGS="--run-id <id> --split sealed"`. |
 | `make final-report` | Writes `data/audit/data_quality_reports/final_evaluation_report.json`: the model's drive-level results and action tiers, a goal-status section (target met or not, and the gap), the data period, and the chaos, latency and crash-recovery test results. Runs those tests, so it takes a few minutes. |
 | `make agent-demo` | Runs the decision-agent demo once. |
+| `make agent-fleet` | Runs the decision loop on the real gold features and the trained model, executor simulated (section 2.8). |
+| `make agent-pit` | Measures the flagging policy at fixed dates (section 2.8). |
+| `make family-calibration` | Per-family recalibration, fitted on validation snapshots and judged on test (section 2.8). |
 | `make api` / `make dashboard` | Starts the FastAPI service / the Streamlit dashboard. |
 
 ## 3. The DuckDB spike
