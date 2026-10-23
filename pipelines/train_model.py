@@ -844,6 +844,13 @@ def main() -> None:
         "true in configs/model.yaml.",
     )
     parser.add_argument(
+        "--save-scores",
+        action="store_true",
+        help="Write the final validation and test scores (drive_id, date, label, score) to "
+        "<scratch>/lightgbm_scores_h<horizon>.parquet, to compare or blend with another model "
+        "on the same drives.",
+    )
+    parser.add_argument(
         "--keep-work-dir",
         action="store_true",
         help="Keep the scratch work dir (x_*/y_*.npy, *_ids.parquet) after "
@@ -1088,6 +1095,28 @@ def main() -> None:
                 )
                 test_scores = two_stage_model.final_scores(x_test, test_scores)
             del stage1_val_scores
+            if args.save_scores:
+                scores_path = (
+                    _scratch_base(data_config) / f"lightgbm_scores_h{horizon_days}.parquet"
+                )
+                pl.concat(
+                    [
+                        pl.DataFrame(
+                            {
+                                "split": split_name,
+                                "drive_id": ids["drive_id"],
+                                "date": ids["date"],
+                                "label": labels,
+                                "score": scores,
+                            }
+                        )
+                        for split_name, ids, labels, scores in (
+                            ("validation", val_ids, y_val, val_scores),
+                            ("test", test_ids, y_test, test_scores),
+                        )
+                    ]
+                ).write_parquet(scores_path, compression="zstd")
+                logger.info("scores_saved", path=str(scores_path))
             results["test_metrics"] = evaluate_at_threshold(
                 y_test, test_scores, threshold_result["threshold"]
             )
