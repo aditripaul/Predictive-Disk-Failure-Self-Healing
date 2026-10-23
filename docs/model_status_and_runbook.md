@@ -1,16 +1,11 @@
 # Model status, results and runbook
 
-> **Current state (2026-10-18).** Read Section 1 first. The repository
-> default is **Q4 2025 - Q2 2026**, quarter-aligned splits, a **30-day
-> horizon**; the frozen reference run in Section 1.1 was trained on the
-> narrower Q1 + Q2 window and its figures do not compare directly with the
-> newer ones. Section 4 is the measurement record in the order it was
-> produced - **Sections 4.6 to 4.10 are the agent work: read 4.7 before
-> quoting any policy figure**, because the first agent backtest (61.8%
-> precision) looked ahead and is withdrawn. Section 5 holds the lessons from
-> the earlier Q1-only, 14-day work, which still apply. For a shorter overview
-> see `docs/system_summary.md`; for the decision record,
-> `docs/adr/0003-point-in-time-evaluation-and-the-limits-of-the-loop.md`.
+> **Current state (2026-10-09).** Read Section 1 first. The pipeline runs on
+> **Q1 + Q2 2026** with a **30-day horizon** and corrected split dates, and
+> the model of record is the frozen run in Section 1.1. Section 4 is the
+> measurement record in the order it was produced; Section 5 holds the
+> lessons from the earlier Q1-only, 14-day work, which still apply. For a
+> shorter overview see `docs/system_summary.md`.
 
 This document records what was run on real Backblaze data, what was learned,
 what is still open, and how to run the pipeline end to end. Numbers are
@@ -1463,40 +1458,6 @@ test.
 make family-calibration
 ```
 
-**Result.** Fitted on seven validation snapshots (2026-02-17 to 03-31,
-2,389,104 drive-snapshots, 2,607 failing), judged on the nine test snapshots.
-
-- The family offsets do help *prediction* inside the fitting window, barely:
-  log-loss 0.006054 fleet-only to 0.006016 at the chosen `tau = 0.25`, a 0.6%
-  improvement. The offsets are modest - odds multipliers between 0.53 and
-  2.26 for families with real evidence (ST8000NM0055 x2.22 on 151 failures,
-  HGST HUH721212ALN604 x1.60 on 302, ST24000NM002H x0.57 on 169).
-- They do **not** improve ranking on test. Recall at matched false-alarm rate,
-  recalibrated minus raw: -0.2, +0.1, -1.4, -0.2, +0.6, +0.1 points at the six
-  budgets. Five intervals straddle zero; the one that excludes it is negative
-  (-1.4 [-2.6, -0.0] at 5e-04).
-
-Why, in hindsight. The 73-fold spread in Section 4.9 is a spread in PLR - how
-well the model ranks drives *within* a family. A per-family intercept can
-only move a whole family up or down relative to the others; it cannot repair
-a family whose failing and healthy drives are interleaved in score. The
-families that are weak are weak in discrimination, not in calibration level,
-so this was the wrong instrument for them. Better within-family ranking needs
-features, not a policy.
-
-This closes the last policy-layer idea for reducing false positives on this
-telemetry. With per-family thresholds (Section 1.5), it is the second family
-method to fail out of sample.
-
-**Replication, as a by-product.** The validation-window snapshots reproduce
-the test window independently: cordon and above 22.6% [20, 25] at 28.4%
-recall, PLR 267, against the test window's 23.4% at 29.3%, PLR 250. And the
-second look hurts again on data it never saw: -3.1 points [-4.3, -1.7] at
-1e-03 and -2.0 [-3.4, -0.6] at 3e-03. Persistence has now failed five times.
-Drain is the unstable tier - 67.2% [50, 84] on validation against 40.3%
-[29, 52] on test, on 64 and 149 flags - so do not quote one drain figure
-without the other.
-
 **Result** (`data/audit/family_calibration.json`, written 2026-10-18). Fitted on
 the validation snapshots 2026-02-17 to 2026-03-31, judged on the test snapshots
 2026-04-05 to 2026-05-31; `tau` chosen at 0.25 by the time split inside the
@@ -1809,16 +1770,6 @@ recall (`configs/model.yaml` `threshold`). The frozen model gives 49.6% at
 10.5% recall and 28.7% at 32.4% (Section 1.1). At the validation threshold
 for 95% precision it flags a single test drive.
 
-**What the agent can and cannot do about it (Sections 4.7 to 4.10).** Every
-policy-layer mechanism has now been measured point-in-time and none raises
-precision on this telemetry: the evidence gates, hysteresis, cooldown, a
-second look combined five ways, and per-family recalibration. The reason is
-in Section 4.9 - on SMART attributes a false positive looks like a failing
-drive. What remains is to choose the operating point by cost, to report late
-hits (12.8% of false alarms fail in days 31-60) beside the 30-day figure, to
-improve within-family ranking with features, and to add evidence the model
-has not seen.
-
 **The goal is stated on the frozen run's 21-day test window too, not only its
 horizon.** The quarter-aligned run of Section 4.6 shows 57.1% precision at
 12.0% recall, which is *not* 8 points of progress towards 90%: its 61-day
@@ -1970,36 +1921,11 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   (56.6 / 94.3 / 151.0 / 226.4, Section 1.7), which makes them comparable
   across splits, but the numbers themselves should come from the real cost of
   a false alarm per action, not from the precisions they were converted from.
+- **The live agent loop** (`src/agent/nodes.py`) is not driven by the trained
+  model and uses the hand-picked cutoffs in `configs/agent.yaml`, not the
+  trained tier thresholds.
 - **The DuckDB spike** (Section 3.1) was never measured on real data; the
   Polars pipeline fits the memory cap, so it is no longer needed for that.
-
-**Agent and policy (2026-10-18; Sections 4.7 to 4.10, ADR 0003):**
-
-- **Closed.** The agent, the API and batch scoring read the same trained tier
-  thresholds (`src/models/trained_thresholds.py`); the loop runs on the real
-  fleet with a simulated executor (`make agent-fleet`); the policy is measured
-  at fixed dates (`make agent-pit`); every policy-layer precision mechanism has
-  been tried and none works. The API and `make agent-demo` still use the
-  hardcoded demo fleet.
-- **Needs a decision from you: `hysteresis_cycles_required` 2 to 1** in
-  `configs/agent.yaml`. A second look has cost recall in five comparisons
-  across two windows.
-- **Needs numbers from you: the cost model.** Relative costs of a warn, cordon,
-  migrate, drain and an unplanned failure. A cordon pays when
-  `precision x P(save) x C_failure > C_action`; without costs the thresholds
-  are operating points, not decisions.
-- **Set `control_fraction` before any real executor** (`configs/agent.yaml`,
-  default 0.0). Real actions censor their own outcomes.
-- **Features for the weak drive families.** PLR varies 73-fold (22 to 1,583);
-  six families below 100 hold 33% of false alarms. This is within-family
-  discrimination, so it is model work, not policy.
-- **Probe tier or other new evidence.** The only route to a large precision
-  gain; needs a diagnostic source that Backblaze does not provide.
-- **Unexplained:** failures per month fell about 40% across the test window
-  (518 failing drives per snapshot to 301). A per-month failure count from the
-  raw data would show whether it is a cohort, seasonality or the data.
-- **Late hits in reporting.** 12.8% of false alarms fail in days 31 to 60;
-  report precision both ways, never replacing the 30-day figure.
 
 **Other:**
 
@@ -2048,10 +1974,5 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 - `docs/pipeline_usage.md`: every command and option.
 - `docs/adr/0001-training-memory-isolation.md`: why `make train` runs as four
   processes, and the debugging history behind it.
-- `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md`: the
-  attribute screen and the safety-floor bug it found.
-- `docs/adr/0003-point-in-time-evaluation-and-the-limits-of-the-loop.md`: why
-  the first agent backtest was withdrawn, how the policy is measured, and the
-  mechanisms shown not to raise precision.
 - `docs/design_goal.md`, `docs/dataset_strategy.md` and
   `docs/project_plan.md`: the original goals, kept as written.
