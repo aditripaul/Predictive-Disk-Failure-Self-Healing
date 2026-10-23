@@ -109,6 +109,7 @@ would fail with "ruff: command not found."
 | `make experiment-model` | Compares modelling variants on a kept training run (§5.12, §5.13; `docs/pipeline_usage.md`) |
 | `make full-experiment` / `clean-kept` / `full-pipeline` | Train with kept arrays then run the experiment; remove kept work directories; ingest through plots |
 | `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (§5.7) - `train-lstm` requires `uv sync --extra torch` |
+| `make train-sequence` | LSTM over each drive's raw 30-day history, evaluated like `make train` so the two compare directly (§5.7.1); needs the torch extra |
 | `make score-fleet` | Batch-scores the current fleet with the latest MLflow run for `primary_horizon_days` (and that run's second-stage model and tier thresholds, when it has them); writes `data/audit/predictions/` (§5.8) |
 | `make evaluate-frozen` | Scores one sealed or external split, once, against a frozen run: `ARGS="--run-id <id> --split sealed\|external_smartz"`. Writes `data/audit/frozen_evaluations/` and refuses a repeat (§5.14) |
 | `make plots` | Renders performance plots (calibration, ROC curves, feature importance, failures by drive family, class imbalance, metric comparison; SHAP when enabled) to `data/audit/plots/` (§5.9) |
@@ -241,6 +242,7 @@ make build-features                                              → data/gold/f
 make build-labels                                                 → data/gold/labels/
 make train                                                        → MLflow run + data/audit/.../model_evaluation_report.json
 make build-sequences / train-lstm (optional, §5.7)              → data/gold/sequences/ + lstm_evaluation_report.json
+make train-sequence (optional, §5.7.1)                          → sequence_evaluation_report.json + data/tmp/sequence_model/
 ```
 
 Each stage is a thin `pipelines/*.py` script that reads YAML config, calls
@@ -607,6 +609,56 @@ training pipeline:
   it cleanly rather than failing; it only actually runs once `torch` is
   installed. `tests/unit/test_sequences.py` has no such guard since
   `src/features/sequences.py` has no torch dependency.
+
+### 5.7.1 The sequence model evaluated like the tree model (`make train-sequence`)
+
+`train-lstm` above cannot be compared with `make train`: it builds one window
+per drive at the drive's last observed day, where a failing drive's own label is
+censored (so most failing drives drop out), and it scores per drive while the
+tree model is scored per drive-day and then reduced to one score per drive. The
+sequence model in `pipelines/train_sequence_model.py` is built to be compared:
+
+- `src/features/sequence_windows.py` (numpy and polars only, no torch) holds each
+  drive's whole history as one calendar-aligned float16 tensor `[drives, days,
+  channels]` (about 4 GB for the 364,674-drive, 273-day fleet) and cuts a
+  30-day window ending at any (drive, day) on demand with `gather_windows`.
+  Channels per attribute are the log1p value (0 when not reported) and a
+  "reported" flag, plus log1p drive age and a "telemetry present" flag, so a
+  vendor that does not report an attribute (Seagate-only `smart_187`/`188`)
+  differs from a drive that reports zero. Per-channel standardization uses
+  training dates only (`fit_normalization`). `build_dense_telemetry` reads the
+  gold feature table one Parquet row group at a time.
+- `src/models/sequence_net.py` (**requires the torch extra**) is a 2-layer LSTM
+  whose final hidden state is joined with a per-drive static vector (vendor
+  one-hot, log capacity) and a small MLP head. `train_sequence_net` uses the
+  tree model's recipe: positive weight `(n_neg/n_pos) ** model.positive_weight_power`,
+  early stopping on validation average precision, best weights restored.
+- `pipelines/train_sequence_model.py` takes the same labelled drive-days as
+  `make train` (the label table for one horizon, non-null labels, the label
+  table's `split`, and `_split_period_predicate` imported from
+  `pipelines/train_model.py` so the purge window, validation-after-`train_end`
+  and `test_end` rules cannot drift apart). Training uses every positive row and
+  random negatives up to `sequence_model.max_train_rows`; validation and test
+  are scored in full. Thresholds are chosen on validation only; the report uses
+  `drive_level_metrics`, `precision_at_recall_table` and
+  `recall_at_false_alarm_table` from `src/models/evaluation.py`. It writes
+  `sequence_evaluation_report[_<tag>].json` (never `model_evaluation_report.json`,
+  which `score-fleet` reads) and every score to `data/tmp/sequence_model/`.
+- Torch comes from PyTorch's CPU index (`[tool.uv.sources]` in `pyproject.toml`,
+  macOS excepted). Use `uv sync --extra dev --extra torch`; `make train-sequence`
+  runs `uv run --extra torch` so a later plain sync does not remove it.
+- `scripts/compare_sequence_vs_tree.py` aligns the saved LightGBM scores
+  (`make train TRAIN_ARGS=--save-scores`) and the LSTM runs on (drive, date),
+  verifying labels, and reports overlap, a validation-weighted rank blend and its
+  paired bootstrap. See `docs/pipeline_usage.md` for the commands.
+- Tests: `tests/unit/test_sequence_windows.py` (no torch needed),
+  `tests/unit/test_sequence_net.py` (`importorskip("torch")`),
+  `tests/unit/test_compare_sequence_vs_tree.py`.
+
+What it deliberately does not have: rolling statistics, model-family z-scores,
+feature confidence or the second stage, so it is a test of whether a recurrent
+reading of the raw history adds anything, not an architecture benchmark (results:
+runbook sections 5.9 to 5.12).
 
 ### 5.8 Batch fleet scoring - where `PredictionOutput`/`ActionProposal` are actually used
 

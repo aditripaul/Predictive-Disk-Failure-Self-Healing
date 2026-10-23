@@ -1667,6 +1667,36 @@ rates of 1e-4, 5e-4 and 1e-3.
   comparison. Any further use of these test numbers
   to choose a method (including this blend) needs the sealed quarter.
 
+### 5.12 Precision and recall of the blend at each operating point
+
+Sections 5.9 to 5.11 measure recall at fixed false-alarm rates, not precision.
+Precision at those points follows from the counts: caught = recall x 1,479
+failing drives; false alarms = the budget x 353,552 healthy drives (35, 176 and
+353 at 1e-4, 5e-4 and 1e-3), so precision = caught / (caught + false alarms).
+These are **derived, not separately measured**, and the false-alarm counts are
+exact only to a drive or two (ties at the cut). They are test numbers, so the
+sealed-quarter caveat of Section 5.11 applies.
+
+| False-alarm rate | LightGBM recall / precision | Blend, seed 0 | Blend, four-seed ensemble |
+|---|---|---|---|
+| 1e-4 (about 35 alerted) | 3.7% / 60.7% | 5.0% / 67.9% | 4.2% / 63.9% |
+| 5e-4 (about 176) | 15.7% / 56.9% | 17.4% / 59.4% | 18.1% / 60.4% |
+| 1e-3 (about 353) | 26.8% / 52.9% | 29.4% / 55.2% | 29.3% / 55.1% |
+
+- At the same number of false alarms the blend catches more failing drives
+  (about 2 points of recall at the looser budgets) and its precision is 2 to 7
+  points higher.
+- **No point on this curve approaches the goal.** The best precision is about
+  64 to 68% at 4 to 5% recall, falling to about 55% at 30% recall. Nothing
+  reaches the 35 to 50% recall range at a high precision.
+- These are at the test period's own failure rate (about 0.4% of drives). The
+  same alerts restated for a test set where 15% of drives fail would score
+  97 to 99% precision, the convention of most published results.
+- **No deployable threshold has been set for the blend.** LightGBM's own
+  operating point (threshold chosen on validation for 10% recall) gives 57.1%
+  precision at 12.0% recall on test. The equivalent for the blend would be
+  chosen on validation and then read once on the sealed quarter.
+
 ## 6. The experiment tool
 
 ```bash
@@ -1750,6 +1780,11 @@ What was tried, in the order it was tested:
    Section 4.5); a direct paired-bootstrap test on the current feature set
    gave an interval that includes 0 (Section 1.2). Kept as the default on
    the standing evidence, not reported as a settled result.
+
+7. **Sequence model (LSTM):** run and recorded. Alone it is no better than
+   LightGBM; blended with it, it adds a small recall gain (about 2 points at a
+   5e-4 to 1e-3 false-alarm rate) that held across four seeds. Not reported as
+   settled until it is read once on the sealed quarter (Sections 5.9 to 5.12).
 
 What could still change the picture:
 

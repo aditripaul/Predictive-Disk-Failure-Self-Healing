@@ -229,6 +229,7 @@ project-root/
 │   ├── evaluate_frozen.py         # single-shot scoring of a sealed split
 │   ├── score_fleet.py
 │   ├── build_sequences.py / train_lstm.py   # optional LSTM branch
+│   ├── train_sequence_model.py    # LSTM evaluated like the tree model (make train-sequence)
 │   ├── generate_performance_plots.py / generate_final_report.py
 │   ├── run_api.py
 │   └── spike_duckdb_extract.py    # measurement spike, not a pipeline
@@ -447,6 +448,7 @@ synthetic-data walkthrough (§14) - only real-data / production settings.
 | `configs/agent.yaml` | `action_thresholds`, `human_review.*_sla_hours` | Only to change the default risk-tier cutoffs / SLA clock before a real deployment |
 | `configs/guardrails.yaml` | `operational_state.backend` (`in_memory` \| `redis`) + `redis_url` | Only for a multi-instance deployment where drain/rate-limit counters must be shared - a single process is correct with the `in_memory` default |
 | `configs/features.yaml` | `sequences.*` | Only if using the optional LSTM branch (`make build-sequences` / `train-lstm`) |
+| `configs/model.yaml` | `sequence_model.*` | Only for `make train-sequence`: window length, attributes, network size, learning rate, training-row cap |
 
 Every `pipelines/*.py` script and CLI flag that reads one of these prints
 a clear, actionable error if something required is missing - none of
@@ -512,6 +514,7 @@ The project uses a `Makefile` for reproducible pipeline execution.
 | `make experiment-model` / `full-experiment` / `clean-kept` | Compare modelling variants on a kept training run (`docs/pipeline_usage.md`) |
 | `make full-pipeline` | Ingest through plots, including the model experiment |
 | `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (`train-lstm` needs `uv sync --extra torch`) |
+| `make train-sequence` | LSTM over each drive's raw 30-day history, evaluated like `make train` so the two compare directly. Needs `uv sync --extra dev --extra torch`; options in `docs/pipeline_usage.md`. Result: a small recall gain only when blended with LightGBM (runbook 5.9 to 5.12) |
 | `make score-fleet` | Batch-score the current fleet with the latest trained model |
 | `make evaluate-frozen` | Score one sealed or external split, once, against a frozen training run: `ARGS="--run-id <id> --split sealed"`. Refuses a second evaluation of the same split and run |
 | `make plots` | Render performance plots (calibration, ROC curves, feature importance, failures by drive family, class imbalance; SHAP when enabled) to `data/audit/plots/` |

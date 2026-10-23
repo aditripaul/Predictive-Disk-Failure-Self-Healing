@@ -160,6 +160,8 @@ the same drives.
 | 30-day horizon in place of 14 days | The one clear gain: 34% to 46% precision near 10% recall, same test period and same split rules |
 | Survival model (time to failure, XGBoost AFT) | Same as the classifier |
 | Anomaly detection (isolation forest): alone, as a filter, as a feature | Alone far worse; the others within noise |
+| Label horizon of 7, 14 and 30 days, same data and splits | Drive-level test AUROC is flat (0.925, 0.924, 0.923): the 14-to-30-day precision gain is the higher base rate, not better separation. A 7-day horizon is no more precise (46% against 57% near 10% recall), so a short-horizon alert model does not reach high precision on this data |
+| LSTM over each drive's raw 30-day history, scored on the same drives | Alone slightly worse than LightGBM (AUROC 0.915 against 0.923; recall at a 1-in-1,000 false-alarm rate 20.1% against 26.8%); it overfits after one or two epochs whatever the regularization. It does catch some different drives (14 of 54 shared at the strictest budget), and a rank blend with LightGBM adds a small recall gain (about 2 points at 1-in-2,000 to 1-in-1,000 false alarms; positive in all four seeds, intervals optimistic). Precision at those points is 55% to 68%. Not confirmed until read once on the sealed quarter (runbook 5.9 to 5.12) |
 
 The consistent ceiling across model families, feature sets and framings
 indicates the limit is the information in daily SMART data, not the model.

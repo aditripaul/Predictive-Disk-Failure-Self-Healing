@@ -187,6 +187,8 @@ Options: `--run-id` (required), `--split` (`sealed` or `external_smartz`),
 | Log of every test-split computation | `data/audit/test_access_log.jsonl` (append-only) |
 | Approval queue and decision trail | `data/audit/audit.sqlite` (the running API; `AUDIT_DB_PATH` overrides) |
 | Kept training arrays | `data/tmp/train_model_frame_*` (only with `--keep-work-dir`) |
+| LSTM report, scores, weights | `data/audit/data_quality_reports/sequence_evaluation_report[_<tag>].json`; `data/tmp/sequence_model/scores_h<horizon>[_<tag>].npz` and `lstm_h<horizon>[_<tag>].pt` |
+| LSTM vs LightGBM comparison | `data/audit/data_quality_reports/sequence_vs_tree_seeds.json` |
 
 ### 2.7 Resource limits
 
@@ -236,6 +238,7 @@ Each step needs the ones before it.
 |---|---|
 | `TRAIN_ARGS=--keep-work-dir` | Keeps the training arrays in `data/tmp/train_model_frame_*` for the experiment tool. Delete them with `make clean-kept`. |
 | `TRAIN_ARGS="--horizon-days 14"` | Trains for a horizon in `horizons_days` other than the default. The run is logged with that horizon; `score-fleet` only uses runs for the primary horizon (`primary_horizon_days`, now 30). |
+| `TRAIN_ARGS=--save-scores` | Also writes the final validation and test scores (`drive_id`, `date`, `label`, `score`; two-stage included) to `data/tmp/lightgbm_scores_h<horizon>.parquet`, so another model can be compared or blended on the same drives (`scripts/compare_sequence_vs_tree.py`). |
 | `TRAIN_ARGS=--two-stage` | Forces the second stage on for this run. It is already on by default (`model.two_stage.enabled: true`); set that to `false` for the single model. The second stage is a model that re-ranks the first model's highest-scoring rows (`src/models/two_stage.py`). Thresholds, tiers and reports are then built on the combined score, with the first model alone logged beside it (`stage1_alone_precision_at_recall`). `make score-fleet` uses the second stage automatically for a run trained with it. Same as `model.two_stage.enabled: true`. Adds three extra fits of the first model, so roughly doubles the model-fitting time. |
 
 Examples:
@@ -250,6 +253,46 @@ Every drive-level result in the log and reports carries, beside its
 precision on the real fleet, `lift` and `precision_at_failure_rate` (the same
 alerts on test sets where 15% and 50% of drives fail). The configured target
 is judged on the real-fleet figure.
+
+### Sequence model (LSTM)
+
+`make train-sequence` needs the torch extra. `pyproject.toml` resolves torch from
+PyTorch's CPU index (the PyPI Linux wheel pulls about 3 GB of CUDA libraries that
+this CPU-only run never uses), so install with:
+
+```bash
+uv sync --extra dev --extra torch
+```
+
+A plain `uv sync` removes torch again; `make train-sequence` runs `uv run --extra
+torch`, which keeps it. A full run takes about 35 minutes on 14 CPU threads
+(training about 5 minutes per epoch on a 3,000,000-row sample, then scoring 15.4M
+validation and 21.3M test drive-days) and fits in the 20 GB memory cap.
+
+| Option (`SEQUENCE_ARGS=...`) | Effect |
+|---|---|
+| `--drive-fraction 0.02 --max-epochs 2 --max-train-rows 200000` | A smoke run on 2% of drives, about 2 minutes. Writes `*.smoke.*` files and logs no test access. Its metrics are noise; it checks that the pipeline runs. |
+| `--seed N --tag sN` | Another seed. The seed changes the initial weights, batch order and training negatives; the early-stopping validation subsample stays fixed. `--tag` keeps the report, scores and weights from overwriting the untagged run. |
+| `--learning-rate`, `--dropout`, `--hidden-size` | Override `sequence_model.*` in `configs/model.yaml` for one run. |
+| `--train-only --tag t1` | Trains and stops, writing `sequence_tuning_t1.json` (validation average precision per epoch). Reads no test rows and logs no test access: for choosing settings on validation. |
+| `--horizon-days N` | A horizon other than the primary one. |
+
+A full run logs one test-split access. To compare with, or blend into, LightGBM
+on the same drives:
+
+```bash
+make train TRAIN_ARGS=--save-scores     # LightGBM scores; overwrites the evaluation report, so back it up
+make train-sequence                     # the untagged run (called s0 below)
+make train-sequence SEQUENCE_ARGS="--seed 1 --tag s1"
+uv run --extra torch python scripts/compare_sequence_vs_tree.py --tags s0 s1
+```
+
+`compare_sequence_vs_tree.py` matches rows on (drive, date), refuses to run if the
+row order or labels do not line up, and reports each LSTM run alone and blended
+with LightGBM (rank average, weight chosen on validation only), their ensemble,
+the drives each catches at matched false-alarm rates, and a paired bootstrap on
+blend minus LightGBM. It logs one test-split access. Results: runbook sections
+5.9 to 5.12.
 
 ### Model comparison
 
@@ -300,7 +343,8 @@ Expect it to take well over an hour on Q1 alone.
 | Command | What it does |
 |---|---|
 | `make experiment-model` | See above. |
-| `make build-sequences`, `make train-lstm` | Optional LSTM branch. Needs `uv sync --extra torch` first. |
+| `make build-sequences`, `make train-lstm` | Optional LSTM branch (one window per drive; a rough comparison only). Needs `uv sync --extra dev --extra torch` first. |
+| `make train-sequence` | LSTM over each drive's raw 30-day history, evaluated exactly like `make train` (same labelled drive-days, split rules and drive-level metrics), so the two can be compared. Options go in `SEQUENCE_ARGS`; see below. |
 | `make evaluate-frozen` | Scores one sealed or external split, once, against a frozen run (section 2.5). `ARGS="--run-id <id> --split sealed"`. |
 | `make final-report` | Writes `data/audit/data_quality_reports/final_evaluation_report.json`: the model's drive-level results and action tiers, a goal-status section (target met or not, and the gap), the data period, and the chaos, latency and crash-recovery test results. Runs those tests, so it takes a few minutes. |
 | `make agent-demo` | Runs the decision-agent demo once. |
