@@ -13,7 +13,13 @@ sources:
     # downloaded - null (the default) ingests everything raw_glob matches.
     # Useful for keeping a single build-silver run's data volume bounded,
     # e.g. while validating on a smaller slice before ingesting more.
-    start_date: "2026-01-01"
+    # Q4 2025 + Q1 2026 + Q2 2026 (273 days). Q3 2025 stays in the download
+    # list below - already fetched, and needed if the parked 60-day horizon
+    # experiment resumes (configs/model.yaml splits) - but is NOT ingested:
+    # start_date excludes it. Bronze reflects whatever was last ingested and
+    # `make build-silver` reads Bronze rather than the raw CSVs, so narrowing
+    # this does not narrow what the pipeline sees until Bronze is rebuilt.
+    start_date: "2025-10-01"
     end_date: "2026-06-30"
   smartz:
     raw_glob: "data/raw/smartz/*.csv"
@@ -35,7 +41,7 @@ sources:
 download:
   backblaze:
     base_url: "https://f001.backblazeb2.com/file/Backblaze-Hard-Drive-Data"
-    quarters: ["Q1_2026","Q2_2026"]
+    quarters: ["Q3_2025", "Q4_2025", "Q1_2026", "Q2_2026"]
     start_quarter: null
     end_quarter: null
   smartz:

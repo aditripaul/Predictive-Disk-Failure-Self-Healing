@@ -100,6 +100,7 @@ from src.models.evaluation import (
     evaluate_at_threshold,
     precision_at_recall_level,
     precision_at_recall_table,
+    recall_at_false_alarm_table,
 )
 from src.models.explainability import (
     build_explainer,
@@ -843,6 +844,13 @@ def main() -> None:
         "true in configs/model.yaml.",
     )
     parser.add_argument(
+        "--save-scores",
+        action="store_true",
+        help="Write the final validation and test scores (drive_id, date, label, score) to "
+        "<scratch>/lightgbm_scores_h<horizon>.parquet, to compare or blend with another model "
+        "on the same drives.",
+    )
+    parser.add_argument(
         "--keep-work-dir",
         action="store_true",
         help="Keep the scratch work dir (x_*/y_*.npy, *_ids.parquet) after "
@@ -1087,6 +1095,28 @@ def main() -> None:
                 )
                 test_scores = two_stage_model.final_scores(x_test, test_scores)
             del stage1_val_scores
+            if args.save_scores:
+                scores_path = (
+                    _scratch_base(data_config) / f"lightgbm_scores_h{horizon_days}.parquet"
+                )
+                pl.concat(
+                    [
+                        pl.DataFrame(
+                            {
+                                "split": split_name,
+                                "drive_id": ids["drive_id"],
+                                "date": ids["date"],
+                                "label": labels,
+                                "score": scores,
+                            }
+                        )
+                        for split_name, ids, labels, scores in (
+                            ("validation", val_ids, y_val, val_scores),
+                            ("test", test_ids, y_test, test_scores),
+                        )
+                    ]
+                ).write_parquet(scores_path, compression="zstd")
+                logger.info("scores_saved", path=str(scores_path))
             results["test_metrics"] = evaluate_at_threshold(
                 y_test, test_scores, threshold_result["threshold"]
             )
@@ -1185,6 +1215,12 @@ def main() -> None:
                 test_ids["drive_id"].to_numpy(),
                 y_test,
                 test_scores,
+            )
+            # ROC space, so a change of label horizon does not move it: the
+            # only reading that distinguishes a better model from one
+            # predicting a commoner event (src/models/evaluation.py).
+            results["test_recall_at_false_alarm"] = recall_at_false_alarm_table(
+                test_ids["drive_id"].to_numpy(), y_test, test_scores
             )
             # Which data this run saw. Results moved by ~0.04 AUPRC between two
             # builds of the "same" quarter, so a number without its build is
@@ -1368,7 +1404,7 @@ def main() -> None:
             mlflow.log_metric("test_auprc", results["test_metrics"]["auprc"])
             for split_key in ("validation", "test"):
                 drive_level = results[f"{split_key}_drive_level"]
-                for metric in ("precision", "recall", "auprc"):
+                for metric in ("precision", "recall", "auprc", "auroc"):
                     mlflow.log_metric(f"{split_key}_drive_{metric}", drive_level[metric])
             mlflow.log_metric(
                 "test_expected_calibration_error",
@@ -1385,6 +1421,12 @@ def main() -> None:
                 "test_calibrated_brier_score",
                 results["test_calibrated_calibration"]["brier_score"],
             )
+            for row in results["test_recall_at_false_alarm"]:
+                if row["reachable"]:
+                    mlflow.log_metric(
+                        f"test_drive_recall_at_far_{row['false_alarm_rate_budget']:g}",
+                        row["recall"],
+                    )
             if results["test_warning_lead_time"]["mean_lead_time_days"] is not None:
                 mlflow.log_metric(
                     "test_mean_warning_lead_time_days",

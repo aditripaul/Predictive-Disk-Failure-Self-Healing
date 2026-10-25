@@ -35,12 +35,19 @@ quarters are downloaded:
 ```yaml
 sources:
   backblaze:
-    start_date: "2026-01-01"
-    end_date: "2026-06-30"        # Q1 and Q2 (the repo default); "2026-03-31" for Q1 only
+    start_date: "2025-10-01"      # Q4 2025 onwards (the repo default)
+    end_date: "2026-06-30"        # through Q2 2026; "2026-03-31" for Q1 only
 download:
   backblaze:
-    quarters: ["Q1_2026"]         # or ["Q1_2026", "Q2_2026"]
+    quarters: ["Q3_2025", "Q4_2025", "Q1_2026", "Q2_2026"]
 ```
+
+The download list is deliberately wider than what is ingested: Q3 2025 is on
+disk for the parked 60-day horizon experiment but `start_date` excludes it.
+Bronze reflects whatever was last ingested and `make build-silver` reads
+Bronze rather than the raw CSVs, so narrowing `start_date` does not narrow
+what the pipeline sees until Bronze is rebuilt (`rm -rf
+data/bronze/backblaze`).
 
 **`configs/model.yaml`** controls the train, validation and test periods. The
 test period must end at least 30 days before the last day of data, because a
@@ -49,8 +56,8 @@ test period must end at least 30 days before the last day of data, because a
 ```yaml
 splits:
   strategy: chronological
-  train_end: "2026-04-15"         # Q1 + Q2 settings (the repo default)
-  validation_end: "2026-05-10"
+  train_end: "2026-02-14"         # the repo default: Q4 2025 + Q1 2026 train
+  validation_end: "2026-03-31"    # and validate, Q2 2026 tests
   test_end: "2026-05-31"
   sealed_start: "2026-07-01"      # read only by `make evaluate-frozen`
 ```
@@ -164,6 +171,39 @@ Options: `--run-id` (required), `--split` (`sealed` or `external_smartz`),
 `--n-boot` (bootstrap draws, default 1000), `--frame` (otherwise the newest
 `data/tmp/train_model_frame_*/frame.parquet`).
 
+### 2.8 Running and measuring the decision loop
+
+Needs a trained run (`make train`) and the gold tables.
+
+```bash
+make agent-pit                               # the figures to quote
+make agent-pit ARGS="--step-days 3 --bootstrap 2000"
+make family-calibration                      # per-family recalibration test
+make agent-fleet ARGS="--start-date 2026-06-01 --end-date 2026-06-23 --cycles 200"
+```
+
+`make agent-pit` snapshots the fleet at weekly dates across the test window:
+every drive with a feature row on that date, scored once, judged on the label
+at that same row. It prints pooled precision and recall per tier with
+drive-cluster bootstrap intervals, the base rate precision lives at, a
+per-date table, and one look against two at a matched false-alarm rate. It
+saves the scored snapshots to `data/audit/agent_point_in_time_observations.parquet`
+so `scripts/analyze_false_positives.py` can profile them without re-scoring.
+Peak memory is about 6 GB (one date's fleet at a time) and a run takes about a
+minute. The dates are test-split data, so each run is recorded in the
+test-access log.
+
+`make agent-fleet` exercises the loop itself and writes
+`data/audit/agent_fleet_run.json`. With `--score` it also joins the decisions
+to the labels, but those figures look ahead twice - maturity comes from the
+dataset's last date, and "latest row" is a dying drive's last day - and the
+run warns when it scores a window that ends before the data does. Use
+`agent-pit` for anything you intend to quote (ADR 0003). The checkpoint
+defaults to a temporary file; `--checkpoint-path` overrides it.
+
+The decision loop never touches hardware: the executor and validator are
+simulated and logged.
+
 ### 2.6 Where the outputs go
 
 | Output | Location |
@@ -180,6 +220,8 @@ Options: `--run-id` (required), `--split` (`sealed` or `external_smartz`),
 | Log of every test-split computation | `data/audit/test_access_log.jsonl` (append-only) |
 | Approval queue and decision trail | `data/audit/audit.sqlite` (the running API; `AUDIT_DB_PATH` overrides) |
 | Kept training arrays | `data/tmp/train_model_frame_*` (only with `--keep-work-dir`) |
+| LSTM report, scores, weights | `data/audit/data_quality_reports/sequence_evaluation_report[_<tag>].json`; `data/tmp/sequence_model/scores_h<horizon>[_<tag>].npz` and `lstm_h<horizon>[_<tag>].pt` |
+| LSTM vs LightGBM comparison | `data/audit/data_quality_reports/sequence_vs_tree_seeds.json` |
 
 ### 2.7 Resource limits
 
@@ -229,6 +271,7 @@ Each step needs the ones before it.
 |---|---|
 | `TRAIN_ARGS=--keep-work-dir` | Keeps the training arrays in `data/tmp/train_model_frame_*` for the experiment tool. Delete them with `make clean-kept`. |
 | `TRAIN_ARGS="--horizon-days 14"` | Trains for a horizon in `horizons_days` other than the default. The run is logged with that horizon; `score-fleet` only uses runs for the primary horizon (`primary_horizon_days`, now 30). |
+| `TRAIN_ARGS=--save-scores` | Also writes the final validation and test scores (`drive_id`, `date`, `label`, `score`; two-stage included) to `data/tmp/lightgbm_scores_h<horizon>.parquet`, so another model can be compared or blended on the same drives (`scripts/compare_sequence_vs_tree.py`). |
 | `TRAIN_ARGS=--two-stage` | Forces the second stage on for this run. It is already on by default (`model.two_stage.enabled: true`); set that to `false` for the single model. The second stage is a model that re-ranks the first model's highest-scoring rows (`src/models/two_stage.py`). Thresholds, tiers and reports are then built on the combined score, with the first model alone logged beside it (`stage1_alone_precision_at_recall`). `make score-fleet` uses the second stage automatically for a run trained with it. Same as `model.two_stage.enabled: true`. Adds three extra fits of the first model, so roughly doubles the model-fitting time. |
 
 Examples:
@@ -243,6 +286,46 @@ Every drive-level result in the log and reports carries, beside its
 precision on the real fleet, `lift` and `precision_at_failure_rate` (the same
 alerts on test sets where 15% and 50% of drives fail). The configured target
 is judged on the real-fleet figure.
+
+### Sequence model (LSTM)
+
+`make train-sequence` needs the torch extra. `pyproject.toml` resolves torch from
+PyTorch's CPU index (the PyPI Linux wheel pulls about 3 GB of CUDA libraries that
+this CPU-only run never uses), so install with:
+
+```bash
+uv sync --extra dev --extra torch
+```
+
+A plain `uv sync` removes torch again; `make train-sequence` runs `uv run --extra
+torch`, which keeps it. A full run takes about 35 minutes on 14 CPU threads
+(training about 5 minutes per epoch on a 3,000,000-row sample, then scoring 15.4M
+validation and 21.3M test drive-days) and fits in the 20 GB memory cap.
+
+| Option (`SEQUENCE_ARGS=...`) | Effect |
+|---|---|
+| `--drive-fraction 0.02 --max-epochs 2 --max-train-rows 200000` | A smoke run on 2% of drives, about 2 minutes. Writes `*.smoke.*` files and logs no test access. Its metrics are noise; it checks that the pipeline runs. |
+| `--seed N --tag sN` | Another seed. The seed changes the initial weights, batch order and training negatives; the early-stopping validation subsample stays fixed. `--tag` keeps the report, scores and weights from overwriting the untagged run. |
+| `--learning-rate`, `--dropout`, `--hidden-size` | Override `sequence_model.*` in `configs/model.yaml` for one run. |
+| `--train-only --tag t1` | Trains and stops, writing `sequence_tuning_t1.json` (validation average precision per epoch). Reads no test rows and logs no test access: for choosing settings on validation. |
+| `--horizon-days N` | A horizon other than the primary one. |
+
+A full run logs one test-split access. To compare with, or blend into, LightGBM
+on the same drives:
+
+```bash
+make train TRAIN_ARGS=--save-scores     # LightGBM scores; overwrites the evaluation report, so back it up
+make train-sequence                     # the untagged run (called s0 below)
+make train-sequence SEQUENCE_ARGS="--seed 1 --tag s1"
+uv run --extra torch python scripts/compare_sequence_vs_tree.py --tags s0 s1
+```
+
+`compare_sequence_vs_tree.py` matches rows on (drive, date), refuses to run if the
+row order or labels do not line up, and reports each LSTM run alone and blended
+with LightGBM (rank average, weight chosen on validation only), their ensemble,
+the drives each catches at matched false-alarm rates, and a paired bootstrap on
+blend minus LightGBM. It logs one test-split access. Results: runbook sections
+5.9 to 5.12.
 
 ### Model comparison
 
@@ -293,10 +376,15 @@ Expect it to take well over an hour on Q1 alone.
 | Command | What it does |
 |---|---|
 | `make experiment-model` | See above. |
-| `make build-sequences`, `make train-lstm` | Optional LSTM branch. Needs `uv sync --extra torch` first. |
+| `make build-sequences`, `make train-lstm` | Optional LSTM branch (one window per drive; a rough comparison only). Needs `uv sync --extra dev --extra torch` first. |
+| `make train-sequence` | LSTM over each drive's raw 30-day history, evaluated exactly like `make train` (same labelled drive-days, split rules and drive-level metrics), so the two can be compared. Options go in `SEQUENCE_ARGS`; see below. |
+| `make plot-late-hits` | Draws what became of the drives the model flagged: three figures in `data/audit/plots/` (`late_hits_outcomes.png`, `late_hits_lead_time.png`, `late_hits_timelines.png`) plus `late_hits_summary.json`. Shows that alerts the 30-day label counts as false alarms often failed in days 31 to 60. Needs `make agent-pit` first; options in `ARGS` (`--tier`, `--max-lanes`). |
 | `make evaluate-frozen` | Scores one sealed or external split, once, against a frozen run (section 2.5). `ARGS="--run-id <id> --split sealed"`. |
 | `make final-report` | Writes `data/audit/data_quality_reports/final_evaluation_report.json`: the model's drive-level results and action tiers, a goal-status section (target met or not, and the gap), the data period, and the chaos, latency and crash-recovery test results. Runs those tests, so it takes a few minutes. |
 | `make agent-demo` | Runs the decision-agent demo once. |
+| `make agent-fleet` | Runs the decision loop on the real gold features and the trained model, executor simulated (section 2.8). |
+| `make agent-pit` | Measures the flagging policy at fixed dates (section 2.8). |
+| `make family-calibration` | Per-family recalibration, fitted on validation snapshots and judged on test (section 2.8). |
 | `make api` / `make dashboard` | Starts the FastAPI service / the Streamlit dashboard. |
 
 ## 3. The DuckDB spike

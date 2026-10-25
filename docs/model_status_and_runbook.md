@@ -190,7 +190,7 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
   hypotheses the screen refuted, is in
   `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md`.
 
-### 1.7 Two conventions these numbers depend on
+### 1.7 Three conventions these numbers depend on
 
 - **Action tiers are set in lift, not precision.**
   `threshold.action_tier_lift` (56.6 / 94.3 / 151.0 / 226.4) replaces the
@@ -207,6 +207,29 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
   and 0.132% on validation (`data_build.evaluated_failure_rate` in the
   evaluation report). Quote the evaluated rate, and compare models across
   splits on drive-level lift rather than on raw precision.
+- **The length of the TEST WINDOW moves the base rate, so precision is not
+  comparable across split dates.** A drive counts as failing if any of its
+  test rows falls inside a failure's horizon, so a longer test period catches
+  proportionally more failing drives while the healthy denominator stays the
+  size of the fleet. Lengthening the test window from 21 to 61 days took the
+  evaluated base rate from 0.175% to 0.417% and precision from 48.6% to
+  57.1%, with a model that is not better (Section 4.6). Per test-day the rate
+  barely moves - 0.836, 0.717 and 0.683 x 10^-4 across 21-, 45- and 61-day
+  windows - which is how you can tell the jump is the window and not the
+  fleet.
+
+  This is the same mechanism as a longer label horizon (Section 2.4), which
+  the project went looking for deliberately, arriving instead through a
+  change nobody flagged as a base-rate change. Two different routes to the
+  same inflation, so treat **any** edit to `splits` or `horizons_days` as a
+  change to what precision means.
+
+  Compare runs whose windows differ in ROC space, where neither axis depends
+  on the base rate: drive-level `auroc`, `positive_likelihood_ratio`
+  (= recall / false_alarm_rate) and `test_drive_recall_at_far_*`, all logged
+  by `make train`. Precision may be restated at a common base rate with
+  `precision_at_failure_rate`, but that is arithmetic on the measured rates,
+  not a second measurement, and it does not fix a mismatch in recall.
 
 ## 2. How to run the pipeline
 
@@ -216,14 +239,53 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
 make install
 ```
 
-### 2.2 Q1 + Q2 2026 (the repository default, and the reported results)
+### 2.2 Q4 2025 - Q2 2026, quarter-aligned (the repository default)
 
-`configs/data.yaml` ingests 2026-01-01 to 2026-06-30. `configs/model.yaml`
-uses a 30-day horizon with `train_end: "2026-04-15"`, `validation_end:
-"2026-05-10"`, `test_end: "2026-05-31"`. The test period must end at least 30
-days before the data does.
+**Run once, on 2026-10-18** - results in Section 4.6. Section 1.1's numbers
+still come from the frozen run's narrower window, below, and this window's
+precision is not comparable to them (Section 1.7).
+
+Q4 2025 and Q1 2026 train and validate; Q2 2026 tests. `configs/data.yaml`
+ingests 2025-10-01 to 2026-06-30 (273 days). `configs/model.yaml` uses a
+30-day horizon with `train_end: "2026-02-14"`, `validation_end:
+"2026-03-31"`, `test_end: "2026-05-31"`.
+
+| Window | Dates | Days | Was (frozen run) |
+|---|---|---|---|
+| train rows | 2025-10-01 .. 2026-01-15 | 107 | 75 |
+| purge gap | 2026-01-16 .. 2026-02-14 | 30 | 30 |
+| validation | 2026-02-15 .. 2026-03-31 | 45 | 25 |
+| test | 2026-04-01 .. 2026-05-31 | 61 | 21 |
+| inference | 2026-06-01 .. 2026-06-30 | 30 | 30 |
+
+Three things follow from it:
+
+- **The test period roughly triples**, 21 days to 61. Test failing drives
+  should go from 621 to around 1,800, which is the direct lever on the
+  frozen run's precision CI of [38.9%, 58.2%] - 19 points wide, and the
+  weakest part of the current measurement.
+- **`train_end` splits inside Q1 rather than on the quarter boundary.** Strict
+  Q4-trains / Q1-validates would leave only 62 days of training rows after the
+  30-day purge, fewer than the 75 the frozen run had. Splitting at 2026-02-14
+  gives 107 days of training and still 45 of validation.
+- **June 2026 is not evaluated, but is scorable.** Rows after
+  `validation_end` are labeled `split="test"`, and `train_model` applies
+  `test_end` as a hard cap when extracting, so June stays out of every
+  metric. Its 30-day labels are censored anyway (the data ends 2026-06-30).
+  It is what `make score-fleet` scores.
+
+This is **not** the frozen run's window, so its figures will not be directly
+comparable to Section 1.1. The frozen run stays the reference for the sealed
+quarter. To reproduce it instead: `sources.backblaze.start_date:
+"2026-01-01"` with `2026-04-15` / `2026-05-10` / `2026-05-31`.
+
+Bronze reflects whatever was last ingested, and `make build-silver` reads
+Bronze rather than the raw CSVs, so narrowing `start_date` does not narrow
+what the pipeline sees until Bronze is rebuilt. Coming from a wider window:
 
 ```bash
+rm -rf data/bronze/backblaze
+make clean-data clean-kept
 make ingest-backblaze
 make build-silver
 make build-features
@@ -234,12 +296,139 @@ make score-fleet
 make final-report              # runs make plots first
 ```
 
-On 2026-10-06 this processed 62,565,487 drive-days from 363,548 drives:
-ingest and silver in a few minutes each, `make train` in about ten.
+Expect about 94M drive-days - 1.5x the 62,565,487 of the 2026-10-06 build,
+and well under the 123,351,646 that surfaced the memory bugs in Section 3.
 Changing only model or split settings needs `make train` onwards, not a
 rebuild of features or labels.
 
-### 2.3 Q1 2026 only (the configuration of Sections 4, 4.1 and 5)
+### 2.3 Measuring the agent, not the model (`make agent-fleet`)
+
+**Not yet run.** Section 1.1's figures - 57.1% precision at 12.0% recall -
+describe a threshold applied to scores. They say nothing about the agent.
+Between a score and an action sit the guardrails, the 0.80 confidence
+floor, two-cycle hysteresis, the per-drive cooldown, the control arm and
+one-action-per-cycle. Every one can only *remove* actions, and nobody has
+measured by how much.
+
+`src/agent/fleet.py` binds the MAPE-K loop to the real gold features and
+the trained model (`make agent-fleet`); execution stays simulated, because
+there is no datacenter to cordon a drive in. `src/agent/backtest.py` scores
+the decisions against the label table.
+
+**Which window, and the horizon trap.** A row is scoreable only if the data
+outlives its horizon. With data to 2026-06-30:
+
+| Horizon | Last scoreable row | Usable June days |
+|---|---|---|
+| 7 days | 2026-06-23 | 23 |
+| 14 days | 2026-06-16 | 16 |
+| 30 days | 2026-05-31 | 0 |
+
+So the inference window has no 30-day label, but it *does* have 7- and
+14-day labels. That gives an agent-level measurement on data no model
+choice has ever touched - it does not consume the test split:
+
+```bash
+make agent-fleet ARGS="--start-date 2026-06-01 --end-date 2026-06-23 \
+    --cycles 200 --score --score-horizon-days 7"
+```
+
+Two things that figure is not. It is **7-day** precision and belongs in no
+column beside a 30-day one (Section 1.7). And the model is trained for 30
+days, so a drive that fails on day 20 is a 7-day false positive - expect
+the number to be lower than Section 1.1's for that reason alone, before any
+agent filter has removed anything.
+
+The `--end-date` matters more than it looks: `latest_row_per_drive` keeps
+each drive's *last* row, so snapshotting through 2026-06-30 yields rows
+that are censored at every horizon and nothing to score. The run warns when
+the window extends past the boundary.
+
+The test-split backtest below has ground truth but **is not point-in-time**
+- the maturity gate and the latest-row snapshot both look ahead - so quote
+nothing from `--score`; use `make agent-pit` (Section 4.7) for any precision
+or recall figure. It remains useful for exercising the loop itself, and it
+records a test-split access (`src/models/access_log.py`):
+
+```bash
+make agent-fleet ARGS="--start-date 2026-04-01 --end-date 2026-05-31 \
+    --cycles 500 --score"
+```
+
+**One action per cycle**, so `--cycles` bounds how many drives the agent can
+reach; drives never selected are reported as attrition rather than as
+policy rejections. The snapshot is fixed for the run and the candidate pool
+advances as drives are acted on or found permanently blocked - without
+that, the plan node's `max(drives, key=p_fail)` re-picks the same drive
+every cycle forever.
+
+### 2.4 The 60-day horizon experiment (parked 2026-10-18, never run)
+
+Set up, then parked before any result existed. Nothing in Sections 1 or 4
+comes from it. Recorded here because the setup cost a day and the reasoning
+still stands.
+
+**Why it was worth trying.** Precision moves with the base rate, and
+lengthening the label raises it directly: 14 to 30 days took precision from
+about 33% to 46.3% at comparable recall (Sections 4.2 and 4.3). A 60-day label
+roughly doubles the positive rate again. Holding the frozen run's measured
+recall and false-alarm rate, that arithmetic implies about 65% precision -
+separability degrades against it, but the 14-to-30 result shows the net can
+come out positive.
+
+**Why it needs four quarters.** The test period has to end a full horizon
+before the data does (Section 5.7), and the purge window stops training a
+horizon before `train_end`. On two quarters a 60-day horizon leaves too little
+of either.
+
+**To resume.** Q3/Q4 2025 are already downloaded and still listed in
+`download.backblaze.quarters`, so no download is needed. Set
+`sources.backblaze.start_date: "2025-07-01"`, add `60` to `horizons_days`, and
+set `train_end: "2026-02-01"`, `validation_end: "2026-03-17"`, `test_end:
+"2026-05-01"` - boundaries sized so the same dates serve both the 30-day
+control and the 60-day treatment, which is what makes the horizon the only
+variable between the two runs. Then rebuild from `make ingest-backblaze` and
+train twice:
+
+```bash
+make train                                          # 30-day control
+make train TRAIN_ARGS="--horizon-days 60"           # 60-day treatment
+```
+
+**What it costs.** 123,351,646 drive-days against 62,565,487, and a label
+table about 2.7x larger - twice the drive-days across four horizons rather
+than three. That volume is what surfaced two memory bugs, both since fixed:
+Bronze profiling aggregating every column at once
+(`src/ingest/profiling.py`), and two whole-table collects in
+`build_silver`'s finalize stage (`src/preprocess/quality_checks.py`,
+`src/preprocess/feature_maturity.py`). A third failure in the same run was
+never localized - the stage was not captured in the log - so expect to
+diagnose one more before the chain completes.
+
+**How to read the result, when it is run.** Not on precision. Precision and
+AUPRC both rise mechanically with the base rate, so compare in ROC space -
+drive-level `auroc` and recall at a matched false-alarm rate, both logged by
+`make train` (Section 1.7). Flat AUROC means the precision gain is
+definitional and must be reported as such.
+
+Three consequences to expect:
+
+- **The drain tier breaks.** `action_tier_lift` converts at each split's own
+  failure rate, so at a doubled rate the drain tier asks for 226.4 x 0.53% =
+  1.20 precision and becomes unreachable. `tune_action_tiers` flags
+  `target_met: false` and falls back, which is correct but reads as a
+  regression.
+- **The purge window is asymmetric.** At 30 days training rows run to
+  2026-01-02, at 60 days only to 2025-12-03, so the 60-day model trains on
+  about a month less data. If 60 days wins it wins despite that; if it loses,
+  the confound is live and the clean follow-up is a 30-day run with
+  `train_end` pulled back to match.
+- **A 60-day claim is a weaker claim.** "Fails within 60 days" is less
+  specific than "within 30". More lead time is operationally fine, but a
+  precision figure earned that way does not satisfy the goal in Section 7,
+  which names a 30-day horizon.
+
+### 2.5 Q1 2026 only (the configuration of Sections 4, 4.1 and 5)
 
 `configs/data.yaml`: `sources.backblaze.end_date: "2026-03-31"`.
 `configs/model.yaml`: `primary_horizon_days: 14` and `splits` with
@@ -247,7 +436,7 @@ rebuild of features or labels.
 "2026-03-17"`. One quarter is too short for the 30-day horizon once training
 stops a horizon before `train_end`. Then the same commands as 2.2.
 
-### 2.4 Things that go wrong, and where to look
+### 2.6 Things that go wrong, and where to look
 
 - **Empty or tiny test split:** the split dates do not match the data. Check
   `train_model_splits_loaded` in the log.
@@ -258,6 +447,40 @@ stops a horizon before `train_end`. Then the same commands as 2.2.
   holds several GB. Delete it with `make clean-kept` when you are done.
 - **Stale results after a code change:** re-run `make train` before judging
   any experiment. Runs made on older code are not comparable.
+- **`make agent-fleet` exhausting RAM on a long run:** three compounding
+  allocations, fixed on 2026-10-18. `apply_hysteresis` rebuilds
+  `drive_risk_state` as `{**state, drive: ...}` every cycle and never removes
+  an entry, so it grew one entry per drive ever decided and every copy was
+  checkpointed; the checkpoint store defaulted to `:memory:`, which retains
+  all history, so 10,000 cycles held ~19 GB; and `score_snapshot` built the
+  whole fleet as one float64 matrix (0.7 GB at 356k x 246, copied twice on
+  the way to the model). Now: scoring is batched, the runner prunes the risk
+  state to the live pool each cycle (which holds it at about one entry, since
+  a drive is decided twice and then leaves), and the default checkpoint is a
+  temporary file deleted on exit. `peak_risk_state_entries` is in the report
+  so a pruning regression shows up as a number rather than as memory growth.
+- **`make agent-fleet` dying within seconds of starting, before any cycle:**
+  the snapshot loader, not the loop. `chunked_inner_join` slices its left
+  side with `left.slice(offset, n)`, which pushes into the Parquet reader
+  only when the scan is UNFILTERED. Filtered, Polars must evaluate the
+  filter across the whole scan to resolve row offsets, so each slice
+  materializes the entire window at full width: 16 GB for a 23-day window at
+  246 columns, 43 GB for a 61-day one. The first squeezed under the cap, the
+  second did not. `load_fleet_snapshot` now applies the window to a
+  two-column projection and joins those `(drive_id, date)` pairs against the
+  unfiltered scan - the shape `pipelines/score_fleet.py` uses. A test asserts
+  the plan reaching the join contains no FILTER.
+- **`memory_limit_exceeded` at the very end of `make ingest-backblaze`,
+  after every file logged successfully:** this was Bronze profiling, not the
+  ingest. It ran one 16-column `null_count()` over the whole Bronze dataset,
+  which materialized every column at once - about 20 GB at 365 days and
+  within the cap at 181. Row and null counts now come from the Parquet
+  footers and everything else is accumulated per partition
+  (`src/ingest/profiling.py`). If you hit it on an older checkout, Bronze is
+  already complete - profiling runs after the loop - so `make build-silver`
+  can go ahead; only the audit report is missing, and nothing downstream
+  reads it. `backblaze_ingest_complete` in the log marks the point where the
+  ingest itself finished.
 
 ## 3. Memory: what was wrong and what fixed it
 
@@ -754,6 +977,517 @@ precision and recall (test, drive level, thresholds from validation):
   scored 363,548 drives and proposed an action for 3,973. `make final-report`
   passed its chaos, guardrail-latency and crash-recovery sections.
 
+### 4.6 Quarter-aligned splits (2026-10-18): the window moved, the model did not
+
+First run on the quarter-aligned window of Section 2.2 - Q4 2025 and Q1 2026
+train and validate, Q2 2026 tests. 93,507,195 drive-days over 273 days, nine
+Bronze partitions, 47 silver batches. Both memory fixes from Section 3 held;
+nothing in the chain exceeded the 20 GB cap.
+
+| | test days | base rate | recall | false-alarm rate | precision | PLR |
+|---|---|---|---|---|---|---|
+| Frozen run (Section 1.1) | 21 | 0.175% | 8.70% | 1.61e-04 | 48.6% | 539 |
+| This run, validation | 45 | 0.323% | 10.05% | 2.25e-04 | 59.2% | 447 |
+| **This run, test** | **61** | **0.417%** | **12.04%** | **3.79e-04** | **57.1%** | **318** |
+
+Test held 1,479 failing and 353,552 healthy drives; 178 caught, 134 alerted
+in error. Drive AUPRC 0.339, AUROC 0.923.
+
+**The 8.5-point precision gain is not a model improvement.** The evaluated
+base rate rose 2.4x because the test window tripled, for the reason in
+Section 1.7. Converting the frozen run's three published operating points to
+ROC points and interpolating to this run's false-alarm rate:
+
+| | false-alarm rate | recall |
+|---|---|---|
+| This run, test | 3.79e-04 | 12.0% |
+| Frozen run, same false-alarm rate | 3.79e-04 | 15.3% (interpolated) |
+
+**At matched false-alarm rate the frozen model catches 3.3 points more**, and
+neither axis there depends on the base rate. Restating precision at a common
+base rate agrees: at the frozen run's 0.175% this model gives 35.8% against
+the frozen run's 48.6%.
+
+Read as "the wider window did not improve the ranking and plausibly cost a
+little", not as a confirmed regression. The interpolation spans a wide gap in
+the curve, the two operating points sit at different recall (12.0% against
+8.7%), and the runs saw different fleets over different calendar periods.
+
+What the run did buy:
+
+- **1,479 failing test drives against 621.** The drive-level bootstrap CI
+  should narrow by roughly 1.5x, which was the point of the wider test
+  period. The frozen run's [38.9%, 58.2%] was 19 points wide.
+- **Validation AUROC 0.9232, test AUROC 0.9226** - the first AUROC this
+  project has logged, and they are near-identical, so threshold selection on
+  validation is not overfitting the split boundary.
+
+**The hypothesis for why it is slightly worse: the training data is older, not
+just more.** Training now ends 2026-01-15 against a test starting 2026-04-01;
+the frozen run trained to 2026-03-16 for a test starting 2026-05-11. 107 days
+of training instead of 75, but further from the period being predicted. If
+recency beats volume here, that is worth knowing on its own, and it argues
+against widening the window backwards again.
+
+The test: pull `train_end` forward with everything else fixed and compare
+`test_drive_recall_at_far_*` between the two runs. Both log it, so that is a
+direct read rather than the interpolation used above. Not yet run.
+
+Update (Section 4.7): measured point-in-time on one date, this model's ROC
+sits 1.2 to 1.3 recall points below the frozen run's at matched false-alarm
+rate, inside that snapshot's sampling error. That weakens the case that the
+wider window cost anything real, though it does not settle it.
+
+### 4.7 The agent backtest is not point-in-time (2026-10-18): do not quote it
+
+First run of the agent over the test window (`make agent-fleet`, Apr-May
+2026, 30-day horizon, 2,173 candidates, none truncated): **61.8% precision at
+48.3% recall** on 1,157 labelled actions. **Neither figure is the agent's
+performance.** The per-tier breakdown (`scripts/score_agent_run.py`) shows
+why:
+
+| Tier | Drives | Labelled | Failed | Precision |
+|---|---|---|---|---|
+| warn | 982 | 978 | 203 | 20.8% |
+| cordon (scored) | 799 | 775 | 434 | 56.0% |
+| cordon (downgraded) | 321 | 311 | 281 | **90.4%** |
+| migrate | 62 | 62 | 0 | **0.0%** |
+| drain | 9 | 9 | 0 | **0.0%** |
+
+The two most extreme tiers are the wrong way round: the highest-scoring
+drives that passed the evidence gates were never right, and the ones the
+gates distrusted nearly always were. A trustworthy gate would show the
+reverse.
+
+**Cause 1 - the maturity gate reads the outcome.** `feature_maturity` is
+assigned from the dataset's last date (`src/preprocess/feature_maturity.py`):
+a drive whose final row is earlier than 2026-06-30 is DECOMMISSIONED, checked
+before every other state. `determine_action_tier` downgrades migrate/drain to
+cordon unless the drive is MATURE. In a window ending 2026-05-31 that makes
+"MATURE" mean "was still reporting a month after the snapshot", and a drive
+that reports on the last day cannot have failed inside a 30-day horizon. So
+migrate/drain are selected from drives that survived (0/71) and the
+downgraded cordons are the drives that vanished (281/311). The model never
+sees `feature_maturity`; only the gate does. Pinned in
+`tests/unit/test_maturity_lookahead.py`.
+
+**Cause 2 - "latest row" picks a dying drive's last day.** The snapshot takes
+each drive's most recent in-window row. For a drive that left mid-window that
+is the final row before it disappeared: maximum signal, zero lead time, and a
+drive that a fleet scored at a fixed date would not contain. This is the
+likelier source of the agent's recall (48.3%) beating the model's (12.0%) on
+the same window and the same 1,479 failing drives, and of PLR 387 against
+318. It is the same asymmetry `drive_level_table` documents, in the
+opposite direction. `scripts/check_agent_lookahead.py` reports how many acted
+drives left mid-window and the lead time of the ones it "caught".
+
+What this does and does not invalidate:
+
+- **Not invalidated:** the finding that the evidence filters remove nothing
+  on this data - hysteresis sees identical evidence on a fixed snapshot,
+  cooldown never fires because each drive leaves the pool once acted on, and
+  the guardrails carrying information the model lacks are fed defaults. The
+  gates downgrade migrate/drain to cordon, which still acts, so they never
+  prevent an action. `decided_but_not_acted` measures the width of the warn
+  band, not a filter's cost; an earlier claim here that 45% of drives were
+  "filtered" was wrong.
+- **Not invalidated:** `cordon (scored)` at 56.0% is free of Cause 1, because
+  the gates only touch destructive tiers. It is still exposed to Cause 2.
+- **Invalidated:** the 61.8% / 48.3% headline, the migrate/drain precision,
+  and any recommendation drawn from the downgraded-cordon row. An earlier
+  suggestion to return WARN instead of CORDON when the gates fail was based on
+  reading that row as evidence the score is untrustworthy there; it is
+  evidence of nothing, and acting on it would have been wrong.
+- **Also not comparable to the June run:** the 31.25% at 9.9% recall is
+  7-day, top 100, and shares Cause 2.
+
+**What the diagnostic measured** (`scripts/check_agent_lookahead.py` on the
+run above, 2,173 flagged drives):
+
+| Maturity | Flagged | Failed | Precision |
+|---|---|---|---|
+| DECOMMISSIONED | 1,032 | 916 | 88.8% |
+| MATURE | 1,132 | 2 | 0.2% |
+| STALE | 9 | 0 | 0% |
+
+Maturity separates the flagged list almost perfectly, and it is knowledge of
+the future. 66.9% of acted drives (797 of 1,191) stopped reporting before the
+data ended (89.6% failed, against 0.3% for the rest), and 708 of 1,191
+(59.4%) were scored on a row that is not the window's last day - they left
+the fleet mid-window, so their "latest row" is the final one before they
+disappeared. Both causes are confirmed, not just argued.
+
+Two readings to avoid. The 2 MATURE failures are consistent with drives that
+failed on 2026-06-30 itself and so still reported that day. And "high-scoring
+survivors are almost never right" is **not** a finding about the model: for a
+drive that reports on the data's last day, failing inside the horizon is
+structurally impossible, so 0.2% would appear whatever the scores were.
+
+**A correction to the diagnostic itself.** Its first version reported a
+median lead time of 13 days for caught drives, on n=108 of 715. That sample
+was the easy 15%. The label definition uses `event_date > date`, strictly, so
+a drive's final row - the failure day - has a NULL label (no event falls
+strictly inside the horizon, and the drive is not observable to its end), and
+the script filtered to labelled scored rows, silently dropping exactly the
+drives caught on their last day. Lead time is now measured to the drive's
+last row, over every caught drive; `tests/unit/test_check_agent_lookahead.py`
+pins the label behaviour against the real labeller. The 13-day figure should
+not be quoted.
+
+**Lead time, measured over every caught drive.** 607 of the 715 "caught"
+drives (84.9%) were scored on the day they died: median notice 0 days, mean
+2.1. Only 108 (15.1%) had any notice at all, which is exactly the labelled
+sample the first version of the diagnostic mistook for the whole. 93.3% had
+14 days or less. The agent's 48.3% recall is, for the most part, drives
+detected at the moment of failure. A drive caught the day it dies is not a
+save.
+
+**The clean number hiding in the run: the fleet as of 2026-05-31.** The 483
+acted drives whose scored row IS the window's last day were alive at a fixed
+date, so they are a legitimate snapshot - a real label at T and no
+dying-drive selection. Tiers come from `p_fail` and the thresholds alone,
+ignoring the maturity gate, and recall is against every drive alive at T.
+352,024 drives alive and labelled, 301 failed in the next 30 days (base rate
+0.086%):
+
+| Flagged at | Drives | Failed | Precision (95% CI) | Recall (95% CI) | FAR | PLR |
+|---|---|---|---|---|---|---|
+| >= warn | 1,214 | 124 | 10.2% [9, 12] | 41.2% [36, 47] | 3.10e-03 | 133 |
+| >= cordon | 447 | 80 | 17.9% [15, 22] | 26.6% [22, 32] | 1.04e-03 | 255 |
+| >= migrate | 106 | 28 | 26.4% [19, 36] | 9.3% [7, 13] | 2.22e-04 | 419 |
+| >= drain | 18 | 9 | 50.0% [29, 71] | 3.0% [2, 6] | 2.56e-05 | 1,169 |
+
+(Section 4.8 later showed this single date had the lowest base rate of nine; pooled over nine dates the cordon figure is 23.4% at 29.3%.) This is the number the 61.8% headline was standing in for: **17.9%
+precision at 26.6% recall at cordon and above**, 3.5x lower precision and
+half the recall. A prediction made before running it, from the maturity
+table, was about 80 caught and about 17%; the run gave 80 and 17.9%.
+
+How it compares with the frozen run, on the base-rate-free axes (Section
+1.7): at the same false-alarm rate the frozen run's published operating points
+interpolate to 10.5% recall at 2.22e-04 and 27.9% at 1.04e-03, against 9.3%
+and 26.6% here - gaps of 1.2 and 1.3 points, inside this snapshot's own
+sampling error (+/-3.3 and +/-5.0 on 301 failures). Restated at the frozen
+run's 0.175% base rate, the migrate point is 42.4% against its 48.6%. So the
+model's discrimination holds up under a proper point-in-time design; what was
+wrong was the evaluation, not the model.
+
+Two caveats on that. It is one date, 301 failures, and successive days share
+most of their drives, so extra dates add power slowly. And the frozen run's
+points are read off a coarse three-point curve and interpolated.
+
+This also withdraws a claim made while reading the contaminated run: that the
+drive-level metric is pessimistic relative to how the model would be used,
+because the agent's PLR of 387 beat the model's 318 on the same window. That
+gap was the look-ahead. Measured cleanly there is no such gap.
+
+**What the clean numbers say about the policy.** At cordon and above, 367 of
+447 actions (82%) are on drives that do not fail within 30 days, to catch 80
+of 301 failures. Whether that is acceptable is a cost question that precision
+cannot answer. Acting is worth it when `precision x P(save) x C_failure >
+C_action`. With the 17.9% above, a cordon pays for itself if it costs less
+than about 18% of an unplanned failure, scaled by how often a cordon actually
+prevents one; at warn and above the figure is 10%. The cost model in
+`configs/agent.yaml` does not exist yet, so there is no principled place to
+put the thresholds - only operating points to choose among.
+
+**The clean measurement, built.** `make agent-pit`
+(`pipelines/run_point_in_time.py`, `src/agent/point_in_time.py`) snapshots the
+fleet at fixed dates: every drive with a gold-feature row ON that date,
+scored once, judged on the label at that same row. Drives that had already
+gone are not in it, and no maturity label is consulted. It replaces
+`make agent-fleet --score` for any figure you intend to quote.
+
+Taken at several dates it reports pooled precision and recall per tier with
+**drive-cluster bootstrap intervals**, and it supports the one loop mechanism
+that could add information rather than strictness: a second, independent
+look. A drive is flagged only if it scores above threshold at both T-lag and
+T. That is a policy over two different days' telemetry, which is not the
+experiment that failed three times as a persistence *feature* inside one
+row's window. The two-look score is `min(p_T-lag, p_T)`, so it is compared
+with the one-look policy on the same drives at a matched false-alarm rate,
+with a paired interval on the difference. Hysteresis on the old fixed
+snapshot could not have done this: it looked twice at the same row.
+
+Cautions that govern reading it. Snapshots a week apart share most of their
+drives, and a failing drive is positive in about four weekly snapshots, so
+observations are not independent - every interval resamples whole drives, and
+pooled precision is "of flagged drive-snapshots, the share that fail within
+the horizon", not a count of distinct drives. Precision still lives at the
+base rate printed beside it. And these are test-window snapshots, so the run
+is recorded in the test-access log.
+
+Run a single date first to check memory before the full sweep (a date's fleet
+is ~0.7 GB at 356k drives x 246 features):
+
+```bash
+/usr/bin/time -v make agent-pit ARGS="--start-date 2026-05-31 --end-date 2026-05-31 --bootstrap 200" \
+    2>&1 | grep -iE "maximum resident|point_in_time_snapshot"
+```
+
+### 4.8 Point-in-time over nine dates, and the second look (2026-10-18)
+
+`make agent-pit`, weekly snapshots 2026-04-05 to 2026-05-31, 30-day horizon,
+model run `0c183df0`. 3,142,390 drive-snapshots, 3,832 of them failing, pooled
+base rate 0.122%. Peak memory 5.9 GB, 62 seconds. The final date reproduces
+the earlier single-date diagnostic exactly (352,024 alive, 301 failing), so
+two separately written code paths agree on who was in the fleet.
+
+**Per snapshot, flagged at cordon and above:**
+
+| Date | Base rate | Precision | Recall | FAR | PLR | Lift |
+|---|---|---|---|---|---|---|
+| 04-05 | 0.150% | 26.8% | 26.3% | 1.08e-03 | 244 | 178 |
+| 04-12 | 0.150% | 29.6% | 30.9% | 1.11e-03 | 279 | 197 |
+| 04-19 | 0.160% | 31.3% | 30.6% | 1.07e-03 | 285 | 196 |
+| 04-26 | 0.140% | 27.1% | 30.7% | 1.16e-03 | 266 | 194 |
+| 05-03 | 0.114% | 20.9% | 27.1% | 1.17e-03 | 232 | 184 |
+| 05-10 | 0.108% | 18.8% | 28.7% | 1.34e-03 | 214 | 174 |
+| 05-17 | 0.101% | 19.7% | 32.5% | 1.34e-03 | 243 | 195 |
+| 05-24 | 0.091% | 17.6% | 29.2% | 1.24e-03 | 235 | 194 |
+| 05-31 | 0.086% | 17.9% | 26.6% | 1.04e-03 | 255 | 209 |
+
+Pooled (summed from the rows above): 4,800 flagged, 1,121 caught, **23.4%
+precision at 29.3% recall**, FAR 1.17e-03, PLR 250. At drain: 149 flagged, 60
+caught, 40.3% precision [29, 52] at 1.6% recall. The warn, migrate and
+interval rows for the other tiers are in `data/audit/agent_point_in_time.json`
+and the run's log.
+
+**Precision followed the base rate; the model did not move.** The 30-day
+failure rate fell 1.76x across the nine dates, from 0.150% to 0.086%.
+Precision fell 1.50x, from 26.8% to 17.9%. Recall stayed between 26.3% and
+32.5% and PLR between 214 and 285, with no trend. This is Section 1.7's
+warning on real data: the same model at the same thresholds gave anything from
+17.6% to 31.3% precision depending on the date. It also means:
+
+- **The single-date 17.9% in Section 4.7 was the lowest of the nine, not a
+  typical value.** It is the final date, which has the lowest base rate. The
+  pooled 23.4% is the better summary, and the honest statement is a range with
+  its base rate.
+- **There is no sign the model decays with distance from training.** Training
+  ends 2026-01-15. Recall on 04-05, nearest the training period, is 26.3%; on
+  05-31 it is 26.6%. That is further evidence against the staleness
+  hypothesis in Section 4.6.
+- **Failures per month fell about 40%** over the window (518 failing drives
+  per snapshot to 301). Whether that is a cohort passing, seasonality or
+  something in the data is unexplained.
+
+**The second look hurts.** Flagging a drive only when it scores above threshold
+at both T-7 and T, against flagging on T alone, on the same 2,783,355
+drive-pairs, at matched false-alarm rate:
+
+| FAR budget | One look | Two looks | Difference (95% CI) |
+|---|---|---|---|
+| 1e-04 | 5.0% | 4.5% | -0.5% [-1.2, +0.3] |
+| 2e-04 | 9.4% | 8.6% | -0.7% [-1.7, +0.2] |
+| 5e-04 | 18.5% | 16.4% | **-2.0%** [-3.1, -0.9] |
+| 1e-03 | 25.8% | 23.5% | **-2.3%** [-3.6, -1.2] |
+| 3e-03 | 41.9% | 38.7% | **-3.3%** [-4.4, -2.3] |
+
+Every difference is negative, and the intervals exclude zero at three of five
+budgets. A week-old reading is a weaker signal than today's for a drive that
+is deteriorating, and `min` lets it veto the current one, so requiring
+persistence discards true positives faster than it removes false alarms. This
+is the fourth refutation of persistence - three as a feature, now one as a
+decision - and the first measured at the decision level on a point-in-time
+fleet. It supports changing `loop.hysteresis_cycles_required` from 2 to 1 in
+`configs/agent.yaml`; not changed here because it is a policy setting.
+
+What is and is not established. Lag 7 only: a shorter lag makes the two looks
+nearly identical, so it can cost less but has less to add, and a longer lag
+should cost more. Two looks combined by `min` only; `max`, a mean or a trend
+were not tried, though slope and delta features already give the model the
+trend. And the loop's hysteresis operates per cycle, not per week, so the
+measured cost does not transfer exactly to a daily loop.
+
+What remains. Nothing in the loop's own mechanisms (hysteresis, cooldown,
+confidence and maturity gates, guardrails on defaulted topology) improves
+precision on this telemetry. What can change the operating point is a cost
+model that chooses it, and what can raise the ceiling is evidence the model
+has not seen.
+
+### 4.9 Can the agent remove false positives? How to find out
+
+A policy cannot change the ranking, so the only false positives it can remove
+are ones that share something the score does not account for. Whether any
+such group exists is unmeasured. `make agent-pit` now saves every scored
+drive-snapshot with context columns (drive model, power-on hours, the six
+priority attributes) to
+`data/audit/agent_point_in_time_observations.parquet`, and
+`scripts/analyze_false_positives.py` profiles them without re-scoring:
+
+1. **Late hits** - flagged, healthy for 30 days, failing in days 31-60.
+   Counted only on snapshots whose days 31-60 lie inside the data. A
+   measurement of what the 30-day label calls a false alarm, not a fix, and
+   reported beside the 30-day figure, never instead of it.
+2. **Composition** by drive model and age, largest false-alarm count first,
+   with small groups folded together so a family with eight flags cannot
+   pose as a target.
+3. **Flag streaks** - precision of first-time flags against drives flagged in
+   several consecutive snapshots that never fail.
+4. **Attribute profile** - which priority attributes are non-zero among false
+   positives against true ones.
+5. **Other ways to combine two looks** - `max`, `mean` and `rising`
+   (`p_T + (p_T - p_T-lag)`) beside the `min` that already failed.
+
+**What it found** (nine weekly snapshots, flagged at cordon and above: 4,800
+flagged, 1,121 caught, 3,679 false alarms):
+
+- **Late hits: 12.8% of false alarms are early, not wrong.** On the four
+  snapshots whose days 31-60 lie inside the data, 195 of 1,528 false alarms
+  failed in days 31-60. Precision there is 28.7% by the 30-day label and
+  37.8% crediting them. That matches the 61 of 510 (12%) seen on validation
+  in Section 7, so it is stable. It is a fact about the label, not a fix.
+- **No attribute separates false positives from true ones.** Each priority
+  attribute is non-zero in nearly the same share of both: reallocated sectors
+  83% / 80%, pending sectors 88% / 81%, reallocation events 82% / 81%. On
+  SMART telemetry, a false positive looks like a failing drive. This is the
+  informational ceiling seen directly.
+- **No chronic-flag group.** Precision by consecutive weekly flags is 18.6%,
+  20.6%, 22.2%, 21.9% for streaks of 0, 1, 2, 3+. Drives flagged for weeks
+  without failing are not a distinct, suppressible population.
+- **No combination of two looks helps.** Against one look at matched
+  false-alarm rate: `max` within +/-1 point and never clear of zero, `mean`
+  -0.5 to -1.6 points, `min` -0.5 to -3.3, and `rising` -3.6 to -16.8. The
+  week-on-week change in score is mostly noise, so weighting it hurts.
+- **The model's ranking quality varies 73-fold across drive families.**
+  Measured on PLR (recall / false-alarm rate), which unlike precision and
+  lift does not move with a family's failure rate: from 22 (ST24000NM002H)
+  to 1,583 (WDC WUH722222ALE6L4), against 250 pooled. Six families sit below
+  100 - ST24000NM002H 22, TOSHIBA MG08ACA16TEY 60, ST14000NM0138 68, WDC
+  WUH721816ALE6L4 72, HGST HUH721212ALN604 78, HGST HUH721212ALE604 80. They
+  hold 33% of the false alarms and 35% of the failing drive-snapshots, and
+  recall inside them is 21.2% against 33.5% everywhere else. Pooled figures
+  hide this. Counts are drive-snapshots without intervals, and the smallest
+  families rest on a handful of failures (ST24000NM002H: 5 caught), so rank
+  the families, do not quote them to a decimal.
+
+  This corrects an earlier reading in this section. Precision alone picked
+  the "worst" four families, and one of them, ST14000NM001G at 13.4%
+  precision, is not weak at all: PLR 207, near the pooled 250 - it simply
+  fails rarely (0.075%). Precision mistook a low base rate for a weak model,
+  which is the Section 1.7 trap again. Suppressing the low-precision families
+  still behaves like a threshold move (23.4% to 26.6% precision for 29.3% to
+  25.3% recall, against about 26.0% from a global threshold), but the reason
+  is not that the differences are illusory.
+
+  What it implies. A score that means different things in different families
+  makes one global threshold sub-optimal: the same `p_fail` carries a
+  different chance of failure depending on the drive model. Per-family
+  *calibration*, pooled toward the fleet so small families do not overfit,
+  is the principled way to use that - it reorders flags across families
+  rather than just raising the bar. Per-family *thresholds* were tried before
+  and lost on test (Section 1.5), tuned on 50-100 failing drives with lift
+  targets; calibration with shrinkage is a different test, and it has to be
+  fitted on the validation window and judged point-in-time on test, never fit
+  on the numbers above. On the model side, the six weak families are where
+  better features would pay: they are mixed-vendor, so the Seagate-only
+  attribute gap of ADR 0002 does not explain them by itself.
+
+**Seeing the late hits.** `make plot-late-hits` (`scripts/plot_late_hits.py`)
+draws them from the same saved snapshots: what became of every flagged
+drive-snapshot, days from the alert to the failure (one bar per day, so the
+30-day boundary falls between day 30 and day 31), and one row per early alert
+with the alert at day 0 and the failure at day N. It reads the event date from
+the label table, so on the four snapshots whose days 31-60 are observed (cordon
+and above; 2,144 flagged, 1,528 false alarms by the 30-day label) it counts 227
+drives that failed in days 31-60, not the 195 above. The 195 comes from
+requiring the drive to still report telemetry on exactly day 30; 32 drives
+failed in days 31-59 after they stopped reporting, and every one of the 195 is
+among the 227. A further 66 failed after day 60 (a lower bound, seen only to the
+end of the data), so 293 of the 1,528 (19.2%) went on to fail. Precision by the
+30-day label is 28.7%; crediting days 31-60 it is 39.3% (37.8% by the 195
+count). The 30-day figure stays the headline: the goal is pinned to it.
+
+**Conclusion.** The loop's filters cannot reduce the model's false
+positives: on SMART telemetry a false positive looks like a failing drive, and
+no streak, attribute or two-look combination separates them. One structure
+does exist - ranking quality differs sharply by drive family - and the only
+policy-layer use of it is per-family calibration, which was untested here and had to
+be validated out of sample before anyone believes it. Beyond that the levers
+are outside the loop: count late hits honestly when judging cheap actions,
+choose the operating point with a cost model, and add evidence the model has
+not seen.
+
+What would justify a policy change: a group carrying a large share of the
+false alarms at clearly lower precision, with enough drives that the
+difference survives an interval - and then the change is a targeted rule
+for that group, measured point-in-time before it ships. What would not: a
+small group, a one-snapshot effect, or a precision gain bought with an equal
+loss of recall, which is a threshold move with extra steps.
+
+### 4.10 Per-family recalibration (built and run 2026-10-18: no gain)
+
+Section 4.9 found ranking quality varies 73-fold by drive family, so the same
+score carries a different chance of failure by family and one global
+threshold cannot be optimal. `make family-calibration` tests the one
+policy-layer use of that.
+
+**The method.** A fleet-wide logistic recalibration of the score's log-odds,
+plus one intercept per drive family, pulled toward zero by a Gaussian prior
+of width `tau` (`src/agent/family_calibration.py`). The intercept says "in
+this family a given score means k times the odds of failure"; a family with
+few failures stays near the fleet unless the evidence is strong. Within a
+family the map is monotone, so only the order *across* families changes.
+Deliberately not a per-family slope or a per-family threshold: those fit
+noise at a few dozen failures, which is how per-family thresholds lost on
+test (Section 1.5).
+
+**Out of sample, by construction.** It fits on point-in-time snapshots from
+the validation window (2026-02-15 to 2026-03-31) and is judged on the test
+snapshots from `make agent-pit`. `tau` is chosen by a time split inside the
+fitting window - earlier dates predicting later ones, with `tau = 0` (fleet
+only) always a candidate - so nothing is selected by looking at test data.
+The script refuses to run if any fitting snapshot is on or after the first
+evaluation snapshot, since the two files come out of the same pipeline.
+
+**The comparison** is the raw score against the recalibrated one, on the same
+test drive-snapshots, as recall at matched false-alarm rate with a paired
+drive-cluster bootstrap interval. The raw score is the right baseline because
+a fleet-only recalibration ranks identically. A gain whose interval clears
+zero means per-family calibration is worth adopting - it would sit between
+the model and the action tiers. One that straddles zero closes the last
+policy-layer idea for false positives on this telemetry.
+
+Checked on synthetic families with known offsets: it recovers them, shrinks a
+60-drive family hard under a tight prior, leaves within-family ranking
+unchanged, finds a gain clear of zero when a family effect exists and none
+when it does not. Dropping the offsets, or the window guard, each fail a
+test.
+
+```bash
+make family-calibration
+```
+
+**Result** (`data/audit/family_calibration.json`, written 2026-10-18). Fitted on
+the validation snapshots 2026-02-17 to 2026-03-31, judged on the test snapshots
+2026-04-05 to 2026-05-31; `tau` chosen at 0.25 by the time split inside the
+fitting window (log loss 0.006016, against 0.006054 at `tau = 0`); three
+families in the test window were never seen in the fit. Recall at matched
+false-alarm rate, raw score against recalibrated:
+
+| False-alarm rate | Raw | Recalibrated | Difference (95% CI, drive-cluster bootstrap) |
+|---|---|---|---|
+| 1e-4 | 5.11% | 4.88% | -0.23 pts [-1.26, +0.82] |
+| 2e-4 | 9.19% | 9.32% | +0.13 pts [-1.40, +1.28] |
+| 5e-4 | 19.65% | 18.24% | **-1.41 pts** [-2.58, -0.03] |
+| 1e-3 | 28.11% | 27.92% | -0.18 pts [-0.82, +0.73] |
+| 2e-3 | 37.24% | 37.87% | +0.63 pts [-0.27, +1.50] |
+| 3e-3 | 43.76% | 43.87% | +0.10 pts [-0.78, +0.90] |
+
+- **No gain.** Five of six intervals straddle zero with differences of at most
+  0.6 points either way; at 5e-4 the interval excludes zero on the wrong side.
+  Precision moves the same way (for example 32.4% to 30.8% at 5e-4).
+- **This closes the last policy-layer idea for false positives on this
+  telemetry**, as Section 4.9 said it would if the interval straddled zero. A
+  family-level offset on the score does not recover the 73-fold difference in
+  ranking quality between families; that difference is in how well the
+  features rank drives within a family, which an intercept cannot change.
+- The remaining levers are the ones Section 4.9 named: count late hits honestly
+  when judging cheap actions, choose the operating point with a cost model, and
+  add evidence the model has not seen (for which the LSTM blend of Sections 5.9
+  to 5.12 is the only candidate measured so far, and it is a ranking change, not
+  a way to classify a false positive).
+
 ## 5. What we learned
 
 ### 5.1 Evaluation is per drive, not per drive-day
@@ -832,6 +1566,182 @@ but its test split had only 2,862 rows, all positive. The data ends
 after 2026-03-01 lost its label. Treat 30 days as promising but unproven until
 the splits end at least 30 days before the data does.
 
+### 5.8 Discrimination does not depend on the horizon (run 2026-10-22)
+
+`make train TRAIN_ARGS="--horizon-days H"` for H = 7, 14 and 30 on the
+current gold tables and the current splits (`configs/model.yaml`, `splits`), default
+settings, two-stage on, one seed. Drive-level, thresholds chosen on
+validation:
+
+| Horizon | Validation AUROC | Test AUROC | Test recall at 1e-4 false-alarm rate | Test recall at 2e-3 |
+|---|---|---|---|---|
+| 7 days | 0.9154 | 0.9246 | 2.3% | 12.5% |
+| 14 days | 0.9168 | 0.9236 | 4.0% | 13.7% |
+| 30 days | 0.9232 | 0.9226 | 3.7% | 15.7% |
+
+- **Test AUROC is flat** (spread 0.002, within noise for one seed and no
+  interval). The precision gain from 14 to 30 days (Sections 4.2, 4.3) is
+  therefore the higher base rate, not better separation.
+- **A shorter horizon does not give a high-precision alert.** At the
+  threshold chosen for 10% validation recall, test precision is 46.2% at 7
+  days (recall 8.4%), 53.4% at 14 days (11.5%) and 57.1% at 30 days (12.0%). Nothing here supports a 24-72 hour model reaching 90%.
+- Test rows differ by horizon (1171, 1308 and 1479 failing test drives), so
+  the columns are comparable in ROC space, not in precision.
+- Each run adds an entry to `data/audit/test_access_log.jsonl`. The shipped
+  `model_evaluation_report.json`, `action_tiers.json` and the 30-day model
+  card were restored after the runs; the 7- and 14-day cards were not kept.
+
+### 5.9 A sequence model reading the raw history does no better (run 2026-10-22)
+
+`make train-sequence` (`pipelines/train_sequence_model.py`): a 2-layer LSTM over
+each drive's raw 30 days of nine SMART attributes (log1p, with a per-attribute
+"reported" flag), drive age, vendor and capacity. It is trained and scored on the
+same labelled drive-days, split date rules and drive-level metrics as `make
+train`, 30-day horizon, so the columns below are the same drives. One seed,
+untuned; trained on a 3,000,000-row sample (LightGBM: 5,000,000).
+
+| Test, 1,479 failing / 353,552 healthy drives | LSTM | LightGBM |
+|---|---|---|
+| Drive AUROC | 0.9146 | 0.9226 |
+| Drive AUPRC | 0.248 | 0.339 |
+| Recall at 1e-4 false-alarm rate | 3.5% | 3.7% |
+| Recall at 2e-4 | 6.4% | 7.0% |
+| Recall at 5e-4 | 12.8% | 15.7% |
+| Recall at 1e-3 | 20.1% | 26.8% |
+| Precision at 10% recall | 55.2% (95% CI 49.2-61.0%) | 57.1% (51.6-62.6%) |
+| Precision at 35% recall | 29.1% | 48.8% |
+
+- **No gain, and a loss at looser budgets.** At the strictest false-alarm rates
+  the two are within noise; the gap grows as more false alarms are allowed. The
+  LSTM's validation average precision peaked after epoch 1 and then fell while
+  training loss kept falling, so it began memorizing training drives.
+- **Not a pure architecture test.** LightGBM also has model-family z-scores,
+  feature confidence and a two-stage re-ranker, and more training rows. A tuned
+  LSTM would probably close part of the gap; nothing here suggests it would
+  open one.
+- **Not tested: whether it catches different drives.** The LightGBM runs do not
+  save per-drive scores, so a blend or overlap check on the same drives was not
+  possible.
+- Together with Sections 4.3, 5.6 and 5.8 this is a fourth independent route
+  (survival model, anomaly score, a different horizon, a different input
+  representation) to the same ceiling, which points at the telemetry, not the
+  model. The run adds one entry to `data/audit/test_access_log.jsonl`.
+
+### 5.10 The LSTM catches some different drives; a blend gains a little (run 2026-10-23)
+
+Same rows as Section 5.9 (the 30-day horizon, 1,479 failing and 353,552 healthy
+test drives). `make train TRAIN_ARGS=--save-scores` saved LightGBM's final
+scores (two-stage included; it reproduced Section 5.9's figures exactly) and
+`scripts/compare_sequence_vs_tree.py` matched them to the LSTM's on (drive,
+date). Drive-level scores correlate at Spearman 0.65.
+
+Failing test drives caught at a matched false-alarm rate (each model alone):
+
+| False-alarm rate | LightGBM | LSTM | Both | Only LightGBM | Only LSTM |
+|---|---|---|---|---|---|
+| 1e-4 | 54 | 51 | 14 | 40 | 37 |
+| 5e-4 | 232 | 189 | 121 | 111 | 68 |
+| 1e-3 | 397 | 297 | 216 | 181 | 81 |
+
+The two overlap less than their AUROCs suggest: at the strictest budget only 14
+of 54 are shared. The union is not free, since each model spends its own
+false-alarm budget, so it is not the gain a combined system would see.
+
+A rank-average blend, with the LSTM's weight chosen on validation only (0.1,
+by recall at a 5e-4 false-alarm rate) and applied to test:
+
+| Test recall at false-alarm rate | LightGBM | Blend | Blend minus LightGBM, 95% bootstrap CI |
+|---|---|---|---|
+| 1e-4 | 3.65% | 5.00% | +1.35 pts [-0.20, +2.39] |
+| 5e-4 | 15.7% | 17.4% | +1.7 pts [+0.03, +3.27] |
+| 1e-3 | 26.8% | 29.4% | +2.6 pts [+0.58, +4.10] |
+
+- **A small gain, not a break in the ceiling.** AUROC is unchanged (0.9226). The
+  gain is 1.4 to 2.6 points of recall, about 10% relative at the loosest budget;
+  at the strictest budget the interval includes zero. Recall at 1e-4 is still 5%.
+- **Treat it as promising, not settled.** One seed, an untuned LSTM, three
+  budgets compared, and the bootstrap resamples drives with the weight fixed.
+  The first two intervals only just exclude zero.
+- **It does not move the precision goal.** The blend is a ranking improvement
+  at the margin; nothing here approaches the 95% target.
+- This run added two entries to `data/audit/test_access_log.jsonl` (the
+  LightGBM re-run and the comparison).
+
+### 5.11 The blend gain holds across four LSTM seeds, but stays small (run 2026-10-23)
+
+Four LSTM runs (the original plus seeds 1-3, same settings), each scored on the
+same 1,479 failing / 353,552 healthy test drives, then blended with LightGBM by
+rank-average. A short tuning pass first (`--train-only`, validation only: lower
+learning rate, more dropout, a smaller network) found no setting better than
+the current one by more than noise (best validation average precision 0.5276 for
+the current setting, 0.5295, 0.5286 and 0.5176 for the three variants), so the
+current setting was kept. Every run peaks after one or two epochs and then
+overfits, whatever the regularization.
+
+Test, drive level. `Blend` uses the LSTM weight chosen on validation for that
+run (0.1, or 0.2 for seed 3 and the ensemble). `Gain` is blend minus LightGBM
+recall, in points, with the 95% paired bootstrap interval.
+
+| Run | LSTM alone AUROC | Blend AUROC | Gain at 1e-4 | Gain at 5e-4 | Gain at 1e-3 |
+|---|---|---|---|---|---|
+| seed 0 | 0.9146 | 0.9227 | +1.4 [-0.2, +2.4] | +1.7 [+0.0, +3.3] | +2.6 [+0.6, +4.1] |
+| seed 1 | 0.9191 | 0.9230 | +1.0 [-0.3, +2.1] | +0.9 [-0.1, +2.6] | +0.9 [-0.5, +2.8] |
+| seed 2 | 0.9172 | 0.9229 | +0.8 [-0.4, +2.1] | +1.4 [+0.1, +3.1] | +1.4 [-0.4, +3.7] |
+| seed 3 | 0.9111 | 0.9221 | +0.8 [-0.7, +2.5] | +3.0 [+1.0, +4.6] | +3.4 [+1.7, +5.6] |
+| mean-rank ensemble of the four | 0.9185 | 0.9229 | +0.5 [-0.5, +2.9] | +2.4 [+0.7, +4.1] | +2.5 [+0.8, +4.9] |
+
+LightGBM alone: AUROC 0.9226; recall 3.65%, 15.7% and 26.8% at false-alarm
+rates of 1e-4, 5e-4 and 1e-3.
+
+- **The sign is consistent, the size is small.** All five blends beat LightGBM
+  at all three budgets (+0.5 to +3.4 points), so the earlier single-seed gain
+  was not a lucky seed. Only the ensemble and seed 3 have intervals clearly
+  above zero at the two looser budgets; the strictest budget never does.
+  AUROC is unchanged at 0.922-0.923.
+- **Read the intervals as optimistic.** They resample the same test drives, so
+  the four runs are not independent evidence; three budgets were compared; the
+  weight was fitted per run on validation. Roughly +2 points of recall at a
+  5e-4 to 1e-3 false-alarm rate (about +10% relative) is the supported claim.
+- **The LSTM ensemble alone** catches 79 failing drives at a 1e-4 false-alarm
+  rate against LightGBM's 54 (17 in common), ties it at 5e-4 and loses at 1e-3
+  (22.6% against 26.8%). Averaging seeds helps it at the strict end only.
+- **It does not change the goal status.** Recall at a 1e-4 false-alarm rate is
+  still about 5%, and nothing here approaches 95% precision.
+- **Test-split accesses.** `data/audit/test_access_log.jsonl` now has 46
+  entries; this section added the three seed runs, a check run and the
+  comparison. Any further use of these test numbers
+  to choose a method (including this blend) needs the sealed quarter.
+
+### 5.12 Precision and recall of the blend at each operating point
+
+Sections 5.9 to 5.11 measure recall at fixed false-alarm rates, not precision.
+Precision at those points follows from the counts: caught = recall x 1,479
+failing drives; false alarms = the budget x 353,552 healthy drives (35, 176 and
+353 at 1e-4, 5e-4 and 1e-3), so precision = caught / (caught + false alarms).
+These are **derived, not separately measured**, and the false-alarm counts are
+exact only to a drive or two (ties at the cut). They are test numbers, so the
+sealed-quarter caveat of Section 5.11 applies.
+
+| False-alarm rate | LightGBM recall / precision | Blend, seed 0 | Blend, four-seed ensemble |
+|---|---|---|---|
+| 1e-4 (about 35 alerted) | 3.7% / 60.7% | 5.0% / 67.9% | 4.2% / 63.9% |
+| 5e-4 (about 176) | 15.7% / 56.9% | 17.4% / 59.4% | 18.1% / 60.4% |
+| 1e-3 (about 353) | 26.8% / 52.9% | 29.4% / 55.2% | 29.3% / 55.1% |
+
+- At the same number of false alarms the blend catches more failing drives
+  (about 2 points of recall at the looser budgets) and its precision is 2 to 7
+  points higher.
+- **No point on this curve approaches the goal.** The best precision is about
+  64 to 68% at 4 to 5% recall, falling to about 55% at 30% recall. Nothing
+  reaches the 35 to 50% recall range at a high precision.
+- These are at the test period's own failure rate (about 0.4% of drives). The
+  same alerts restated for a test set where 15% of drives fail would score
+  97 to 99% precision, the convention of most published results.
+- **No deployable threshold has been set for the blend.** LightGBM's own
+  operating point (threshold chosen on validation for 10% recall) gives 57.1%
+  precision at 12.0% recall on test. The equivalent for the blend would be
+  chosen on validation and then read once on the sealed quarter.
+
 ## 6. The experiment tool
 
 ```bash
@@ -860,6 +1770,37 @@ recall (`configs/model.yaml` `threshold`). The frozen model gives 49.6% at
 10.5% recall and 28.7% at 32.4% (Section 1.1). At the validation threshold
 for 95% precision it flags a single test drive.
 
+**The goal is stated on the frozen run's 21-day test window too, not only its
+horizon.** The quarter-aligned run of Section 4.6 shows 57.1% precision at
+12.0% recall, which is *not* 8 points of progress towards 90%: its 61-day
+test window carries a 0.417% base rate against the frozen run's 0.175%.
+Restated at the frozen run's rate it is 35.8%, and at matched false-alarm
+rate it catches 3.3 points *less*. Any precision figure quoted against this
+goal needs its evaluated base rate beside it (Section 1.7).
+
+**As the policy would actually run, the goal is further away than any figure
+above suggests.** Measured point-in-time on one date (Section 4.7): 26.4%
+precision at 9.3% recall at migrate and above, 17.9% at 26.6% at cordon and
+above, 50% (n=18, interval 29 to 71) at 3.0% at drain. That date had the
+lowest base rate of nine; pooled over nine weekly dates (Section 4.8), cordon
+and above is 23.4% at 29.3%, ranging 17.6% to 31.3% by date as the base rate
+moved. The agent's earlier
+61.8% / 48.3% headline came from a backtest that looked ahead and is not
+usable. None of these is 90%, and the evidence-gate and hysteresis stages
+added nothing to precision on this data.
+
+**The goal is stated at a 30-day horizon, and the horizon is part of it.**
+Precision moves with the base rate, so a longer label raises it mechanically:
+at an identical operating point, doubling the positive rate takes precision
+from 48.6% to 65.5% and *drops* lift from 277 to 187 with the model unchanged.
+Lift is no escape - it is base-rate invariant only in the limit of rare
+events. The invariant readings are drive-level `auroc` and recall at a matched
+false-alarm rate (the positive likelihood ratio is 539 here, and holds); both
+are logged by `make train`. A 60-day precision figure therefore does not
+satisfy this target, belongs in no column beside a 30-day one, and changing
+the horizon of the goal is a decision to record here rather than a
+config edit.
+
 The limit is how rare failures are, not the false-alarm rate: at the primary
 threshold fewer than 1 healthy drive in 5,000 is alerted, but only 621 drives
 fail out of 353,949. On a test set where 15% of drives fail the same alerts
@@ -885,11 +1826,35 @@ What was tried, in the order it was tested:
    gave an interval that includes 0 (Section 1.2). Kept as the default on
    the standing evidence, not reported as a settled result.
 
+7. **Sequence model (LSTM):** run and recorded. Alone it is no better than
+   LightGBM; blended with it, it adds a small recall gain (about 2 points at a
+   5e-4 to 1e-3 false-alarm rate) that held across four seeds. Not reported as
+   settled until it is read once on the sealed quarter (Sections 5.9 to 5.12).
+
 What could still change the picture:
 
 - **A longer horizon again (60-90 days).** On validation, 61 of 510
-  false alarms failed 31 or more days after the alert. It needs data well
-  past the test period (a third quarter) and changes what an alert means.
+  false alarms failed 31 or more days after the alert. Set up and then
+  **parked on 2026-10-18 without being run** (Section 2.4); the data is
+  downloaded, so resuming is a config change rather than a download.
+
+  Read it in ROC space, because precision and AUPRC will both rise whether or
+  not anything improved. If 60-day `auroc` matches the 30-day control, the
+  precision gain is definitional and should be reported as "precision rose
+  because the positive rate doubled; discriminative performance unchanged."
+  If `auroc` rises, the gain is real. Either answer is worth having: a flat
+  AUROC is evidence that the telemetry's discriminative content does not
+  depend on the horizon, which is the strongest test yet of the claim that
+  the ceiling is informational rather than a modelling failure.
+
+  Two consequences to expect. `action_tier_lift` is converted at each split's
+  own failure rate, so at a doubled rate the drain tier asks for 226.4 x
+  0.53% = 1.20 precision and becomes unreachable; `tune_action_tiers` will
+  flag `target_met: false` and fall back, which is correct but reads as a
+  regression. And a longer horizon spends drive life to buy alert accuracy -
+  it retires drives with weeks of life left - so which horizon is better is a
+  cost question, not a precision one, and the cost model
+  (`configs/agent.yaml`) does not exist yet.
 - **Tiered goals:** keep the destructive action at a high precision target
   and let warnings accept more false alarms. The tiers exist (Section 4.4);
   their targets in `configs/model.yaml` are placeholders to be set from the
@@ -979,14 +1944,16 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 
 | File | Key | Current value | Meaning |
 |---|---|---|---|
+| `configs/data.yaml` | `sources.backblaze.start_date` / `end_date` | 2025-10-01 / 2026-06-30 | Which raw daily CSVs `make ingest-backblaze` reads. Q3 2025 is downloaded but excluded (Section 2.2) |
+| `configs/data.yaml` | `download.backblaze.quarters` | Q3_2025, Q4_2025, Q1_2026, Q2_2026 | Quarterly archives `make download-backblaze` fetches. Wider than what is ingested, so the parked 60-day run needs no download |
 | `configs/model.yaml` | `primary_horizon_days` | 30 | Horizon the shipped model is trained and scored for (was 14) |
-| `configs/model.yaml` | `horizons_days` | [7, 14, 30] | Horizons whose labels exist |
+| `configs/model.yaml` | `horizons_days` | [7, 14, 30] | Horizons whose labels exist (60 is parked, Section 2.4) |
 | `configs/model.yaml` | `model.max_train_rows` | 5000000 | Training-row cap |
 | `configs/model.yaml` | `model.positive_weight_power` | 0.5 | Positive weight = (neg/pos)^0.5 |
 | `configs/model.yaml` | `model.early_stopping_rounds` | 50 | Early stopping patience (average precision) |
-| `configs/model.yaml` | `threshold.target_precision` | 0.90 | Goal precision, at recall >= 10% (was 0.95 at 35-50%) |
+| `configs/model.yaml` | `threshold.target_precision` | 0.90 | Goal precision, at recall >= 10%, **30-day horizon** (was 0.95 at 35-50%). See Section 7: the horizon is part of the goal |
 | `configs/model.yaml` | `threshold.target_recall_range` | [0.10, 0.50] | Goal recall range |
-| `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | 2026-04-15 / 2026-05-10 / 2026-05-31 | Split boundaries |
+| `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | 2026-02-14 / 2026-03-31 / 2026-05-31 | Split boundaries: Q4 2025 + Q1 2026 train and validate, Q2 2026 tests (Section 2.2). The frozen run used 2026-04-15 / 2026-05-10 / 2026-05-31 |
 | `configs/model.yaml` | `splits.purge_label_window` | true | Training stops one horizon before `train_end` |
 | `configs/model.yaml` | `splits.validation_after_train_only` | true | Validation holds only dates after `train_end` |
 | `configs/model.yaml` | `splits.sealed_start` | 2026-07-01 | Rows from here on are `split=sealed`; only `make evaluate-frozen` reads them (Section 1.4) |

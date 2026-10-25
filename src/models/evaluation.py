@@ -1,6 +1,15 @@
 """Evaluation metrics for disk-failure prediction (docs/dataset_strategy.md
 section 15). AUPRC is the primary metric because failures are rare
 (<1% of drive-days), making accuracy misleading.
+
+Precision, AUPRC and lift all move with the base rate, so none of them can
+compare two models that predict events of different frequency - most
+immediately, the same model at two label horizons. Doubling the positive rate
+at an IDENTICAL operating point takes precision from 48.6% to 65.5% and drops
+lift from 277 to 187 without the model changing at all. `compute_auroc` and
+`recall_at_false_alarm_rate` are the base-rate-invariant companions: they live
+in ROC space, where that redefinition moves nothing. Report them whenever the
+label definition differs between the things being compared.
 """
 
 from __future__ import annotations
@@ -9,11 +18,32 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from sklearn.metrics import average_precision_score, confusion_matrix, precision_recall_curve
+from sklearn.metrics import (
+    average_precision_score,
+    confusion_matrix,
+    precision_recall_curve,
+    roc_auc_score,
+    roc_curve,
+)
 
 
 def compute_auprc(y_true: np.ndarray, y_scores: np.ndarray) -> float:
     return float(average_precision_score(y_true, y_scores))
+
+
+def compute_auroc(y_true: np.ndarray, y_scores: np.ndarray) -> float:
+    """Area under the ROC curve: the probability that a randomly chosen
+    failing drive outscores a randomly chosen healthy one.
+
+    Unlike AUPRC it does not move with the base rate, which makes it the
+    metric that can answer "is this model better, or is it predicting a
+    commoner event?" - the question a change of label horizon raises. Returns
+    0.5 (no discrimination) when one class is absent and the score is
+    undefined, so a degenerate split reads as "no information" rather than
+    raising."""
+    if len(np.unique(y_true)) < 2:
+        return 0.5
+    return float(roc_auc_score(y_true, y_scores))
 
 
 def precision_at_k(y_true: np.ndarray, y_scores: np.ndarray, k: int) -> float:
@@ -233,6 +263,13 @@ def drive_level_metrics(
             for rate in REFERENCE_FAILURE_RATES
         },
         "auprc": compute_auprc(labels, scores) if failing_count else 0.0,
+        # Base-rate invariant, unlike precision, auprc and lift above: these
+        # two are unchanged by how common failures are, so they are what
+        # compares a model against one trained for a different label horizon.
+        # `positive_likelihood_ratio` is this threshold's own invariant
+        # (recall / false_alarm_rate); `auroc` summarizes every threshold.
+        "auroc": compute_auroc(labels, scores) if failing_count else 0.5,
+        "positive_likelihood_ratio": recall / false_alarm_rate if false_alarm_rate else None,
     }
 
 
@@ -260,6 +297,65 @@ def precision_at_recall_level(
         "precision": float(precision[best]),
         "recall": float(recall[best]),
     }
+
+
+def recall_at_false_alarm_rate(
+    drive_ids: np.ndarray, y_true: np.ndarray, y_scores: np.ndarray, false_alarm_rate: float
+) -> dict[str, Any]:
+    """Drive-level recall at the strictest operating point whose false-alarm
+    rate is still within `false_alarm_rate`.
+
+    The ROC-space counterpart of `precision_at_recall_level`. Matched recall
+    compares precision, which the base rate moves; matched false-alarm rate
+    compares recall, which it does not. That is what makes this the right
+    comparison when the two models predict events of different frequency - two
+    label horizons, or two fleets - because neither axis here depends on how
+    common failures are. Returns the point actually used, whose false-alarm
+    rate may fall below the budget because it moves in steps of one drive, and
+    `reachable` is False when no real threshold fits inside it."""
+    labels, scores = drive_level_table(drive_ids, y_true, y_scores)
+    if labels.sum() == 0 or labels.sum() == len(labels):
+        return {"false_alarm_rate_budget": false_alarm_rate, "reachable": False}
+    fpr, tpr, thresholds = roc_curve(labels, scores)
+    # roc_curve prepends (fpr=0, tpr=0, threshold=inf), the alert-on-nothing
+    # point. It meets every budget however absurd, so leaving it in would make
+    # `reachable` meaningless and would put a non-finite threshold - invalid
+    # JSON once the results are written out - into the report.
+    ok = np.flatnonzero((fpr <= false_alarm_rate) & np.isfinite(thresholds))
+    if not len(ok):
+        return {"false_alarm_rate_budget": false_alarm_rate, "reachable": False}
+    best = ok[np.argmax(tpr[ok])]  # most recall affordable within the budget
+    return {
+        "false_alarm_rate_budget": false_alarm_rate,
+        "reachable": True,
+        "threshold": float(thresholds[best]),
+        "recall": float(tpr[best]),
+        "false_alarm_rate": float(fpr[best]),
+    }
+
+
+#: False-alarm budgets at which recall is also reported, bracketing the
+#: frozen run's own operating point (57 healthy drives alerted out of 353,328,
+#: a rate of 1.6e-4). Stated as a share of HEALTHY drives, so the budget means
+#: the same thing whatever share of the fleet fails.
+DEFAULT_FALSE_ALARM_BUDGETS = (5e-5, 1e-4, 2e-4, 5e-4, 1e-3)
+
+
+def recall_at_false_alarm_table(
+    drive_ids: np.ndarray,
+    y_true: np.ndarray,
+    y_scores: np.ndarray,
+    *,
+    budgets: tuple[float, ...] = DEFAULT_FALSE_ALARM_BUDGETS,
+) -> list[dict[str, Any]]:
+    """`recall_at_false_alarm_rate` at several budgets - the ROC-space reading
+    of one split, for comparing runs whose label definitions differ.
+
+    Unlike `precision_at_recall_table` this does not pick its thresholds on
+    validation and apply them to test. The question it answers is how well the
+    model separates the two classes, not how well a chosen operating point
+    transfers, and threshold-selection noise only obscures that."""
+    return [recall_at_false_alarm_rate(drive_ids, y_true, y_scores, b) for b in budgets]
 
 
 DEFAULT_RECALL_LEVELS = (0.05, 0.10, 0.20, 0.35)
