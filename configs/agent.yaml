@@ -30,3 +30,23 @@ action_thresholds:
 
 feature_confidence:
   min_confidence_for_destructive_action: 0.80
+
+# The share of drives the agent deliberately does NOT act on, so their
+# outcomes stay uncensored (src/agent/control_arm.py).
+#
+# Acting censors the outcome: drain a drive that was about to fail and it
+# never fails, so its label is 0, and a model retrained on that data learns
+# the features that triggered the drain do not predict failure. A control arm
+# is the standard fix - a small fixed share of flagged drives left alone,
+# whose outcomes are unbiased labels for exactly the population that matters.
+#
+# 0.0 holds nothing back, which is correct while the executor is simulated
+# and nothing is censored. Set it (0.02-0.05 is the usual range) BEFORE
+# connecting a real executor: it costs real failures, so it is a deliberate
+# trade, and it is far cheaper to decide now than to retrofit once the
+# training data is already poisoned. Membership is a stable hash of the drive
+# id, so the same drive is always control and the split is reconstructible
+# from the id and salt alone.
+control_arm:
+  control_fraction: 0.0
+  salt: "control-arm-v1"

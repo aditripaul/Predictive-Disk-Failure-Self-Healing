@@ -170,6 +170,7 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
 | `docs/user_guide.md` | How to run, operate, and approve/reject decisions from the system - no code-reading required |
 | `docs/adr/0001-training-memory-isolation.md` | Why `make train` runs as four processes, and the debugging history behind it |
 | `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md` | The attribute screen, and a safety-floor bug it found and fixed |
+| `docs/adr/0003-point-in-time-evaluation-and-the-limits-of-the-loop.md` | Why the first agent backtest was withdrawn, how the policy is measured now, and the mechanisms shown not to raise precision |
 
 ---
 
@@ -229,6 +230,7 @@ project-root/
 │   ├── evaluate_frozen.py         # single-shot scoring of a sealed split
 │   ├── score_fleet.py
 │   ├── build_sequences.py / train_lstm.py   # optional LSTM branch
+│   ├── train_sequence_model.py    # LSTM evaluated like the tree model (make train-sequence)
 │   ├── generate_performance_plots.py / generate_final_report.py
 │   ├── run_api.py
 │   └── spike_duckdb_extract.py    # measurement spike, not a pipeline
@@ -447,6 +449,7 @@ synthetic-data walkthrough (§14) - only real-data / production settings.
 | `configs/agent.yaml` | `action_thresholds`, `human_review.*_sla_hours` | Only to change the default risk-tier cutoffs / SLA clock before a real deployment |
 | `configs/guardrails.yaml` | `operational_state.backend` (`in_memory` \| `redis`) + `redis_url` | Only for a multi-instance deployment where drain/rate-limit counters must be shared - a single process is correct with the `in_memory` default |
 | `configs/features.yaml` | `sequences.*` | Only if using the optional LSTM branch (`make build-sequences` / `train-lstm`) |
+| `configs/model.yaml` | `sequence_model.*` | Only for `make train-sequence`: window length, attributes, network size, learning rate, training-row cap |
 
 Every `pipelines/*.py` script and CLI flag that reads one of these prints
 a clear, actionable error if something required is missing - none of
@@ -512,11 +515,15 @@ The project uses a `Makefile` for reproducible pipeline execution.
 | `make experiment-model` / `full-experiment` / `clean-kept` | Compare modelling variants on a kept training run (`docs/pipeline_usage.md`) |
 | `make full-pipeline` | Ingest through plots, including the model experiment |
 | `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (`train-lstm` needs `uv sync --extra torch`) |
+| `make train-sequence` | LSTM over each drive's raw 30-day history, evaluated like `make train` so the two compare directly. Needs `uv sync --extra dev --extra torch`; options in `docs/pipeline_usage.md`. Result: a small recall gain only when blended with LightGBM (runbook 5.9 to 5.12) |
 | `make score-fleet` | Batch-score the current fleet with the latest trained model |
 | `make evaluate-frozen` | Score one sealed or external split, once, against a frozen training run: `ARGS="--run-id <id> --split sealed"`. Refuses a second evaluation of the same split and run |
 | `make plots` | Render performance plots (calibration, ROC curves, feature importance, failures by drive family, class imbalance; SHAP when enabled) to `data/audit/plots/` |
 | `make final-report` | Aggregate chaos/latency/model reports, the goal status and the plots into a final evaluation report |
 | `make agent-demo` | Run a minimal LangGraph agent demo |
+| `make agent-fleet` | Run the MAPE-K loop on the real gold features and the trained model with a simulated executor: `ARGS="--start-date ... --end-date ... --cycles N"`. Exercises the loop; its `--score` figures look ahead and are not quotable (ADR 0003) |
+| `make agent-pit` | Measure the flagging policy at fixed dates: precision and recall per tier with drive-cluster bootstrap intervals, and one look against two. The source of any policy figure you intend to quote. Test-window data, recorded in the access log |
+| `make family-calibration` | Fit per-family recalibration on validation-window snapshots and judge it on the test snapshots (runbook 4.10) |
 | `make dashboard` | Launch Streamlit dashboard |
 | `make api` | Launch FastAPI approval service |
 
@@ -591,9 +598,12 @@ make plots          # renders calibration/SHAP/imbalance plots -> data/audit/plo
 compressed and expands to several GB of CSV. Check `df -h` before
 configuring more than one or two quarters.
 
-`make score-fleet`'s output is a standalone batch report - it is *not*
-wired into `make agent-demo`/`make api`, which always run against the
-hardcoded demo fleet (see `docs/developer_guide.md` §5.8 for why).
+`make score-fleet`'s output is a standalone batch report. `make agent-demo`
+and `make api` still run against a hardcoded two-drive demo fleet (see
+`docs/developer_guide.md` §5.8 for why), though they now read the trained
+model's tier thresholds. To run the loop on the real fleet and the trained
+model - with a simulated executor - use `make agent-fleet`; to measure what
+the policy achieves, use `make agent-pit` (`docs/developer_guide.md` §6.5).
 
 ---
 
@@ -918,9 +928,12 @@ Known gaps worth knowing before you rely on any of it:
 - The second-stage model's precision gain is not a confirmed result - a
   direct paired significance test disagrees between two runs on whether the
   gap excludes 0. It stays the default on a weaker, five-seed repeat instead.
-- The live agent loop is **not** driven by the trained model - it runs against
-  a hardcoded demonstration fleet, and uses the hand-picked cutoffs in
-  `configs/agent.yaml` rather than the tier thresholds training derives.
+- The agent runs on the real fleet and trained model only in simulation
+  (`make agent-fleet`); the API and `make agent-demo` still use a hardcoded
+  demonstration fleet. All three now read the trained tier thresholds rather
+  than the hand-picked cutoffs. The policy's measured precision is 23.4% at
+  29.3% recall for cordon and above, and no mechanism in the loop raises it
+  (`docs/adr/0003-point-in-time-evaluation-and-the-limits-of-the-loop.md`).
 - In that default wiring, the two fleet-topology guardrails ("never the last
   healthy node", "keep quorum") receive no node or replication state, and
   their defaults are permissive, so they cannot fire. Wire real topology data

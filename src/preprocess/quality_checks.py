@@ -36,7 +36,13 @@ def check_no_duplicate_drive_day_attribute(df: pl.DataFrame | pl.LazyFrame) -> d
     if not set(key_columns).issubset(lf.collect_schema().names()):
         key_columns = ["drive_id", "date"]
     n_rows = lf.select(pl.len()).collect().item()
-    n_unique = lf.select(key_columns).unique().select(pl.len()).collect().item()
+    # `unique()` over the key of a fleet-scale table builds a hash set of every
+    # row's key - at 123M drive-days that is the largest allocation in
+    # `build_silver`'s finalize stage, and it doubled when the window went from
+    # 181 to 365 days. The streaming engine spills it to disk instead. Distinct
+    # counts are exactly what it is for, and `test_quality_checks_streaming`
+    # pins that it returns the same answer.
+    n_unique = lf.select(key_columns).unique().select(pl.len()).collect(engine="streaming").item()
     n_duplicates = n_rows - n_unique
     return {
         "check": "no_duplicate_drive_day_attribute",

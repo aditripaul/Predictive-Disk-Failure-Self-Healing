@@ -1,0 +1,411 @@
+"""Measuring the flagging policy the way it would actually run: at a date.
+
+A deployed policy scores the drives that are reporting TODAY and is judged on
+what happens to them over the next horizon. The first agent backtest did
+neither (runbook 4.7): it scored each drive's latest in-window row, which for
+a drive that left mid-window is its death day, and it gated on a maturity
+label derived from the dataset's last date, which is the outcome. 61.8%
+precision became 17.9% once measured at a fixed date.
+
+This module is that measurement. A snapshot at date T is every drive with a
+gold-feature row ON T, scored once, with the label at that same row - did it
+fail within the horizon of T. Drives that had already gone are not in it,
+because a fleet at T does not contain them.
+
+Taken at several dates it also supports the one loop mechanism that could add
+information rather than just strictness: a second, independent look. Flagging
+a drive only when it scores above threshold at both T-lag and T is a policy
+over two different days' telemetry, which is not the same experiment as a
+persistence FEATURE inside one row's window (refuted three times). The
+two-look score is `min(p_T-lag, p_T)`, so it ranks like any other score and is
+compared with the one-look policy at matched false-alarm rate.
+
+Two cautions that shape the statistics:
+
+  * Snapshots a week apart share most of their drives, and a failing drive is
+    positive in every snapshot within one horizon of its death (about four of
+    them at a 30-day horizon, weekly). Observations are therefore NOT
+    independent, and every interval here resamples whole drives.
+  * Precision is a property of the base rate. Quote it with the base rate, and
+    compare across runs in ROC space (recall at a matched false-alarm rate).
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import polars as pl
+
+from src.agent.fleet import score_snapshot
+
+TIERS = ("warn", "cordon", "migrate", "drain")
+DEFAULT_FAR_BUDGETS = (1e-4, 2e-4, 5e-4, 1e-3, 3e-3)
+
+
+def last_observable_date(data_end: dt.date, horizon_days: int) -> dt.date:
+    """The last date whose label is observable: the data must outlive the
+    horizon. Later dates have censored labels, so they would silently drop out
+    of every count rather than fail loudly."""
+    return data_end - dt.timedelta(days=horizon_days)
+
+
+def select_snapshot_dates(start: dt.date, end: dt.date, step_days: int) -> list[dt.date]:
+    """Snapshot dates `step_days` apart, anchored on `end` and walking back.
+
+    Anchored on the latest observable date because it is the one a reader
+    expects to see; the anchor is otherwise arbitrary. Ascending order."""
+    if step_days < 1:
+        raise ValueError("step_days must be at least 1")
+    dates, day = [], end
+    while day >= start:
+        dates.append(day)
+        day -= dt.timedelta(days=step_days)
+    return sorted(dates)
+
+
+#: Columns kept beside each scored observation so false positives can be
+#: profiled offline without re-scoring: what kind of drive, how old, and which
+#: of the priority attributes were non-zero. Only those present in the frame
+#: are kept, so a narrow frame is not an error.
+CONTEXT_COLUMNS = (
+    "drive_model",
+    "model_family",
+    "capacity_gb",
+    "power_on_hours",
+    "reallocated_sector_count",
+    "current_pending_sector_count",
+    "offline_uncorrectable",
+    "reported_uncorrectable_errors",
+    "command_timeout",
+    "reallocation_event_count",
+)
+
+
+def snapshot_observations(
+    features_path: Path,
+    labels_path: Path,
+    model: Any,
+    day: dt.date,
+    *,
+    horizon_days: int,
+    context_columns: tuple[str, ...] = (),
+) -> pl.DataFrame:
+    """`drive_id, date, p_fail, label` for every drive reporting on `day`
+    that has an observable label there, plus any of `context_columns` the
+    feature table carries.
+
+    The feature scan is FILTERED and then collected, never sliced. Slicing a
+    filtered scan forces Polars to evaluate the filter across the whole scan
+    to resolve row offsets, which materializes the window at full width
+    (runbook 2.6); a plain filter-then-collect keeps only the matching rows.
+
+    A drive without an observable label at `day` - removed rather than failed
+    inside the horizon, or too close to the end of the data - is dropped
+    rather than counted as a negative: an outcome that cannot be observed is
+    not evidence that nothing happened."""
+    fleet = pl.scan_parquet(features_path).filter(pl.col("date") == day).collect()
+    if fleet.is_empty():
+        return pl.DataFrame(
+            schema={
+                "drive_id": pl.String,
+                "date": pl.Date,
+                "p_fail": pl.Float64,
+                "label": pl.Int8,
+            }
+        )
+    scored = score_snapshot(fleet, model)
+    keep = ["drive_id", "date", "p_fail", *[c for c in context_columns if c in scored.columns]]
+    scored = scored.select(keep)
+    del fleet
+    labels = (
+        pl.scan_parquet(labels_path)
+        .filter(
+            (pl.col("horizon_days") == horizon_days)
+            & (pl.col("date") == day)
+            & pl.col("label").is_not_null()
+        )
+        .select(["drive_id", "label"])
+        .collect()
+    )
+    return scored.join(labels, on="drive_id", how="inner")
+
+
+# --- tier metrics --------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TierCounts:
+    """Per-drive counts, so a cluster bootstrap is a weighted sum rather than a
+    resample of millions of observations."""
+
+    tiers: tuple[str, ...]
+    flagged: np.ndarray  # (n_tiers, n_drives) observations at or above the tier
+    caught: np.ndarray  # (n_tiers, n_drives) of those, the ones that failed
+    positives: np.ndarray  # (n_drives,)
+    negatives: np.ndarray  # (n_drives,)
+
+
+def dense_drive_codes(obs: pl.DataFrame) -> np.ndarray:
+    """Integer code per observation, 0..n_drives-1, shared by a drive's rows."""
+    physical = obs["drive_id"].cast(pl.Categorical).to_physical().to_numpy()
+    return np.unique(physical, return_inverse=True)[1]
+
+
+def tier_counts(
+    obs: pl.DataFrame, thresholds: dict[str, float], tiers: tuple[str, ...] = TIERS
+) -> TierCounts:
+    codes = dense_drive_codes(obs)
+    n = int(codes.max()) + 1 if len(codes) else 0
+    p = obs["p_fail"].to_numpy()
+    failed = obs["label"].to_numpy() == 1
+    flagged = np.zeros((len(tiers), n))
+    caught = np.zeros((len(tiers), n))
+    for i, tier in enumerate(tiers):
+        above = p >= thresholds[tier]
+        flagged[i] = np.bincount(codes, weights=above, minlength=n)
+        caught[i] = np.bincount(codes, weights=above & failed, minlength=n)
+    return TierCounts(
+        tiers=tiers,
+        flagged=flagged,
+        caught=caught,
+        positives=np.bincount(codes, weights=failed, minlength=n),
+        negatives=np.bincount(codes, weights=~failed, minlength=n),
+    )
+
+
+def tier_metrics(counts: TierCounts, weights: np.ndarray | None = None) -> dict[str, dict]:
+    """Precision, recall, false-alarm rate, likelihood ratio and lift per tier.
+
+    `weights` are per-drive multiplicities; omit them for the point estimate."""
+    w = np.ones(counts.positives.shape[0]) if weights is None else weights
+    positives, negatives = float(counts.positives @ w), float(counts.negatives @ w)
+    base_rate = positives / (positives + negatives) if positives + negatives else 0.0
+    out: dict[str, dict] = {}
+    for i, tier in enumerate(counts.tiers):
+        flagged, caught = float(counts.flagged[i] @ w), float(counts.caught[i] @ w)
+        precision = caught / flagged if flagged else 0.0
+        recall = caught / positives if positives else 0.0
+        far = (flagged - caught) / negatives if negatives else 0.0
+        out[tier] = {
+            "flagged": flagged,
+            "caught": caught,
+            "precision": precision,
+            "recall": recall,
+            "false_alarm_rate": far,
+            "positive_likelihood_ratio": recall / far if far else None,
+            "lift": precision / base_rate if base_rate else 0.0,
+            "base_rate": base_rate,
+        }
+    return out
+
+
+def bootstrap_tier_ci(
+    counts: TierCounts, *, n_boot: int = 1000, seed: int = 0, alpha: float = 0.05
+) -> dict[str, dict[str, tuple[float, float]]]:
+    """Percentile intervals for precision and recall, resampling whole drives.
+
+    A drive appears in every snapshot it was alive for and is positive in
+    about four of them if it failed, so resampling observations would
+    understate the uncertainty badly."""
+    n_drives = counts.positives.shape[0]
+    if n_drives == 0 or counts.positives.sum() == 0:
+        raise ValueError("bootstrap needs at least one failing observation")
+    rng = np.random.default_rng(seed)
+    n_tiers = len(counts.tiers)
+    precision = np.empty((n_boot, n_tiers))
+    recall = np.empty((n_boot, n_tiers))
+    for b in range(n_boot):
+        w = np.bincount(rng.integers(0, n_drives, n_drives), minlength=n_drives).astype(float)
+        metrics = tier_metrics(counts, w)
+        for i, tier in enumerate(counts.tiers):
+            precision[b, i], recall[b, i] = metrics[tier]["precision"], metrics[tier]["recall"]
+    lo, hi = 100 * alpha / 2, 100 * (1 - alpha / 2)
+    return {
+        tier: {
+            "precision": (
+                float(np.percentile(precision[:, i], lo)),
+                float(np.percentile(precision[:, i], hi)),
+            ),
+            "recall": (
+                float(np.percentile(recall[:, i], lo)),
+                float(np.percentile(recall[:, i], hi)),
+            ),
+        }
+        for i, tier in enumerate(counts.tiers)
+    }
+
+
+# --- matched false-alarm rate, one look vs two ------------------------------
+
+
+@dataclass(frozen=True)
+class _FarCurve:
+    """Everything about one scoring policy that does not depend on resampling:
+    which observations are negatives, in descending score order. Per-resample
+    work is then a cumulative sum of weights, not a sort."""
+
+    neg_idx: np.ndarray
+    neg_scores: np.ndarray
+    pos_idx: np.ndarray
+    pos_scores: np.ndarray
+
+
+def _prepare_far(scores: np.ndarray, failed: np.ndarray) -> _FarCurve:
+    neg_idx = np.flatnonzero(~failed)
+    pos_idx = np.flatnonzero(failed)
+    order = np.argsort(-scores[neg_idx], kind="stable")
+    neg_idx = neg_idx[order]
+    return _FarCurve(neg_idx, scores[neg_idx], pos_idx, scores[pos_idx])
+
+
+def recall_at_far(
+    curve: _FarCurve, obs_weights: np.ndarray, budgets: tuple[float, ...]
+) -> list[float]:
+    """Weighted recall at the strictest threshold whose false-alarm rate stays
+    within each budget.
+
+    Flags scores strictly above the first negative the budget cannot afford,
+    so ties at the boundary are excluded and the budget is never exceeded."""
+    cumulative = np.cumsum(obs_weights[curve.neg_idx])
+    total_neg = cumulative[-1] if len(cumulative) else 0.0
+    total_pos = float(obs_weights[curve.pos_idx].sum())
+    if total_neg <= 0 or total_pos <= 0:
+        return [0.0] * len(budgets)
+    pos_w = obs_weights[curve.pos_idx]
+    recalls = []
+    for budget in budgets:
+        k = int(np.searchsorted(cumulative, budget * total_neg, side="right"))
+        if k >= len(curve.neg_scores):
+            recalls.append(1.0)
+            continue
+        threshold = curve.neg_scores[k]
+        recalls.append(float(pos_w[curve.pos_scores > threshold].sum() / total_pos))
+    return recalls
+
+
+def pair_observations(previous: pl.DataFrame, current: pl.DataFrame) -> pl.DataFrame:
+    """Drives alive and labelled on BOTH dates: `drive_id, p_prev, p_cur, label`
+    with the label at the later date. A drive new at `current` has no earlier
+    look, so it cannot be held to a two-look rule and is excluded from both
+    arms - otherwise the comparison would differ in population as well as in
+    policy."""
+    return current.select(["drive_id", pl.col("p_fail").alias("p_cur"), "label"]).join(
+        previous.select(["drive_id", pl.col("p_fail").alias("p_prev")]),
+        on="drive_id",
+        how="inner",
+    )
+
+
+#: How two looks at one drive become a single score. `min` is the persistence
+#: rule - flag only if BOTH looks are high - and measured worse than one look
+#: (runbook 4.8). `max` flags if EITHER is; `mean` smooths; `rising` rewards a
+#: score that is climbing, which a `min` actively penalises.
+COMBINERS = {
+    "min": lambda cur, prev: np.minimum(cur, prev),
+    "max": lambda cur, prev: np.maximum(cur, prev),
+    "mean": lambda cur, prev: (cur + prev) / 2.0,
+    "rising": lambda cur, prev: cur + (cur - prev),
+}
+
+
+def compare_scorings(
+    drive_ids: pl.Series,
+    failed: np.ndarray,
+    baseline: np.ndarray,
+    candidate: np.ndarray,
+    *,
+    budgets: tuple[float, ...] = DEFAULT_FAR_BUDGETS,
+    n_boot: int = 500,
+    seed: int = 0,
+    alpha: float = 0.05,
+) -> list[dict[str, Any]]:
+    """Recall at matched false-alarm rate for two scorings of the SAME
+    observations, with a paired drive-cluster bootstrap interval on the
+    difference (candidate - baseline).
+
+    Both scorings see identical drives and identical resamples, so shared noise
+    cancels and the interval is on the quantity of interest. Recall at a
+    matched FAR is base-rate free, which precision at a threshold is not.
+    Precision at each budget is reported too, for reading - it is implied by
+    the recall, the budget and this sample's base rate."""
+    codes = dense_drive_codes(pl.DataFrame({"drive_id": drive_ids}))
+    n_drives = int(codes.max()) + 1
+    curve_a, curve_b = _prepare_far(baseline, failed), _prepare_far(candidate, failed)
+    ones = np.ones(len(codes))
+    base_a = recall_at_far(curve_a, ones, budgets)
+    base_b = recall_at_far(curve_b, ones, budgets)
+    positives, negatives = float(failed.sum()), float((~failed).sum())
+
+    rng = np.random.default_rng(seed)
+    diffs = np.empty((n_boot, len(budgets)))
+    for b in range(n_boot):
+        drive_w = np.bincount(rng.integers(0, n_drives, n_drives), minlength=n_drives)
+        w = drive_w[codes].astype(float)
+        diffs[b] = np.array(recall_at_far(curve_b, w, budgets)) - np.array(
+            recall_at_far(curve_a, w, budgets)
+        )
+    lo, hi = 100 * alpha / 2, 100 * (1 - alpha / 2)
+
+    def precision(recall: float, budget: float) -> float:
+        caught, false_alarms = recall * positives, budget * negatives
+        return caught / (caught + false_alarms) if caught + false_alarms else 0.0
+
+    return [
+        {
+            "false_alarm_budget": budget,
+            "baseline_recall": base_a[i],
+            "candidate_recall": base_b[i],
+            "baseline_precision": precision(base_a[i], budget),
+            "candidate_precision": precision(base_b[i], budget),
+            "difference": base_b[i] - base_a[i],
+            "difference_ci": (
+                float(np.percentile(diffs[:, i], lo)),
+                float(np.percentile(diffs[:, i], hi)),
+            ),
+        }
+        for i, budget in enumerate(budgets)
+    ]
+
+
+def compare_looks(
+    pairs: pl.DataFrame,
+    *,
+    combiner: str = "min",
+    budgets: tuple[float, ...] = DEFAULT_FAR_BUDGETS,
+    n_boot: int = 500,
+    seed: int = 0,
+    alpha: float = 0.05,
+) -> list[dict[str, Any]]:
+    """Recall at matched false-alarm rate: one look (`p_cur`) against two
+    combined by `combiner`, on the same drives (see `compare_scorings`)."""
+    if pairs.is_empty():
+        return []
+    if combiner not in COMBINERS:
+        raise ValueError(f"unknown combiner {combiner!r}; choose from {sorted(COMBINERS)}")
+    one = pairs["p_cur"].to_numpy()
+    two = COMBINERS[combiner](one, pairs["p_prev"].to_numpy())
+    rows = compare_scorings(
+        pairs["drive_id"],
+        pairs["label"].to_numpy() == 1,
+        one,
+        two,
+        budgets=budgets,
+        n_boot=n_boot,
+        seed=seed,
+        alpha=alpha,
+    )
+    return [
+        {
+            "combiner": combiner,
+            "false_alarm_budget": r["false_alarm_budget"],
+            "one_look_recall": r["baseline_recall"],
+            "two_look_recall": r["candidate_recall"],
+            "difference": r["difference"],
+            "difference_ci": r["difference_ci"],
+        }
+        for r in rows
+    ]

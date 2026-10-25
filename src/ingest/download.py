@@ -77,6 +77,39 @@ def generate_quarter_range(start_quarter: str, end_quarter: str) -> list[str]:
     return quarters
 
 
+class QuartersNotPublishedError(RuntimeError):
+    """One or more requested quarters are not published at `base_url`.
+
+    Backblaze releases a quarter's archive weeks after the quarter closes,
+    so a configured quarter that has not been released yet answers 404. That
+    is an ordinary, expected state while waiting for a quarter - not a
+    reason to lose the quarters that ARE available - so `download_backblaze`
+    finishes the rest of the list and raises this at the end.
+
+    Carries `unavailable` (the quarters that answered 404) and `downloaded`
+    (the per-quarter result for every quarter that succeeded), so a caller
+    can report both rather than only the failure.
+    """
+
+    def __init__(self, unavailable: list[str], downloaded: dict[str, list[Path]]) -> None:
+        self.unavailable = list(unavailable)
+        self.downloaded = dict(downloaded)
+        super().__init__(
+            f"Not published at the configured base_url: {', '.join(self.unavailable)}. "
+            "Backblaze publishes a quarter's archive weeks after the quarter closes; "
+            "re-run once it is live, or drop the quarter from "
+            "configs/data.yaml's download.backblaze.quarters."
+        )
+
+
+def _is_not_found(exc: requests.HTTPError) -> bool:
+    """A 404 specifically, as opposed to any other HTTP failure. Anything
+    else (403, 500, a truncated response) is a real fault that should abort
+    the run rather than being recorded as "not published yet"."""
+    response = exc.response
+    return response is not None and response.status_code == 404
+
+
 def download_file(
     url: str, dest_path: Path, *, chunk_size: int = DOWNLOAD_CHUNK_SIZE, show_progress: bool = True
 ) -> Path:
@@ -198,13 +231,28 @@ def download_backblaze(
     """Downloads every quarter in `quarters` (the configurable time
     period - see `configs/data.yaml`'s `download.backblaze.quarters`).
     Returns `{quarter: [extracted_csv_paths]}`; a quarter already
-    downloaded maps to `[]`."""
-    return {
-        quarter: download_backblaze_quarter(
-            quarter, base_url=base_url, raw_dir=raw_dir, force=force
-        )
-        for quarter in quarters
-    }
+    downloaded maps to `[]`.
+
+    A quarter that answers 404 is not yet published, which must not cost
+    the caller the quarters that are: every remaining quarter is still
+    attempted, and `QuartersNotPublishedError` is raised afterwards naming
+    the missing ones, so an unreleased quarter is never silently skipped.
+    Any other HTTP error aborts immediately - it is a real fault, not a
+    release that has yet to happen."""
+    downloaded: dict[str, list[Path]] = {}
+    unavailable: list[str] = []
+    for quarter in quarters:
+        try:
+            downloaded[quarter] = download_backblaze_quarter(
+                quarter, base_url=base_url, raw_dir=raw_dir, force=force
+            )
+        except requests.HTTPError as exc:
+            if not _is_not_found(exc):
+                raise
+            unavailable.append(quarter)
+    if unavailable:
+        raise QuartersNotPublishedError(unavailable, downloaded)
+    return downloaded
 
 
 def download_smartz(raw_dir: Path, *, url: str | None = None, force: bool = False) -> list[Path]:

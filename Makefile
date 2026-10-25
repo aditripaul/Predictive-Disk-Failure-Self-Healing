@@ -2,8 +2,8 @@
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
-	build-sequences train-lstm score-fleet plots \
-	agent-demo dashboard api final-report
+	build-sequences train-lstm train-sequence score-fleet plots \
+	agent-demo agent-fleet agent-pit family-calibration plot-late-hits dashboard api final-report
 
 # --- setup -----------------------------------------------------------------
 
@@ -137,6 +137,9 @@ build-labels:
 train:
 	uv run python pipelines/train_model.py $(TRAIN_ARGS)
 
+train-sequence:
+	uv run --extra torch python pipelines/train_sequence_model.py $(SEQUENCE_ARGS)
+
 experiment-model:
 	uv run python pipelines/experiment_model.py $(EXPERIMENT_ARGS)
 
@@ -166,6 +169,41 @@ final-report: plots
 
 agent-demo:
 	uv run python -m src.agent.demo
+
+# The MAPE-K loop against the real gold features and trained model, rather
+# than agent-demo's two hardcoded drives (src/agent/fleet.py). Execution is
+# still simulated. Pick the window with ARGS:
+#   make agent-fleet ARGS="--start-date 2026-06-01"                  # inference
+#   make agent-fleet ARGS="--start-date 2026-04-01 --end-date 2026-05-31 --cycles 50"
+# The second is a backtest on the test split and records a test-split
+# access (src/models/access_log.py).
+agent-fleet:
+	uv run python pipelines/run_agent_fleet.py $(ARGS)
+
+# Fixed-date snapshots: the flagging policy measured the way it would run, on
+# the drives reporting that day. Use this, not agent-fleet --score, for any
+# precision or recall you intend to quote - the latter looks ahead (runbook
+# 4.7). Test-split data, so it is recorded in the test-access log.
+#   make agent-pit
+#   make agent-pit ARGS="--step-days 3 --bootstrap 2000"
+agent-pit:
+	uv run python pipelines/run_point_in_time.py $(ARGS)
+
+# Per-family recalibration, fitted on VALIDATION-window snapshots and judged on
+# the test snapshots (runbook 4.10). Makes the validation snapshots first, into
+# separate files so the test ones are not overwritten.
+family-calibration:
+	uv run python pipelines/run_point_in_time.py --start-date 2026-02-15 --end-date 2026-03-31 \
+		--out data/audit/agent_pit_validation.json \
+		--observations-out data/audit/agent_pit_validation_observations.parquet
+	uv run python scripts/evaluate_family_calibration.py $(ARGS)
+
+# Figures showing that many alerts the 30-day label calls false were early: the
+# drive failed in days 31-60 (runbook 4.9). Needs `make agent-pit` first.
+#   make plot-late-hits
+#   make plot-late-hits ARGS="--tier migrate --max-lanes 20"
+plot-late-hits:
+	uv run python scripts/plot_late_hits.py $(ARGS)
 
 dashboard:
 	uv run streamlit run src/dashboards/app.py

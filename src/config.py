@@ -11,6 +11,11 @@ from pathlib import Path
 
 import yaml
 
+# src.agent.control_arm imports nothing from src, so this cannot cycle
+# back through src.config - and it keeps the defaults defined once,
+# beside the logic that uses them.
+from src.agent.control_arm import DEFAULT_CONTROL_FRACTION, DEFAULT_SALT
+
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "configs"
 
 
@@ -31,6 +36,8 @@ class AgentSettings:
     timeout_fallback_action: str
     action_thresholds: dict[str, float]
     min_confidence_for_destructive_action: float
+    control_fraction: float
+    control_salt: str
 
     @classmethod
     def load(cls) -> AgentSettings:
@@ -48,6 +55,12 @@ class AgentSettings:
             min_confidence_for_destructive_action=raw["feature_confidence"][
                 "min_confidence_for_destructive_action"
             ],
+            # Absent in configs written before the control arm existed: hold
+            # nothing back rather than failing to load.
+            control_fraction=raw.get("control_arm", {}).get(
+                "control_fraction", DEFAULT_CONTROL_FRACTION
+            ),
+            control_salt=raw.get("control_arm", {}).get("salt", DEFAULT_SALT),
         )
 
 
@@ -83,9 +96,7 @@ class GuardrailSettings:
             # action action_tiers.py legitimately proposes.
             prediction_threshold=agent.action_thresholds["migrate"],
             min_feature_confidence=agent.min_confidence_for_destructive_action,
-            max_concurrent_drains=rules_by_id["HARD_MAX_DRAINS"]["params"][
-                "max_concurrent_drains"
-            ],
+            max_concurrent_drains=rules_by_id["HARD_MAX_DRAINS"]["params"]["max_concurrent_drains"],
             max_actions_per_hour=rules_by_id["OPS_RATE_LIMIT"]["params"]["max_actions_per_hour"],
             operational_state_backend=operational_state_cfg.get("backend", "in_memory"),
             redis_url=operational_state_cfg.get("redis_url", "redis://localhost:6379/0"),

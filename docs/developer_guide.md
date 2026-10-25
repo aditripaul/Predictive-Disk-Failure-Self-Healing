@@ -109,11 +109,15 @@ would fail with "ruff: command not found."
 | `make experiment-model` | Compares modelling variants on a kept training run (§5.12, §5.13; `docs/pipeline_usage.md`) |
 | `make full-experiment` / `clean-kept` / `full-pipeline` | Train with kept arrays then run the experiment; remove kept work directories; ingest through plots |
 | `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (§5.7) - `train-lstm` requires `uv sync --extra torch` |
+| `make train-sequence` | LSTM over each drive's raw 30-day history, evaluated like `make train` so the two compare directly (§5.7.1); needs the torch extra |
 | `make score-fleet` | Batch-scores the current fleet with the latest MLflow run for `primary_horizon_days` (and that run's second-stage model and tier thresholds, when it has them); writes `data/audit/predictions/` (§5.8) |
 | `make evaluate-frozen` | Scores one sealed or external split, once, against a frozen run: `ARGS="--run-id <id> --split sealed\|external_smartz"`. Writes `data/audit/frozen_evaluations/` and refuses a repeat (§5.14) |
 | `make plots` | Renders performance plots (calibration, ROC curves, feature importance, failures by drive family, class imbalance, metric comparison; SHAP when enabled) to `data/audit/plots/` (§5.9) |
 | `make final-report` | `pipelines/generate_final_report.py` - aggregates chaos/latency/model reports, the goal status against `configs/model.yaml` and the plot list; runs `make plots` first |
 | `make agent-demo` | One MAPE-K cycle against the hardcoded demo fleet (§6) |
+| `make agent-fleet` | The MAPE-K loop on the real gold features and trained model, executor simulated (§6.5) |
+| `make agent-pit` | The flagging policy measured at fixed dates, with drive-cluster intervals (§6.5) |
+| `make family-calibration` | Per-family recalibration fitted on validation snapshots, judged on test (§6.5) |
 | `make dashboard` | Streamlit UI (§10) |
 | `make api` | FastAPI service (§10) |
 
@@ -241,6 +245,7 @@ make build-features                                              → data/gold/f
 make build-labels                                                 → data/gold/labels/
 make train                                                        → MLflow run + data/audit/.../model_evaluation_report.json
 make build-sequences / train-lstm (optional, §5.7)              → data/gold/sequences/ + lstm_evaluation_report.json
+make train-sequence (optional, §5.7.1)                          → sequence_evaluation_report.json + data/tmp/sequence_model/
 ```
 
 Each stage is a thin `pipelines/*.py` script that reads YAML config, calls
@@ -607,6 +612,56 @@ training pipeline:
   it cleanly rather than failing; it only actually runs once `torch` is
   installed. `tests/unit/test_sequences.py` has no such guard since
   `src/features/sequences.py` has no torch dependency.
+
+### 5.7.1 The sequence model evaluated like the tree model (`make train-sequence`)
+
+`train-lstm` above cannot be compared with `make train`: it builds one window
+per drive at the drive's last observed day, where a failing drive's own label is
+censored (so most failing drives drop out), and it scores per drive while the
+tree model is scored per drive-day and then reduced to one score per drive. The
+sequence model in `pipelines/train_sequence_model.py` is built to be compared:
+
+- `src/features/sequence_windows.py` (numpy and polars only, no torch) holds each
+  drive's whole history as one calendar-aligned float16 tensor `[drives, days,
+  channels]` (about 4 GB for the 364,674-drive, 273-day fleet) and cuts a
+  30-day window ending at any (drive, day) on demand with `gather_windows`.
+  Channels per attribute are the log1p value (0 when not reported) and a
+  "reported" flag, plus log1p drive age and a "telemetry present" flag, so a
+  vendor that does not report an attribute (Seagate-only `smart_187`/`188`)
+  differs from a drive that reports zero. Per-channel standardization uses
+  training dates only (`fit_normalization`). `build_dense_telemetry` reads the
+  gold feature table one Parquet row group at a time.
+- `src/models/sequence_net.py` (**requires the torch extra**) is a 2-layer LSTM
+  whose final hidden state is joined with a per-drive static vector (vendor
+  one-hot, log capacity) and a small MLP head. `train_sequence_net` uses the
+  tree model's recipe: positive weight `(n_neg/n_pos) ** model.positive_weight_power`,
+  early stopping on validation average precision, best weights restored.
+- `pipelines/train_sequence_model.py` takes the same labelled drive-days as
+  `make train` (the label table for one horizon, non-null labels, the label
+  table's `split`, and `_split_period_predicate` imported from
+  `pipelines/train_model.py` so the purge window, validation-after-`train_end`
+  and `test_end` rules cannot drift apart). Training uses every positive row and
+  random negatives up to `sequence_model.max_train_rows`; validation and test
+  are scored in full. Thresholds are chosen on validation only; the report uses
+  `drive_level_metrics`, `precision_at_recall_table` and
+  `recall_at_false_alarm_table` from `src/models/evaluation.py`. It writes
+  `sequence_evaluation_report[_<tag>].json` (never `model_evaluation_report.json`,
+  which `score-fleet` reads) and every score to `data/tmp/sequence_model/`.
+- Torch comes from PyTorch's CPU index (`[tool.uv.sources]` in `pyproject.toml`,
+  macOS excepted). Use `uv sync --extra dev --extra torch`; `make train-sequence`
+  runs `uv run --extra torch` so a later plain sync does not remove it.
+- `scripts/compare_sequence_vs_tree.py` aligns the saved LightGBM scores
+  (`make train TRAIN_ARGS=--save-scores`) and the LSTM runs on (drive, date),
+  verifying labels, and reports overlap, a validation-weighted rank blend and its
+  paired bootstrap. See `docs/pipeline_usage.md` for the commands.
+- Tests: `tests/unit/test_sequence_windows.py` (no torch needed),
+  `tests/unit/test_sequence_net.py` (`importorskip("torch")`),
+  `tests/unit/test_compare_sequence_vs_tree.py`.
+
+What it deliberately does not have: rolling statistics, model-family z-scores,
+feature confidence or the second stage, so it is a test of whether a recurrent
+reading of the raw history adds anything, not an architecture benchmark (results:
+runbook sections 5.9 to 5.12).
 
 ### 5.8 Batch fleet scoring - where `PredictionOutput`/`ActionProposal` are actually used
 
@@ -1276,7 +1331,7 @@ first - see `_normalize_prediction_summary` in `nodes.py` for the pattern.
 | Field | Type | Real implementation lives in |
 |---|---|---|
 | `fleet_state_provider` | `() -> dict` | `src/simulator/fleet.py::FleetSimulator.snapshot`, or a real fleet API client |
-| `predictor` | `(dict) -> dict` | Phase 5 model inference (not yet wired to a real model - see §11) |
+| `predictor` | `(dict) -> dict` | `src/agent/fleet.py::build_fleet_dependencies` scores the real fleet once, eagerly, so this is a pass-through there; the demo and the API use hardcoded drives (§6.5) |
 | `guardrail_evaluator` | `(dict) -> dict` | `src/guardrails/adapter.py::build_guardrail_evaluator` |
 | `post_action_guardrail_evaluator` | `(dict, dict) -> dict` | `src/guardrails/adapter.py::build_post_action_guardrail_evaluator` |
 | `executor` | `(dict) -> dict` | `src/simulator/actions.py::apply_action` |
@@ -1382,6 +1437,51 @@ wall-clock time, so this is an approximation), `horizon_days` (from
 decision back to its resolved label later.
 
 ---
+
+### 6.5 Running the loop on the real fleet, and measuring the policy
+
+Three modules and four entry points, none of which touch hardware.
+
+| Piece | Where | Purpose |
+|---|---|---|
+| Real-fleet dependencies | `src/agent/fleet.py` | `build_fleet_dependencies` loads the latest MLflow run for the horizon, its tier thresholds and second stage, snapshots the gold features in a window, scores them once, and returns an `AgentDependencies` with a simulated executor. `make agent-fleet` drives it |
+| Shared thresholds | `src/models/trained_thresholds.py` | The one place `action_tiers.json` is read; batch scoring, the agent and the API all call it, and a test fails if any other module loads the artifact |
+| Control arm | `src/agent/control_arm.py` | A stable hash of the drive id holds back `control_fraction` of flagged drives so their outcomes stay uncensored. Default 0.0; set before connecting a real executor |
+| Point-in-time measurement | `src/agent/point_in_time.py` | Fixed-date snapshots, tier metrics, the cluster bootstrap, and `compare_scorings` for paired recall at matched false-alarm rate. `make agent-pit` drives it |
+| False-positive profiling | `src/agent/false_positives.py`, `scripts/analyze_false_positives.py` | Late hits, precision and PLR by drive model and age, flag streaks, attribute profile, other ways to combine two looks |
+| Per-family calibration | `src/agent/family_calibration.py`, `scripts/evaluate_family_calibration.py` | A shrunk per-family intercept on the score's log-odds; refuses to fit on or after the test window |
+| Look-ahead diagnostic | `scripts/check_agent_lookahead.py` | Re-reads a saved `agent-fleet` run and measures how much of its result is look-ahead |
+
+Things that will bite you:
+
+- **`AgentState` is checkpointed on every node of every cycle, so the fleet
+  cannot go in it.** `fleet_state_provider` returns only the highest-scoring
+  remaining candidate; the pool lives in the harness. Putting the pool in state
+  was the cause of one memory failure.
+- **Never filter the wide feature scan before slicing it.** `chunked_inner_join`
+  slices its left side with `left.slice(offset, n)`, which pushes into the
+  Parquet reader only for an unfiltered scan; a filtered one materializes the
+  whole window at full width (43 GB for 61 days). Apply the window to a
+  `(drive_id, date)` projection and join back, as `load_fleet_snapshot` does.
+  A filter then a plain collect, as `snapshot_observations` does, is fine.
+- **`feature_maturity` comes from the dataset's last date**, so it is the
+  outcome in any backtest over a past window (`tests/unit/test_maturity_lookahead.py`).
+  Use `build_drive_metadata(..., as_of_date=T)` on telemetry up to T if you
+  need it point-in-time.
+- **A drive's last row, the failure day, has a null label**
+  (`event_date > date` in `src/labels/labeling.py`), so code that filters to
+  labelled rows silently drops the drives caught on their last day.
+- **The multi-cycle runner must advance the pool** (`advance_pool` in
+  `pipelines/run_agent_fleet.py`) and prune the per-drive risk state, or the
+  same drive is chosen every cycle and the state grows without bound. The
+  checkpoint defaults to a temporary file, not `:memory:`, which retains every
+  checkpoint in RAM.
+- **`GuardrailResult` is built with `model_dump(mode="json")`** so no enum
+  enters checkpointed state.
+
+What the measurements say, and why the loop gets no precision mechanism, is in
+`docs/adr/0003-point-in-time-evaluation-and-the-limits-of-the-loop.md` and
+runbook Sections 4.7 to 4.10.
 
 ## 7. Guardrail engine (`src/guardrails/`)
 
@@ -1498,9 +1598,10 @@ GuardrailMultiplier = 0 hard violation, 0.5 soft violation, 1.0 none
 against `AgentSettings.load().checkpoint_path` (a real SQLite file, not
 `:memory:` - a paused thread must survive an API process restart). It
 defaults to `build_demo_dependencies()` (the same hardcoded two-drive demo
-fleet as `make agent-demo`); swap `app.state.orchestrator` for a real
+fleet as `make agent-demo`), but compiles the graph with the trained model's
+tier thresholds (`live_plan_kwargs`). Swap `app.state.orchestrator` for a real
 `AgentOrchestrator` (built with real `fleet_state_provider`/`predictor`) to
-run against a real fleet/model.
+run against a real fleet/model; `src/agent/fleet.py` is the template.
 
 `src/api/store.py` has two layers. `InMemoryAuditStore` holds everything in
 process and is what the tests use. `SQLiteAuditStore` subclasses it and
@@ -1765,9 +1866,10 @@ fully clean slate between experiments.
    `capacity_bytes`, `failure` (`src/ingest/backblaze.py::REQUIRED_COLUMNS`)
    - true for every quarterly archive Backblaze has published.
 
-3. **`make score-fleet` output is a standalone batch report, not wired
-   into `make agent-demo`/`make api`.** Those still run against the
-   hardcoded demo fleet regardless of whether you've trained a real model
+3. **`make score-fleet` output is a standalone batch report. `make
+   agent-demo`/`make api` still run against the hardcoded demo fleet**
+   (though they now use the trained tier thresholds; `make agent-fleet` runs
+   the loop on the real fleet, see §6.5), regardless of whether you've trained a real model
    - see §5.8 for exactly why (the live loop's lean `AgentState` can't
    carry `PredictionOutput`'s full nested `FeatureConfidence`). To see the
    trained model's real predictions, read

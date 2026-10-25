@@ -22,7 +22,7 @@ from fastapi.responses import Response
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import BaseModel, Field
 
-from src.agent.demo import build_demo_dependencies
+from src.agent.demo import build_demo_dependencies, live_plan_kwargs
 from src.agent.graph import build_agent_graph
 from src.agent.orchestrator import AgentOrchestrator
 from src.api.store import InMemoryAuditStore, get_store
@@ -46,14 +46,17 @@ async def lifespan(app: FastAPI):
     with ExitStack() as stack:
         checkpointer = stack.enter_context(SqliteSaver.from_conn_string(checkpoint_path))
         deps = build_demo_dependencies()
-        compiled = build_agent_graph(deps).compile(checkpointer=checkpointer)
+        # The trained model's per-tier thresholds, not the hand-picked cutoffs
+        # in configs/agent.yaml - the same ones `make score-fleet` applies, so
+        # this endpoint and batch scoring cannot disagree about a drive.
+        compiled = build_agent_graph(deps, plan_kwargs=live_plan_kwargs()).compile(
+            checkpointer=checkpointer
+        )
         app.state.orchestrator = AgentOrchestrator(app=compiled, store=get_store())
         yield
 
 
-app = FastAPI(
-    title="Disk Failure Self-Healing Agent — Approval & Audit API", lifespan=lifespan
-)
+app = FastAPI(title="Disk Failure Self-Healing Agent — Approval & Audit API", lifespan=lifespan)
 
 
 def get_orchestrator() -> AgentOrchestrator:

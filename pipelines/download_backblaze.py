@@ -15,6 +15,12 @@ or overridden per-run without touching the config file:
 
 `--quarters` (or the config's `quarters` list) takes priority if given;
 otherwise the start/end quarter range is used.
+
+A quarter Backblaze has not published yet answers 404. Every other
+configured quarter is still downloaded, and this exits non-zero naming
+the missing ones - so waiting on a just-closed quarter costs nothing,
+while a quarter that was asked for and not received is never mistaken
+for a complete download.
 """
 
 from __future__ import annotations
@@ -24,7 +30,12 @@ from pathlib import Path
 
 import yaml
 
-from src.ingest.download import DEFAULT_BACKBLAZE_BASE_URL, download_backblaze, resolve_quarters
+from src.ingest.download import (
+    DEFAULT_BACKBLAZE_BASE_URL,
+    QuartersNotPublishedError,
+    download_backblaze,
+    resolve_quarters,
+)
 from src.logging_config import configure_logging, get_logger
 from src.resource_limits import apply_memory_limit_from_config
 
@@ -57,9 +68,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="End of an inclusive quarter range (used only if --quarters/"
         "download.backblaze.quarters is empty)",
     )
-    parser.add_argument(
-        "--force", action="store_true", help="Re-download even if already present"
-    )
+    parser.add_argument("--force", action="store_true", help="Re-download even if already present")
     return parser.parse_args(argv)
 
 
@@ -81,7 +90,13 @@ def main(argv: list[str] | None = None) -> None:
     base_url = download_cfg.get("base_url", DEFAULT_BACKBLAZE_BASE_URL)
     raw_dir = Path(data_config["sources"]["backblaze"]["raw_glob"]).parent
 
-    results = download_backblaze(quarters, base_url=base_url, raw_dir=raw_dir, force=args.force)
+    # An unreleased quarter is reported after the available ones have been
+    # downloaded and logged, not instead of them.
+    unavailable: list[str] = []
+    try:
+        results = download_backblaze(quarters, base_url=base_url, raw_dir=raw_dir, force=args.force)
+    except QuartersNotPublishedError as exc:
+        results, unavailable = exc.downloaded, exc.unavailable
 
     for quarter, extracted_files in results.items():
         if extracted_files:
@@ -93,6 +108,19 @@ def main(argv: list[str] | None = None) -> None:
             )
         else:
             logger.info("backblaze_quarter_already_downloaded", quarter=quarter)
+
+    if unavailable:
+        # Non-zero, so a quarter that was asked for and not received is never
+        # mistaken for a complete download. `download-backblaze` is not part of
+        # `make full-pipeline`, so this fails only its own target.
+        logger.error(
+            "backblaze_quarters_not_published",
+            quarters=unavailable,
+            base_url=base_url,
+            hint="Backblaze publishes a quarter's archive weeks after the quarter "
+            "closes; re-run once it is live.",
+        )
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

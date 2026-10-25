@@ -581,7 +581,7 @@ Censored rows should not be treated as guaranteed negatives unless the full hori
 |---|---|---|
 | `drive_id` | string | Drive identifier |
 | `date` | date | Prediction date |
-| `horizon_days` | int | 7/14/30 |
+| `horizon_days` | int | `horizons_days` in configs/model.yaml (7/14/30) |
 | `label` | int8 | 1/0/null |
 | `event_date` | date/null | Failure or replacement date |
 | `event_type` | categorical | failure, replacement, censored, removed |

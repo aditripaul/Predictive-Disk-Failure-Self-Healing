@@ -66,8 +66,21 @@ model:
 # threshold with recall >= the lower bound, flagged target_met: false with
 # the gap recorded in the model card. The target is kept as the goal.
 # Goal (agreed 2026-10-06): 90% precision at >= 10% recall, per drive, on the
-# test split. The earlier 95% at 35-50% recall was not reachable; the report's
-# precision-at-recall table still shows 5 / 10 / 20 / 35% recall.
+# test split, AT A 30-DAY HORIZON. The earlier 95% at 35-50% recall was not
+# reachable; the report's precision-at-recall table still shows 5 / 10 / 20 /
+# 35% recall.
+#
+# The horizon is part of the goal, not an implementation detail. Precision
+# moves with the base rate and a longer label raises it mechanically: at an
+# IDENTICAL operating point, doubling the positive rate takes precision from
+# 48.6% to 65.5% and drops lift from 277 to 187 without the model changing.
+# So a precision figure earned at 60 days does not satisfy this target and
+# must never be reported in the same column as a 30-day one. Compare horizons
+# in ROC space instead - drive-level auroc and recall at a matched false-alarm
+# rate, both logged by make train (src/models/evaluation.py). Changing the
+# horizon of the goal is a decision to record here and in Section 7 of
+# docs/model_status_and_runbook.md, not something a config edit should do
+# quietly.
 threshold:
   target_precision: 0.90
   target_recall_range: [0.10, 0.50]
@@ -154,11 +167,41 @@ diagnostics:
 
 splits:
   strategy: chronological
-  # Q1 + Q2 2026 (data to 2026-06-30). The test period ends 30 days before
-  # the data does, so 7-, 14- and 30-day labels are all observable for it.
+  # Quarter-aligned (2026-10-18): Q4 2025 + Q1 2026 train and validate,
+  # Q2 2026 tests. Data runs 2025-10-01 to 2026-06-30 (273 days).
+  #
+  #   train rows   2025-10-01 .. 2026-01-15   (107 d, after the 30-day purge)
+  #   purge gap    2026-01-16 .. 2026-02-14   (dropped, see purge_label_window)
+  #   validation   2026-02-15 .. 2026-03-31   (45 d, ends on the Q1 boundary)
+  #   test         2026-04-01 .. 2026-05-31   (61 d)
+  #   June 2026    the 30-day label-observation window for the test rows, and
+  #                what `make score-fleet` scores for inference
+  #
+  # test_end stops 30 days before the data does so every test row's 7-, 14-
+  # and 30-day label is observable; a row whose horizon runs past the last day
+  # of data is censored (label null), never counted as a negative
+  # (src/labels/labeling.py), so a too-late test_end silently shrinks the split
+  # instead of corrupting it (Section 5.7). Rows after validation_end are
+  # labeled split="test" but train_model applies test_end as a hard cap, so
+  # June is scorable without entering any evaluation.
+  #
+  # train_end splits inside Q1 rather than on the quarter boundary. Strict
+  # Q4=train / Q1=validation would leave only 62 days of training rows after
+  # the purge - fewer than the 75 the frozen run had - against 107 this way,
+  # with validation still 45 days (was 25).
+  #
+  # This is NOT the frozen run's window (that was 2026-01-01..2026-06-30 with
+  # 2026-04-15 / 2026-05-10 / 2026-05-31), so results are not directly
+  # comparable to Section 1.1's figures. The frozen run remains the reference
+  # for the sealed quarter.
+  #
+  # The 60-day horizon experiment is PARKED, not abandoned (Section 2.4):
+  # start_date 2025-07-01, add 60 to horizons_days, and use
+  # 2026-02-01 / 2026-03-17 / 2026-05-01 here.
+  #
   # For Q1 only use 2026-02-22 / 2026-03-06 / 2026-03-17 (14-day horizon).
-  train_end: "2026-04-15"
-  validation_end: "2026-05-10"
+  train_end: "2026-02-14"
+  validation_end: "2026-03-31"
   test_end: "2026-05-31"
   # Sealed final quarter (Q3 2026). Rows dated on or after this are labeled
   # split="sealed" and no training, validation or test step reads them. They
@@ -175,6 +218,40 @@ splits:
   # test_end is always applied: test stops there.
   purge_label_window: true
   validation_after_train_only: true
+
+# Sequence-model comparison (pipelines/train_sequence_model.py, `make
+# train-sequence`; needs `uv sync --extra torch`). An LSTM over each drive's raw
+# 30-day history, scored on the same labelled drive-days, splits and drive-level
+# metrics as the tree model, to test whether the ceiling is the feature set or
+# the data. Not used by `make train`, score-fleet or the agent.
+sequence_model:
+  window_days: 30
+  # Gold feature-table columns. seek_error_rate, raw_read_error_rate and
+  # spin_retry_count are left out: ADR 0002 measured them as weak (single
+  # attribute separation < 0.07), and seek_error_rate is a packed vendor value.
+  attributes:
+    - reallocated_sector_count
+    - current_pending_sector_count
+    - offline_uncorrectable
+    - reported_uncorrectable_errors
+    - command_timeout
+    - reallocation_event_count
+    - power_on_hours
+    - udma_crc_error_count
+    - temperature_celsius
+  hidden_size: 64
+  num_layers: 2
+  dropout: 0.1
+  learning_rate: 0.002
+  batch_size: 2048
+  max_epochs: 12
+  early_stopping_patience: 3
+  # Training rows: every positive plus random negatives up to this total (the
+  # tree model's model.max_train_rows is 5,000,000; an LSTM on CPU is slower per
+  # row, so this is smaller). null = every row.
+  max_train_rows: 3000000
+  early_stopping_max_negatives: 500000
+  seed: 0
 
 mlflow:
   tracking_uri: sqlite:///mlflow/mlflow.db

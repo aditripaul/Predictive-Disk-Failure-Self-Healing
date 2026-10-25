@@ -83,4 +83,9 @@ def build_drive_metadata(
     if has_stale_flag:
         metadata = metadata.drop("_is_currently_stale")
 
-    return metadata.collect()
+    # The result is one row per drive, but the group_by has to hash every
+    # drive-day to get there - 123M rows x 8 columns at fleet scale, and the
+    # second-largest allocation in `build_silver`'s finalize stage. Streamed so
+    # it spills rather than holding the whole input; `test_feature_maturity`
+    # pins that the metadata is unchanged by it.
+    return metadata.collect(engine="streaming")
