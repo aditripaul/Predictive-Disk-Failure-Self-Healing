@@ -29,7 +29,7 @@ from src.models.access_log import record_test_access
 from src.models.calibration import IsotonicCalibrator
 from src.models.evaluation import compute_calibration, drive_level_metrics
 from src.models.training import predict_proba_positive
-from src.models.two_stage import TwoStageModel, load_two_stage
+from src.models.two_stage import TWO_STAGE_ARTIFACT, TwoStageModel, load_two_stage
 from src.models.uncertainty import drive_level_bootstrap_ci
 
 ALLOWED_SPLITS = ("sealed", "external_smartz")
@@ -111,6 +111,11 @@ def evaluate(run_id: str, split: str, frame_path: Path, n_boot: int) -> dict[str
     spec = mlflow.artifacts.load_dict(f"runs:/{run_id}/frozen_spec.json")
     model = _load_model(run_id, spec["model_type"])
     two_stage = load_two_stage(run_id, model) if spec["two_stage"] else None
+    if spec["two_stage"] and two_stage is None:
+        raise SystemExit(
+            f"run {run_id} is frozen as two-stage but has no {TWO_STAGE_ARTIFACT} artifact; "
+            "refusing to evaluate Stage 1 alone (this evaluation is single-shot)."
+        )
 
     feature_columns: list[str] = spec["feature_columns"]
     id_columns = ["drive_id"]

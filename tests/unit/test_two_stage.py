@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from pipelines.experiment_model import drive_folds, two_stage_experiment
 from src.models.training import early_stopping_subset
@@ -290,3 +291,38 @@ def test_model_card_states_whether_a_second_stage_was_used():
     )
     assert "two" in lines[0] and "9654" in lines[0]
     assert "41.4%" in lines[1]
+
+
+def _mlflow_store(tmp_path):
+    import mlflow
+
+    mlflow.set_tracking_uri(f"sqlite:///{tmp_path / 'mlflow.db'}")
+    mlflow.set_experiment("two-stage-load-errors")
+
+
+def test_load_two_stage_raises_when_the_second_stage_is_missing(tmp_path):
+    import mlflow
+    from src.models.two_stage import TWO_STAGE_ARTIFACT, TwoStageLoadError, load_two_stage
+
+    _mlflow_store(tmp_path)
+    try:
+        with mlflow.start_run() as run:
+            mlflow.log_dict({"candidate_threshold": 0.5}, TWO_STAGE_ARTIFACT)  # no stage 2
+        with pytest.raises(TwoStageLoadError, match=run.info.run_id):
+            load_two_stage(run.info.run_id, object())
+    finally:
+        mlflow.set_tracking_uri("")
+
+
+def test_load_two_stage_raises_when_the_settings_are_unreadable(tmp_path):
+    import mlflow
+    from src.models.two_stage import TWO_STAGE_ARTIFACT, TwoStageLoadError, load_two_stage
+
+    _mlflow_store(tmp_path)
+    try:
+        with mlflow.start_run() as run:
+            mlflow.log_text("not json", TWO_STAGE_ARTIFACT)
+        with pytest.raises(TwoStageLoadError, match=run.info.run_id):
+            load_two_stage(run.info.run_id, object())
+    finally:
+        mlflow.set_tracking_uri("")

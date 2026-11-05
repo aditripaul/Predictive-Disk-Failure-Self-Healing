@@ -256,12 +256,36 @@ def log_two_stage(model: TwoStageModel, report: dict[str, Any]) -> None:
     )
 
 
+class TwoStageLoadError(RuntimeError):
+    """A run has a two-stage artifact but its second stage could not be loaded."""
+
+
+def _has_two_stage_artifact(run_id: str) -> bool:
+    try:
+        listed = mlflow.MlflowClient().list_artifacts(run_id)
+    except Exception as exc:
+        raise TwoStageLoadError(f"could not list the artifacts of run {run_id}: {exc!r}") from exc
+    return any(info.path == TWO_STAGE_ARTIFACT for info in listed)
+
+
 def load_two_stage(run_id: str, stage1: Any) -> TwoStageModel | None:
-    """The two-stage model of `run_id`, wrapping its already-loaded Stage 1;
-    None when the run was trained without a second stage."""
+    """The two-stage model of `run_id`, wrapping its already-loaded Stage 1.
+
+    None when the run was trained without a second stage (it has no
+    two_stage.json artifact). A run that HAS the artifact but whose second
+    stage cannot be loaded raises TwoStageLoadError: scoring it with Stage 1
+    alone would apply thresholds tuned on the combined score to a different
+    score distribution.
+    """
+    if not _has_two_stage_artifact(run_id):
+        return None
     try:
         settings = mlflow.artifacts.load_dict(f"runs:/{run_id}/{TWO_STAGE_ARTIFACT}")
-    except Exception:
-        return None
-    stage2 = mlflow.lightgbm.load_model(f"runs:/{run_id}/{STAGE2_MODEL_NAME}")
-    return TwoStageModel(stage1, stage2, settings["candidate_threshold"])
+        stage2 = mlflow.lightgbm.load_model(f"runs:/{run_id}/{STAGE2_MODEL_NAME}")
+        threshold = settings["candidate_threshold"]
+    except Exception as exc:
+        raise TwoStageLoadError(
+            f"run {run_id} has a {TWO_STAGE_ARTIFACT} artifact but its second stage "
+            f"could not be loaded: {exc!r}"
+        ) from exc
+    return TwoStageModel(stage1, stage2, threshold)

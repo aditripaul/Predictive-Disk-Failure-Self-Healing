@@ -84,3 +84,17 @@ def test_only_sealed_or_external_splits_can_be_evaluated(tmp_path, monkeypatch):
     monkeypatch.setattr(frozen, "RESULTS_DIR", tmp_path)
     with pytest.raises(SystemExit, match="split must be one of"):
         frozen.evaluate("run123", "test", tmp_path / "frame.parquet", n_boot=10)
+
+
+def test_evaluate_refuses_two_stage_spec_without_second_stage(tmp_path, monkeypatch):
+    monkeypatch.setattr(frozen, "RESULTS_DIR", tmp_path)
+    monkeypatch.setattr(
+        frozen.mlflow.artifacts,
+        "load_dict",
+        lambda uri: {"two_stage": True, "model_type": "lightgbm"},
+    )
+    monkeypatch.setattr(frozen, "_load_model", lambda run_id, model_type: object())
+    monkeypatch.setattr(frozen, "load_two_stage", lambda run_id, model: None)
+    with pytest.raises(SystemExit, match="frozen as two-stage"):
+        frozen.evaluate("run123", "sealed", tmp_path / "frame.parquet", n_boot=10)
+    assert list(tmp_path.iterdir()) == []
