@@ -188,6 +188,46 @@ def weights_for(observed: np.ndarray, weighting: str, power: float) -> np.ndarra
     return w
 
 
+SEQUENCE_KEYS = (
+    "drive_ids",
+    "start_date",
+    *(
+        f"{split}_{field}"
+        for split in SPLITS
+        for field in ("drive_idx", "day_idx", "label", "score")
+    ),
+)
+LIGHTGBM_COLUMNS = ("split", "drive_id", "date", "label", "score")
+
+
+def check_inputs(lgbm_path: Path, seq_paths: dict[str, Path]) -> None:
+    """Raises SystemExit listing every unusable score input, before any model trains.
+
+    The survival stages take about ten minutes, so an input that is missing or
+    in the wrong format must fail here and not after them. Reads only the
+    LightGBM parquet's schema and the npz member names, never the scores."""
+    problems: list[str] = []
+    if not lgbm_path.exists():
+        problems.append(f"{lgbm_path}: not found (`make train` with --save-scores)")
+    else:
+        have = set(pl.scan_parquet(lgbm_path).collect_schema().names())
+        if missing := [c for c in LIGHTGBM_COLUMNS if c not in have]:
+            problems.append(f"{lgbm_path}: no column(s) {missing}")
+    for name, path in seq_paths.items():
+        if not path.exists():
+            problems.append(f"{path}: not found (`make train-sequence`, {name})")
+            continue
+        with np.load(path, allow_pickle=False) as npz:
+            if missing := [k for k in SEQUENCE_KEYS if k not in npz.files]:
+                problems.append(
+                    f"{path}: no {missing}; it predates the merged approach, re-run "
+                    f"`make train-sequence` ({name}) on this branch"
+                )
+    if problems:
+        listed = "\n  ".join(problems)
+        raise SystemExit(f"unusable inputs:\n  {listed}")
+
+
 def load_sequence_scores(path: Path, name: str) -> dict[str, pl.DataFrame]:
     """`{split: (drive_id, date, label, <name>)}` from a train_sequence_model npz."""
     npz = np.load(path, allow_pickle=False)
@@ -311,6 +351,13 @@ def main(argv: list[str] | None = None) -> None:
         audit_dir, out_dir, horizon_days=horizon_days, smoke_suffix=suffix, tag=args.tag
     )
     refuse_overwrite(paths.values(), overwrite=args.overwrite)
+    lgbm_path = args.lightgbm_scores or scratch / f"lightgbm_scores_h{horizon_days}.parquet"
+    seq_dir = scratch / f"sequence_model{suffix}"
+    seq_paths = {
+        "lstm": args.lstm_scores or seq_dir / f"scores_h{horizon_days}.npz",
+        "tcn": args.tcn_scores or seq_dir / f"scores_h{horizon_days}_tcn.npz",
+    }
+    check_inputs(lgbm_path, seq_paths)
     t0 = time.perf_counter()
 
     ids = {
@@ -418,16 +465,6 @@ def main(argv: list[str] | None = None) -> None:
                 pl.Series("cox", survival_scores["cox"][split]),
             )
         )
-
-    lgbm_path = args.lightgbm_scores or scratch / f"lightgbm_scores_h{horizon_days}.parquet"
-    seq_dir = scratch / f"sequence_model{suffix}"
-    seq_paths = {
-        "lstm": args.lstm_scores or seq_dir / f"scores_h{horizon_days}.npz",
-        "tcn": args.tcn_scores or seq_dir / f"scores_h{horizon_days}_tcn.npz",
-    }
-    missing = [str(p) for p in (lgbm_path, *seq_paths.values()) if not p.exists()]
-    if missing:
-        raise SystemExit(f"missing inputs: {missing} (see this module's docstring)")
 
     lgbm = pl.read_parquet(lgbm_path)
     member_frames: dict[str, dict[str, pl.DataFrame]] = {
