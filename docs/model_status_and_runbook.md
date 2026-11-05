@@ -138,7 +138,10 @@ Section 1.1.1 it is **not a replacement** for Section 1.1's run.
 | LSTM | 44.3% | 52.7% [48.2, 57.1] | 15.6% | 231 / 207 | 0.923 | 0.281 |
 | TCN | 55.5% | 70.5% [65.2, 75.6] | 13.6% | 201 / 84 | 0.900 | 0.348 |
 | Blend LightGBM + AFT + TCN | 66.8% | 70.1% [64.9, 75.0] | 13.7% | 202 / 86 | 0.921 | 0.389 |
-| Blend LightGBM + LSTM + AFT + TCN (agent) | 64.5% | 69.7% [64.4, 75.0] | 12.6% | 186 / 81 | 0.925 | 0.382 |
+| Blend LightGBM + LSTM + AFT + TCN | 64.5% | 69.7% [64.4, 75.0] | 12.6% | 186 / 81 | 0.925 | 0.382 |
+
+The agent acts on the last blend (`merged_models.agent_ensemble` in
+`configs/model.yaml`).
 
 At matched test false-alarm rates the blends and AFT catch more than
 LightGBM: at 0.1% the LightGBM + AFT + TCN blend recalls 33.3% against 26.8%,

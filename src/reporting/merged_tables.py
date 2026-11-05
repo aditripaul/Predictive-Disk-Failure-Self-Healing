@@ -23,22 +23,20 @@ MEMBER_NAMES = {"lightgbm": "LightGBM", "aft": "AFT", "cox": "Cox", "lstm": "LST
 TIERS = ("warn", "cordon", "migrate", "drain")
 
 
-def model_label(name: str, ensembles: dict[str, list[str]], agent_ensemble: str | None) -> str:
-    """`AFT`, or `Blend LightGBM + AFT + TCN` (members in their blend order), with
-    `(agent)` on the blend the agent acts on."""
+def model_label(name: str, ensembles: dict[str, list[str]]) -> str:
+    """`AFT`, or `Blend LightGBM + AFT + TCN` (members in their blend order)."""
     if name in MODEL_NAMES:
         return MODEL_NAMES[name]
     if name not in ensembles:
         raise KeyError(f"{name!r} is neither a model nor a blend in this report")
-    label = "Blend " + " + ".join(MEMBER_NAMES[m] for m in ensembles[name])
-    return f"{label} (agent)" if name == agent_ensemble else label
+    return "Blend " + " + ".join(MEMBER_NAMES[m] for m in ensembles[name])
 
 
 def _pct(value: float | None, digits: int = 1) -> str:
     return "n/a" if value is None else f"{value * 100:.{digits}f}%"
 
 
-def model_table(report: dict[str, Any], *, agent_ensemble: str | None = None) -> str:
+def model_table(report: dict[str, Any]) -> str:
     """The per-model results table, in the report's model order."""
     ensembles = report.get("ensembles", {})
     lines = [
@@ -49,7 +47,7 @@ def model_table(report: dict[str, Any], *, agent_ensemble: str | None = None) ->
         val, test = result["validation_drive_level"], result["test_drive_level"]
         lo, hi = result["test_drive_ci"]["precision_ci"]
         lines.append(
-            f"| {model_label(name, ensembles, agent_ensemble)} | {_pct(val['precision'])} "
+            f"| {model_label(name, ensembles)} | {_pct(val['precision'])} "
             f"| {_pct(test['precision'])} [{lo * 100:.1f}, {hi * 100:.1f}] "
             f"| {_pct(test['recall'])} "
             f"| {test['caught_drive_count']} / {test['false_alarm_drive_count']} "
@@ -62,7 +60,6 @@ def agent_table(
     runs: dict[str, dict[str, Any] | None],
     *,
     ensembles: dict[str, list[str]],
-    agent_ensemble: str | None = None,
 ) -> str:
     """One row per model from its `run_agent_fleet --score` report (`None` = not run).
 
@@ -76,7 +73,7 @@ def agent_table(
         "|---|---|---|---|---|---|---|---|",
     ]
     for name, run in runs.items():
-        label = model_label(name, ensembles, agent_ensemble)
+        label = model_label(name, ensembles)
         if run is None:
             lines.append(f"| {label} | not run | | | | | | |")
             continue

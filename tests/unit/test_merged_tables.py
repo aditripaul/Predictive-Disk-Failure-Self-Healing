@@ -24,24 +24,23 @@ EXPECTED_ROWS = [
     "| TCN | 55.5% | 70.5% [65.2, 75.6] | 13.6% | 201 / 84 | 0.900 | 0.348 |",
     "| Blend LightGBM + AFT + TCN | 66.8% | 70.1% [64.9, 75.0] | 13.7% | "
     "202 / 86 | 0.921 | 0.389 |",
-    "| Blend LightGBM + LSTM + AFT + TCN (agent) | 64.5% | 69.7% [64.4, 75.0] | 12.6% | "
+    "| Blend LightGBM + LSTM + AFT + TCN | 64.5% | 69.7% [64.4, 75.0] | 12.6% | "
     "186 / 81 | 0.925 | 0.382 |",
 ]
 
 
 def test_model_table_reproduces_the_frozen_runs_published_table() -> None:
     report = json.loads(FROZEN_REPORT.read_text())
-    lines = model_table(report, agent_ensemble="lgbm_lstm_aft_tcn").splitlines()
+    lines = model_table(report).splitlines()
     assert lines[0].startswith("| Model | Val P | Test P [95% CI]")
     assert lines[2:] == EXPECTED_ROWS
 
 
 def test_labels_name_blends_from_their_members_in_order() -> None:
     ensembles = {"b": ["lightgbm", "tcn", "aft"]}
-    assert model_label("b", ensembles, None) == "Blend LightGBM + TCN + AFT"
-    assert model_label("b", ensembles, "b") == "Blend LightGBM + TCN + AFT (agent)"
+    assert model_label("b", ensembles) == "Blend LightGBM + TCN + AFT"
     with pytest.raises(KeyError):
-        model_label("unknown", ensembles, None)
+        model_label("unknown", ensembles)
 
 
 def _run(precision: float | None, acted: int = 10, labelled: int = 8, caught: int = 6) -> dict:

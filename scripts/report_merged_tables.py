@@ -13,12 +13,8 @@ import argparse
 import json
 from pathlib import Path
 
-import yaml
-
 from src.outputs import refuse_overwrite
 from src.reporting.merged_tables import agent_table, model_table
-
-MODEL_CONFIG_PATH = Path("configs/model.yaml")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -32,10 +28,7 @@ def main(argv: list[str] | None = None) -> None:
         refuse_overwrite([args.out], overwrite=args.overwrite)
 
     report = json.loads(args.report.read_text())
-    agent_ensemble = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["merged_models"][
-        "agent_ensemble"
-    ]
-    parts = ["## Models\n", model_table(report, agent_ensemble=agent_ensemble)]
+    parts = ["## Models\n", model_table(report)]
     if args.agent_dir:
         runs = {}
         for name in report["models"]:
@@ -43,7 +36,7 @@ def main(argv: list[str] | None = None) -> None:
             runs[name] = json.loads(path.read_text()) if path.exists() else None
         parts += [
             "\n\n## Agent loop on each model\n",
-            agent_table(runs, ensembles=report.get("ensembles", {}), agent_ensemble=agent_ensemble),
+            agent_table(runs, ensembles=report.get("ensembles", {})),
         ]
     text = "\n".join(parts) + "\n"
     print(text)
