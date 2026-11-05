@@ -293,3 +293,39 @@ def test_scratch_base_honors_an_explicit_scratch_dir(tmp_path):
     base = _scratch_base(data_config)
     assert base == configured
     assert base.is_dir()
+
+
+def test_untagged_output_names_are_the_historical_fixed_ones(tmp_path) -> None:
+    from pipelines.train_model import _output_paths
+
+    p = _output_paths(
+        tmp_path / "audit", tmp_path / "audit" / "model_cards", tmp_path / "tmp",
+        horizon_days=30, model_version=1, tag=None,
+    )  # fmt: skip
+    assert p["scores"].name == "lightgbm_scores_h30.parquet"
+    assert p["report"].name == "model_evaluation_report.json"
+    assert p["action_tiers"].name == "action_tiers.json"
+    assert p["shap"].name == "shap_feature_importance.json"
+    assert p["model_card_json"].name == "v1_h30d.json"
+    assert p["model_card_md"].name == "v1_h30d.md"
+
+
+def test_tagged_runs_get_distinct_files_and_a_bad_tag_is_rejected(tmp_path) -> None:
+    import pytest
+
+    from pipelines.train_model import _output_paths, _tag_suffix
+
+    def paths(tag):
+        return _output_paths(
+            tmp_path / "audit", tmp_path / "audit" / "model_cards", tmp_path / "tmp",
+            horizon_days=30, model_version=1, tag=tag,
+        )  # fmt: skip
+
+    plain, a, b = paths(None), paths("h30_seed0"), paths("h30_seed1")
+    assert a["scores"].name == "lightgbm_scores_h30_h30_seed0.parquet"
+    assert a["model_card_md"].name == "v1_h30d_h30_seed0.md"
+    assert not set(a.values()) & set(b.values())
+    assert not set(a.values()) & set(plain.values())
+    for bad in ("../x", "a/b", "a b", ".hidden"):
+        with pytest.raises(SystemExit):
+            _tag_suffix(bad)

@@ -47,3 +47,13 @@ def test_access_log_appends_and_counts(tmp_path):
     assert count_test_accesses(log) == 2
     lines = log.read_text().splitlines()
     assert '"variant": "variant_a"' in lines[0]
+
+
+def test_unit_tests_never_write_the_real_access_log():
+    """tests/conftest.py redirects the default log; guard that it stays redirected."""
+    from src.models.access_log import DEFAULT_LOG, record_test_access
+
+    before = DEFAULT_LOG.stat().st_size if DEFAULT_LOG.exists() else None
+    record_test_access("leak_check", "must land in the temporary log")
+    after = DEFAULT_LOG.stat().st_size if DEFAULT_LOG.exists() else None
+    assert before == after

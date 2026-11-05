@@ -73,6 +73,7 @@ import argparse
 import datetime as dt
 import gc
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -134,6 +135,7 @@ from src.models.training import (
 from src.models.two_stage import fit_second_stage, lightgbm_fitter, log_two_stage
 from src.models.uncertainty import drive_level_bootstrap_ci, paired_difference_ci
 from src.models.xgboost_training import train_xgboost
+from src.outputs import refuse_overwrite
 from src.reporting.figure_data import gain_importance, roc_points
 from src.resource_limits import apply_memory_limit_from_config
 
@@ -208,6 +210,42 @@ def _require_gold_inputs(data_config: dict) -> tuple[Path, Path]:
             "`make build-labels` first."
         )
     return features_path, labels_path
+
+
+_TAG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def _tag_suffix(tag: str | None) -> str:
+    """`_TAG` for a run tag, "" for none. Rejects anything unsafe in a file name."""
+    if not tag:
+        return ""
+    if not _TAG_PATTERN.fullmatch(tag):
+        raise SystemExit(f"--tag {tag!r} must match {_TAG_PATTERN.pattern}")
+    return f"_{tag}"
+
+
+def _output_paths(
+    audit_dir: Path,
+    model_cards_dir: Path,
+    scratch: Path,
+    *,
+    horizon_days: int,
+    model_version: object,
+    tag: str | None,
+) -> dict[str, Path]:
+    """Every file `main` writes outside MLflow. With no tag these are the historical
+    fixed names; a tag is appended to each so a run does not replace another's."""
+    t = _tag_suffix(tag)
+    report_dir = audit_dir / "data_quality_reports"
+    stem = f"v{model_version}_h{horizon_days}d{t}"
+    return {
+        "scores": scratch / f"lightgbm_scores_h{horizon_days}{t}.parquet",
+        "report": report_dir / f"model_evaluation_report{t}.json",
+        "action_tiers": report_dir / f"action_tiers{t}.json",
+        "shap": report_dir / f"shap_feature_importance{t}.json",
+        "model_card_json": model_cards_dir / f"{stem}.json",
+        "model_card_md": model_cards_dir / f"{stem}.md",
+    }
 
 
 def _scratch_base(data_config: dict) -> Path:
@@ -851,6 +889,20 @@ def main() -> None:
         "on the same drives.",
     )
     parser.add_argument(
+        "--tag",
+        help="Suffix for every file this run writes (evaluation report, action tiers, SHAP "
+        "report, model card, saved scores) and the MLflow run name, so it does not replace "
+        "another run's. A tagged run refuses to start if any of those files exists, unless "
+        "--overwrite. MLflow artifacts keep their canonical names (action_tiers.json, ...), "
+        "which score-fleet and evaluate-frozen load by name. No tag: the historical fixed "
+        "names, overwritten on each run.",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="With --tag: replace the tag's existing output files.",
+    )
+    parser.add_argument(
         "--keep-work-dir",
         action="store_true",
         help="Keep the scratch work dir (x_*/y_*.npy, *_ids.parquet) after "
@@ -884,6 +936,16 @@ def main() -> None:
             f"--horizon-days {horizon_days} has no labels: build-labels computes "
             f"horizons_days={model_config['horizons_days']} (configs/model.yaml)."
         )
+    paths = _output_paths(
+        Path(data_config["audit_dir"]),
+        Path(data_config["audit_dir"]) / "model_cards",
+        _scratch_base(data_config),
+        horizon_days=horizon_days,
+        model_version=model_config["version"],
+        tag=args.tag,
+    )
+    if args.tag:  # untagged keeps the historical overwrite-on-rerun behaviour
+        refuse_overwrite(paths.values(), overwrite=args.overwrite)
     work_dir = Path(tempfile.mkdtemp(prefix="train_model_frame_", dir=_scratch_base(data_config)))
     try:
         t0 = time.perf_counter()
@@ -947,7 +1009,7 @@ def main() -> None:
         model_type = model_config["model"].get("type", "lightgbm")
         diagnostics_cfg = model_config.get("diagnostics", {})
 
-        with mlflow.start_run():
+        with mlflow.start_run(run_name=args.tag or None):
             results: dict = {
                 "horizon_days": horizon_days,
                 "feature_columns": feature_columns,
@@ -1096,9 +1158,7 @@ def main() -> None:
                 test_scores = two_stage_model.final_scores(x_test, test_scores)
             del stage1_val_scores
             if args.save_scores:
-                scores_path = (
-                    _scratch_base(data_config) / f"lightgbm_scores_h{horizon_days}.parquet"
-                )
+                scores_path = paths["scores"]
                 pl.concat(
                     [
                         pl.DataFrame(
@@ -1486,20 +1546,23 @@ def main() -> None:
             else:
                 logger.info("shap_skipped", reason="diagnostics.shap_enabled is false")
 
-            audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
-            audit_dir.mkdir(parents=True, exist_ok=True)
-            report_path = audit_dir / "model_evaluation_report.json"
+            paths["report"].parent.mkdir(parents=True, exist_ok=True)
+            report_path = paths["report"]
             report_path.write_text(json.dumps(results, indent=2, default=str))
 
-            # Read back by `make score-fleet` from this run's artifacts.
-            action_tiers_path = audit_dir / "action_tiers.json"
+            # Read back by `make score-fleet` from this run's artifacts, by the name
+            # `action_tiers.json`: logged under that name whatever the file's tag, since
+            # a missing artifact silently falls back to the configured cutoffs.
+            action_tiers_path = paths["action_tiers"]
             action_tiers_path.write_text(json.dumps(tier_thresholds, indent=2))
-            mlflow.log_artifact(str(action_tiers_path))
+            mlflow.log_dict(tier_thresholds, "action_tiers.json")
 
-            shap_report_path = audit_dir / "shap_feature_importance.json"
+            shap_report_path = paths["shap"]
             if feature_importance is not None:
                 shap_report_path.write_text(json.dumps(feature_importance, indent=2, default=str))
-                mlflow.log_artifact(str(shap_report_path))
+                mlflow.log_dict(
+                    json.loads(shap_report_path.read_text()), "shap_feature_importance.json"
+                )
             else:
                 # Never leave an earlier run's SHAP report next to this
                 # run's evaluation report - generate_performance_plots.py
@@ -1534,11 +1597,9 @@ def main() -> None:
                 logistic_regression_baseline=results["logistic_regression_baseline"],
                 smote_comparison=results.get("smote_comparison"),
             )
-            model_cards_dir = Path(data_config["audit_dir"]) / "model_cards"
-            model_cards_dir.mkdir(parents=True, exist_ok=True)
-            model_card_stem = f"v{model_config['version']}_h{horizon_days}d"
-            model_card_json_path = model_cards_dir / f"{model_card_stem}.json"
-            model_card_md_path = model_cards_dir / f"{model_card_stem}.md"
+            model_card_json_path = paths["model_card_json"]
+            model_card_md_path = paths["model_card_md"]
+            model_card_json_path.parent.mkdir(parents=True, exist_ok=True)
             model_card_json_path.write_text(json.dumps(model_card, indent=2, default=str))
             model_card_md_path.write_text(render_model_card_markdown(model_card))
             mlflow.log_artifact(str(model_card_json_path))

@@ -65,6 +65,7 @@ from src.models.evaluation import (
 )
 from src.models.threshold import tune_drive_level_threshold
 from src.models.uncertainty import drive_level_bootstrap_ci
+from src.outputs import refuse_overwrite
 from src.resource_limits import apply_memory_limit_from_config
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
@@ -166,6 +167,12 @@ def main() -> None:
         help="Suffix for this run's report, scores and weights, so runs do not overwrite each "
         "other (e.g. --tag s1 -> sequence_evaluation_report_s1.json).",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace this tag's existing outputs. Without it the run refuses to start if any "
+        "output file already exists.",
+    )
     parser.add_argument("--learning-rate", type=float, help="override sequence_model.learning_rate")
     parser.add_argument("--dropout", type=float, help="override sequence_model.dropout")
     parser.add_argument("--hidden-size", type=int, help="override sequence_model.hidden_size")
@@ -207,6 +214,22 @@ def main() -> None:
     source = data_config["sources"]["backblaze"]
     start_date = dt.date.fromisoformat(str(source["start_date"]))
     end_date = dt.date.fromisoformat(str(source["end_date"]))
+
+    suffix = "" if args.drive_fraction >= 1.0 else ".smoke"
+    audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
+    scratch = Path(
+        data_config.get("resource_limits", {}).get("scratch_dir") or gold_dir.parent / "tmp"
+    )
+    out_dir = scratch / f"sequence_model{suffix}"
+    if args.train_only:
+        outputs = [audit_dir / f"sequence_tuning{tag_suffix}.json"]
+    else:
+        outputs = [
+            audit_dir / f"sequence_evaluation_report{suffix}{tag_suffix}.json",
+            out_dir / f"scores_h{horizon_days}{tag_suffix}.npz",
+            out_dir / f"{args.arch}_h{horizon_days}{tag_suffix}.pt",
+        ]
+    refuse_overwrite(outputs, overwrite=args.overwrite)
 
     t0 = time.perf_counter()
     dense = build_dense_telemetry(
@@ -298,7 +321,7 @@ def main() -> None:
     )
 
     if args.train_only:
-        audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
+        audit_dir.mkdir(parents=True, exist_ok=True)
         tuning = {
             "tag": args.tag,
             "seed": seed,
@@ -373,16 +396,10 @@ def main() -> None:
         "validation_row_auroc": compute_auroc(y_val, val_scores),
         "test_row_auroc": compute_auroc(y_test, test_scores),
     }
-    audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
     audit_dir.mkdir(parents=True, exist_ok=True)
-    suffix = "" if args.drive_fraction >= 1.0 else ".smoke"
     report_path = audit_dir / f"sequence_evaluation_report{suffix}{tag_suffix}.json"
     report_path.write_text(json.dumps(report, indent=2, default=str))
 
-    scratch = Path(
-        data_config.get("resource_limits", {}).get("scratch_dir") or gold_dir.parent / "tmp"
-    )
-    out_dir = scratch / f"sequence_model{suffix}"
     out_dir.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         out_dir / f"scores_h{horizon_days}{tag_suffix}.npz",

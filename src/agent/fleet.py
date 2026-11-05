@@ -317,8 +317,13 @@ def load_precomputed_scores(
     threshold fall back to configs/agent.yaml, as for an MLflow run)."""
     from src.models.threshold import resolve_action_thresholds
 
-    horizon_tag = scores_path.stem.rsplit("_", 1)[-1]  # merged_scores_h30 -> h30
-    meta_path = scores_path.with_name(f"agent_thresholds_{horizon_tag}.json")
+    # The thresholds file shares the scores file's suffix, tag included:
+    # merged_scores_h30.parquet -> agent_thresholds_h30.json,
+    # merged_scores_h30_<tag>.parquet -> agent_thresholds_h30_<tag>.json.
+    prefix = "merged_scores_"
+    if not scores_path.stem.startswith(prefix):
+        raise ValueError(f"{scores_path.name} is not a `train-merged` scores file ({prefix}*)")
+    meta_path = scores_path.with_name(f"agent_thresholds_{scores_path.stem[len(prefix) :]}.json")
     if not meta_path.exists():
         raise FileNotFoundError(f"{meta_path} not found; run `make train-merged` first.")
     meta = json.loads(meta_path.read_text())

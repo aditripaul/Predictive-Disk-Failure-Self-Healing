@@ -161,3 +161,76 @@ def test_precomputed_scores_join(tmp_path) -> None:
     )
     joined = join_precomputed_scores(snapshot, loaded)
     assert joined["drive_id"].to_list() == ["a"] and joined["p_fail"].to_list() == [0.9]
+
+
+def test_tag_keeps_untagged_names_and_separates_tagged_runs(tmp_path) -> None:
+
+    from pipelines import train_merged_models as tm
+
+    kwargs = {"horizon_days": 30, "smoke_suffix": ""}
+    plain = tm.output_paths(tmp_path, tmp_path, tag=None, **kwargs)
+    a = tm.output_paths(tmp_path, tmp_path, tag="h30_seed0", **kwargs)
+    b = tm.output_paths(tmp_path, tmp_path, tag="h30_seed1", **kwargs)
+    assert plain["report"].name == "merged_evaluation_report.json"
+    assert plain["scores"].name == "merged_scores_h30.parquet"
+    assert plain["thresholds"].name == "agent_thresholds_h30.json"
+    assert a["scores"].name == "merged_scores_h30_h30_seed0.parquet"
+    assert not set(a.values()) & set(b.values())
+    assert not set(a.values()) & set(plain.values())
+    smoke = tm.output_paths(tmp_path, tmp_path, horizon_days=30, smoke_suffix=".smoke", tag="x")
+    assert smoke["report"].name == "merged_evaluation_report.smoke_x.json"
+
+
+def test_tag_rejects_unsafe_names() -> None:
+    from pipelines import train_merged_models as tm
+
+    for bad in ("../x", "a/b", "a b", ".hidden"):
+        with pytest.raises(SystemExit):
+            tm.tag_suffix(bad)
+    assert tm.tag_suffix("") == ""
+
+
+def test_mlflow_metrics_are_flat_and_finite() -> None:
+    from pipelines import train_merged_models as tm
+
+    results = {
+        "aft": {
+            "validation_drive_level": {"precision": 0.5, "recall": 0.1, "auprc": None},
+            "test_drive_level": {"precision": float("nan"), "recall": 0.2},
+        }
+    }
+    assert tm.mlflow_metrics(results) == {
+        "aft__validation_drive_precision": 0.5,
+        "aft__validation_drive_recall": 0.1,
+        "aft__test_drive_recall": 0.2,
+    }
+
+
+def test_tagged_scores_find_their_own_thresholds_file(tmp_path) -> None:
+    """`train-merged --tag` names the scores and thresholds files with the tag; the
+    agent must pair them by that suffix, not by the last underscore-separated word."""
+    import json
+
+    from src.agent.fleet import load_precomputed_scores
+
+    def write(tag: str, warn: float) -> None:
+        pl.DataFrame({"drive_id": ["a"], "date": [dt.date(2026, 5, 31)], "m": [0.9]}).write_parquet(
+            tmp_path / f"merged_scores_h30{tag}.parquet"
+        )
+        (tmp_path / f"agent_thresholds_h30{tag}.json").write_text(
+            json.dumps(
+                {
+                    "score_column": "m",
+                    "action_tiers": {"warn": warn, "cordon": None, "migrate": None, "drain": None},
+                }
+            )
+        )
+
+    write("_h30_seed0", 0.41)
+    write("_h30_seed1", 0.42)
+    fallback = {"warn": 0.3, "cordon": 0.5, "migrate": 0.7, "drain": 0.9}
+    _, _, t0 = load_precomputed_scores(tmp_path / "merged_scores_h30_h30_seed0.parquet", fallback)
+    _, _, t1 = load_precomputed_scores(tmp_path / "merged_scores_h30_h30_seed1.parquet", fallback)
+    assert t0["warn"] == 0.41 and t1["warn"] == 0.42
+    with pytest.raises(ValueError):
+        load_precomputed_scores(tmp_path / "other_name.parquet", fallback)

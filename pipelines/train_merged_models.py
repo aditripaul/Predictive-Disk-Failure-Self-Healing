@@ -21,18 +21,30 @@ horizon; `survival_bounds` censors at that row + horizon), asserted below.
 Every model is compared on the SAME rows: the validation/test rows all of them
 scored. Thresholds are chosen on validation only, then applied to test.
 
-Writes:
-    data/audit/data_quality_reports/merged_evaluation_report[.smoke].json
-    <scratch>/merged/merged_scores_h30.parquet
+Writes (`[_TAG]` is empty unless `--tag TAG` is given, so two runs with different
+tags never overwrite each other; `.smoke` is added by `--smoke`):
+    data/audit/data_quality_reports/merged_evaluation_report[.smoke][_TAG].json
+    <scratch>/merged[.smoke]/merged_scores_h30[_TAG].parquet
         (split, drive_id, date, label, one column per model)
-    <scratch>/merged/agent_thresholds_h30.json   (action tiers of `merged_models.agent_ensemble`)
+    <scratch>/merged[.smoke]/agent_thresholds_h30[_TAG].json
+        (action tiers of `merged_models.agent_ensemble`)
+    <scratch>/merged[.smoke]/{aft,cox}_h30[_TAG].json   (the trained boosters)
+
+The run refuses to start if any of these exist (`--overwrite` replaces them).
+Unless `--smoke`, the run is also logged to MLflow (the experiment named in
+configs/model.yaml): the merged_models config, per-model and per-ensemble
+drive-level metrics, and the report, thresholds and boosters as artifacts. The
+MLflow run id is written into the report as `mlflow_run_id`.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import json
+import math
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -41,6 +53,7 @@ import numpy as np
 import polars as pl
 import yaml
 
+import mlflow
 from src.logging_config import configure_logging, get_logger
 from src.models.access_log import record_test_access
 from src.models.ensemble import (
@@ -65,6 +78,7 @@ from src.models.threshold import (
 )
 from src.models.training import early_stopping_subset
 from src.models.uncertainty import drive_level_bootstrap_ci
+from src.outputs import refuse_overwrite
 from src.resource_limits import apply_memory_limit_from_config
 
 logger = get_logger(__name__)
@@ -74,6 +88,46 @@ MODEL_CONFIG_PATH = Path("configs/model.yaml")
 SPLITS = ("validation", "test")
 BASE_MODELS = ("lightgbm", "aft", "cox", "lstm", "tcn")
 PREDICT_CHUNK_ROWS = 1_000_000
+
+
+TAG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+DRIVE_METRICS = ("precision", "recall", "auprc", "auroc")
+
+
+def tag_suffix(tag: str | None) -> str:
+    """`_TAG` for a run tag, "" for none. Rejects anything that is not safe in a file name."""
+    if not tag:
+        return ""
+    if not TAG_PATTERN.fullmatch(tag):
+        raise SystemExit(f"--tag {tag!r} must match {TAG_PATTERN.pattern}")
+    return f"_{tag}"
+
+
+def output_paths(
+    audit_dir: Path, out_dir: Path, *, horizon_days: int, smoke_suffix: str, tag: str | None
+) -> dict[str, Path]:
+    """Every file `main` writes, named so that a different tag gives a different file."""
+    t = tag_suffix(tag)
+    return {
+        "report": audit_dir / f"merged_evaluation_report{smoke_suffix}{t}.json",
+        "scores": out_dir / f"merged_scores_h{horizon_days}{t}.parquet",
+        "thresholds": out_dir / f"agent_thresholds_h{horizon_days}{t}.json",
+        "aft": out_dir / f"aft_h{horizon_days}{t}.json",
+        "cox": out_dir / f"cox_h{horizon_days}{t}.json",
+    }
+
+
+def mlflow_metrics(results: dict[str, dict[str, Any]]) -> dict[str, float]:
+    """Flat finite drive-level metrics: `<model>__<split>_drive_<metric>`."""
+    flat: dict[str, float] = {}
+    for model, result in results.items():
+        for split in SPLITS:
+            drive_level = result.get(f"{split}_drive_level") or {}
+            for metric in DRIVE_METRICS:
+                value = drive_level.get(metric)
+                if isinstance(value, (int, float)) and math.isfinite(value):
+                    flat[f"{model}__{split}_drive_{metric}"] = float(value)
+    return flat
 
 
 def scratch_base(data_config: dict) -> Path:
@@ -220,12 +274,24 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--lstm-scores", type=Path)
     parser.add_argument("--tcn-scores", type=Path)
     parser.add_argument(
+        "--tag",
+        help="Label for this run; appended to every output file name so runs do not overwrite "
+        "each other (pass the tagged parquet to `agent-fleet --scores-path`).",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace this tag's existing outputs. Without it the run refuses to start if any "
+        "output file already exists.",
+    )
+    parser.add_argument(
         "--smoke",
         action="store_true",
         help="Small-subset run: writes .smoke outputs, records no test access. Not a result.",
     )
     args = parser.parse_args(argv)
 
+    tag_suffix(args.tag)  # fail on a bad tag before any work
     configure_logging()
     apply_memory_limit_from_config()
     data_config = yaml.safe_load(DATA_CONFIG_PATH.read_text())
@@ -239,6 +305,12 @@ def main(argv: list[str] | None = None) -> None:
     horizon_days = int(meta.get("horizon_days") or model_config["primary_horizon_days"])
     windows = split_windows(model_config, horizon_days)
     suffix = ".smoke" if args.smoke else ""
+    audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
+    out_dir = scratch / f"merged{suffix}"
+    paths = output_paths(
+        audit_dir, out_dir, horizon_days=horizon_days, smoke_suffix=suffix, tag=args.tag
+    )
+    refuse_overwrite(paths.values(), overwrite=args.overwrite)
     t0 = time.perf_counter()
 
     ids = {
@@ -305,6 +377,7 @@ def main(argv: list[str] | None = None) -> None:
     }
     survival_scores: dict[str, dict[str, np.ndarray]] = {}
     trees: dict[str, int] = {}
+    boosters: dict[str, Any] = {}
     for name, trainer, extra in (
         ("aft", train_aft, {"horizon_days": horizon_days}),
         ("cox", train_cox, {}),
@@ -320,6 +393,7 @@ def main(argv: list[str] | None = None) -> None:
             **extra,
         )
         trees[name] = model.tree_count
+        boosters[name] = model.booster
         survival_scores[name] = {
             "validation": predict_in_chunks(model, x_val),
             "test": predict_in_chunks(model, x_test),
@@ -436,29 +510,64 @@ def main(argv: list[str] | None = None) -> None:
         "models": results,
         "elapsed_seconds": round(time.perf_counter() - t0, 1),
     }
-    audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
     audit_dir.mkdir(parents=True, exist_ok=True)
-    report_path = audit_dir / f"merged_evaluation_report{suffix}.json"
-    report_path.write_text(json.dumps(report, indent=2, default=str))
-
-    out_dir = scratch / f"merged{suffix}"
     out_dir.mkdir(parents=True, exist_ok=True)
-    pl.concat(
-        [tables[s].with_columns(pl.lit(s).alias("split")) for s in SPLITS], how="vertical"
-    ).write_parquet(out_dir / f"merged_scores_h{horizon_days}.parquet", compression="zstd")
-    agent_name = merged_cfg["agent_ensemble"]
-    (out_dir / f"agent_thresholds_h{horizon_days}.json").write_text(
-        json.dumps(
-            {
-                "score_column": agent_name,
-                "action_tiers": results[agent_name]["action_tiers"],
-                "threshold": results[agent_name]["threshold"]["threshold"],
-            },
-            indent=2,
-            default=str,
+    report["tag"] = args.tag
+
+    # A smoke run is not a result, so it is not tracked (as it records no test access).
+    if args.smoke:
+        tracking: Any = contextlib.nullcontext()
+    else:
+        mlflow.set_tracking_uri(model_config["mlflow"]["tracking_uri"])
+        mlflow.set_experiment(model_config["mlflow"]["experiment_name"])
+        tracking = mlflow.start_run(run_name=f"merged{tag_suffix(args.tag)}_h{horizon_days}")
+
+    with tracking as run:
+        report["mlflow_run_id"] = run.info.run_id if run is not None else None
+        paths["report"].write_text(json.dumps(report, indent=2, default=str))
+
+        pl.concat(
+            [tables[s].with_columns(pl.lit(s).alias("split")) for s in SPLITS], how="vertical"
+        ).write_parquet(paths["scores"], compression="zstd")
+        agent_name = merged_cfg["agent_ensemble"]
+        paths["thresholds"].write_text(
+            json.dumps(
+                {
+                    "score_column": agent_name,
+                    "action_tiers": results[agent_name]["action_tiers"],
+                    "threshold": results[agent_name]["threshold"]["threshold"],
+                },
+                indent=2,
+                default=str,
+            )
         )
+        for name, booster in boosters.items():
+            booster.save_model(str(paths[name]))
+
+        if run is not None:
+            mlflow.log_params(
+                {
+                    "horizon_days": horizon_days,
+                    "seed": seed,
+                    "tag": args.tag or "",
+                    "agent_ensemble": agent_name,
+                    "ensembles": json.dumps(ensembles),
+                    "aft_weighting": merged_cfg["aft"]["weighting"],
+                    "cox_weighting": merged_cfg["cox"]["weighting"],
+                    "aft_trees": trees["aft"],
+                    "cox_trees": trees["cox"],
+                    "work_dir": str(work_dir),
+                }
+            )
+            mlflow.log_metrics(mlflow_metrics(results))
+            for path in paths.values():
+                mlflow.log_artifact(str(path))
+    logger.info(
+        "merged_report_written",
+        path=str(paths["report"]),
+        out_dir=str(out_dir),
+        mlflow_run_id=report["mlflow_run_id"],
     )
-    logger.info("merged_report_written", path=str(report_path), out_dir=str(out_dir))
 
 
 if __name__ == "__main__":
