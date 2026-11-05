@@ -161,3 +161,46 @@ def test_precomputed_scores_join(tmp_path) -> None:
     )
     joined = join_precomputed_scores(snapshot, loaded)
     assert joined["drive_id"].to_list() == ["a"] and joined["p_fail"].to_list() == [0.9]
+
+
+def test_tag_keeps_untagged_names_and_separates_tagged_runs(tmp_path) -> None:
+
+    from pipelines import train_merged_models as tm
+
+    kwargs = {"horizon_days": 30, "smoke_suffix": ""}
+    plain = tm.output_paths(tmp_path, tmp_path, tag=None, **kwargs)
+    a = tm.output_paths(tmp_path, tmp_path, tag="run1", **kwargs)
+    b = tm.output_paths(tmp_path, tmp_path, tag="run2", **kwargs)
+    assert plain["report"].name == "merged_evaluation_report.json"
+    assert plain["scores"].name == "merged_scores_h30.parquet"
+    assert plain["thresholds"].name == "agent_thresholds_h30.json"
+    assert a["scores"].name == "merged_scores_h30_run1.parquet"
+    assert not set(a.values()) & set(b.values())
+    assert not set(a.values()) & set(plain.values())
+    smoke = tm.output_paths(tmp_path, tmp_path, horizon_days=30, smoke_suffix=".smoke", tag="x")
+    assert smoke["report"].name == "merged_evaluation_report.smoke_x.json"
+
+
+def test_tag_rejects_unsafe_names() -> None:
+    from pipelines import train_merged_models as tm
+
+    for bad in ("../x", "a/b", "a b", ".hidden"):
+        with pytest.raises(SystemExit):
+            tm.tag_suffix(bad)
+    assert tm.tag_suffix("") == ""
+
+
+def test_mlflow_metrics_are_flat_and_finite() -> None:
+    from pipelines import train_merged_models as tm
+
+    results = {
+        "aft": {
+            "validation_drive_level": {"precision": 0.5, "recall": 0.1, "auprc": None},
+            "test_drive_level": {"precision": float("nan"), "recall": 0.2},
+        }
+    }
+    assert tm.mlflow_metrics(results) == {
+        "aft__validation_drive_precision": 0.5,
+        "aft__validation_drive_recall": 0.1,
+        "aft__test_drive_recall": 0.2,
+    }
