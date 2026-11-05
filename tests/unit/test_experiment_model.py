@@ -1,9 +1,13 @@
 import numpy as np
 import polars as pl
 import pytest
+import yaml
 
 from pipelines.experiment_model import (
+    MODEL_CONFIG_PATH,
+    VARIANTS,
     _excluded_indices,
+    _lightgbm_params,
     _sample_weights,
     _Zeroed,
     threshold_for_precision,
@@ -88,3 +92,28 @@ def test_feature_group_exclusion_modes():
     assert names("none") == []
     with pytest.raises(ValueError, match="unknown exclusion mode"):
         _excluded_indices(cols, "typo")
+
+
+def _config_params():
+    return yaml.safe_load(MODEL_CONFIG_PATH.read_text())["model"]["params"]
+
+
+@pytest.mark.parametrize("name", [n for n, v in VARIANTS.items() if v[2] == "is_unbalance"])
+def test_is_unbalance_variants_turn_lightgbm_is_unbalance_on(name):
+    extra, _, weighting = VARIANTS[name]
+    params = _lightgbm_params(_config_params(), extra, weighting)
+    assert params["is_unbalance"] is True
+
+
+@pytest.mark.parametrize("name", [n for n, v in VARIANTS.items() if v[2] != "is_unbalance"])
+def test_other_variants_never_pass_is_unbalance(name):
+    extra, _, weighting = VARIANTS[name]
+    params = _lightgbm_params({**_config_params(), "is_unbalance": True}, extra, weighting)
+    assert "is_unbalance" not in params
+
+
+def test_variant_params_drop_the_engine_marker_and_stay_quiet():
+    extra, _, weighting = VARIANTS["xgboost_aft"]
+    params = _lightgbm_params(_config_params(), extra, weighting)
+    assert "_engine" not in params
+    assert params["verbosity"] == -1

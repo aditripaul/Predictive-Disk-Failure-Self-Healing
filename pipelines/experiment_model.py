@@ -303,13 +303,24 @@ def _train_survival_bounds(data: dict[str, Any]) -> tuple[np.ndarray, np.ndarray
     )
 
 
+def _lightgbm_params(base: dict[str, Any], extra: dict[str, Any], weighting: str) -> dict[str, Any]:
+    """LightGBM params for one variant. weighting "is_unbalance" must turn LightGBM's own
+    is_unbalance ON: configs/model.yaml no longer carries it (commit 536458a moved the shipped
+    model to positive_weight_power), so merely removing the key for other weightings left the
+    is_unbalance variants unweighted."""
+    params = {**base, **{k: v for k, v in extra.items() if k != "_engine"}, "verbosity": -1}
+    if weighting == "is_unbalance":
+        params["is_unbalance"] = True
+    else:
+        params.pop("is_unbalance", None)
+    return params
+
+
 def run_variant(name: str, data: dict[str, Any]) -> dict[str, Any]:
     record_test_access(variant=name, purpose="experiment_model run_variant (test scoring)")
     extra, exclude, weighting = VARIANTS[name]
     base = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["model"]["params"]
-    params = {**base, **{k: v for k, v in extra.items() if k != "_engine"}, "verbosity": -1}
-    if weighting != "is_unbalance":
-        params.pop("is_unbalance", None)
+    params = _lightgbm_params(base, extra, weighting)
     idx = _excluded_indices(data["feature_columns"], exclude)
     t0 = time.perf_counter()
     # Only the train matrix is in RAM and zeroed in place. Validation and test
