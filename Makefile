@@ -2,7 +2,7 @@
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
-	build-sequences train-lstm train-sequence train-merged train-all agent-models merged-tables pack-merged-scores unpack-merged-scores score-fleet plots \
+	build-sequences train-lstm train-sequence train-merged train-all agent-models merged-tables tune-blend-weights pack-merged-scores unpack-merged-scores score-fleet plots \
 	agent-demo agent-fleet agent-pit family-calibration plot-late-hits dashboard api final-report
 
 # --- setup -----------------------------------------------------------------
@@ -201,6 +201,14 @@ agent-models:
 merged-tables:
 	@test -n "$(REPORT)" || { echo "usage: make merged-tables REPORT=<report.json> [AGENT_DIR=<dir>]"; exit 2; }
 	uv run python scripts/report_merged_tables.py $(REPORT) $(if $(AGENT_DIR),--agent-dir $(AGENT_DIR)) $(TABLES_ARGS)
+
+# Search the weights of a train-merged rank blend on VALIDATION scores (no retraining; reads a
+# packed score table). Reads no test data unless TUNE_ARGS=--evaluate-test, which spends one
+# recorded test look on the recommended weights.
+#   make tune-blend-weights PACK_DIR=frozen_runs/<run id>/scores OUT_DIR=data/audit/blend_weights_<tag>
+tune-blend-weights:
+	@test -n "$(PACK_DIR)" -a -n "$(OUT_DIR)" || { echo "usage: make tune-blend-weights PACK_DIR=<dir> OUT_DIR=<dir>"; exit 2; }
+	uv run python scripts/tune_blend_weights.py $(PACK_DIR) $(OUT_DIR) $(TUNE_ARGS)
 
 experiment-model:
 	uv run python pipelines/experiment_model.py $(EXPERIMENT_ARGS)
