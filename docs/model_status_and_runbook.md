@@ -168,6 +168,65 @@ sequence score archives are over GitHub's file limit, so only their checksums
 are committed. Nothing loads from that folder: `score-fleet` and
 `evaluate-frozen` read MLflow, which is local.
 
+### 1.1.3 Current status of every model and blend (2026-11-05)
+
+Test window 2026-04-01 to 2026-05-31, **1,479 failing drives**. Each model's threshold was
+chosen on validation, as the highest drive-level precision with at least 10% recall (the
+`threshold.target_recall_range` floor in `configs/model.yaml`). "Missed" is the failing drives the
+model did not flag, and "Missed %" is 100% minus recall. Every figure is per drive (Section 5.1)
+and comes from the frozen merged run's report
+(`frozen_runs/fb58d9576c6146ba94c13389005fa15b/merged_evaluation_report.json`, Section 1.1.2). A
+failing drive counts as caught if the model flagged it on any day of its 30-day warning window;
+no minimum notice is required, so this is not the stricter rule of the last table below.
+
+**Test**
+
+| Model | Precision | Recall | Caught | Missed | Missed % | False alarms |
+|---|---|---|---|---|---|---|
+| LightGBM two-stage | 57.1% | 12.0% | 178 | 1,301 | 88.0% | 134 |
+| AFT | 68.5% | 12.4% | 183 | 1,296 | 87.6% | 84 |
+| Cox | 62.9% | 13.7% | 202 | 1,277 | 86.3% | 119 |
+| LSTM | 52.7% | 15.6% | 231 | 1,248 | 84.4% | 207 |
+| TCN | 70.5% | 13.6% | 201 | 1,278 | 86.4% | 84 |
+| Blend LightGBM + AFT + TCN | 70.1% | 13.7% | 202 | 1,277 | 86.3% | 86 |
+| Blend LightGBM + LSTM + AFT + TCN | 69.7% | 12.6% | 186 | 1,293 | 87.4% | 81 |
+
+**Validation** (1,124 failing drives)
+
+| Model | Precision | Recall | Caught | Missed | Missed % | False alarms |
+|---|---|---|---|---|---|---|
+| LightGBM two-stage | 59.2% | 10.1% | 113 | 1,011 | 89.9% | 78 |
+| AFT | 64.2% | 10.1% | 113 | 1,011 | 89.9% | 63 |
+| Cox | 60.6% | 10.4% | 117 | 1,007 | 89.6% | 76 |
+| LSTM | 44.3% | 13.1% | 147 | 977 | 86.9% | 185 |
+| TCN | 55.5% | 10.8% | 121 | 1,003 | 89.2% | 97 |
+| Blend LightGBM + AFT + TCN | 66.8% | 11.7% | 131 | 993 | 88.3% | 65 |
+| Blend LightGBM + LSTM + AFT + TCN | 64.5% | 10.5% | 118 | 1,006 | 89.5% | 65 |
+
+At these operating points every model **misses 84% to 88% of failing drives**. The threshold rule
+favours precision at a recall of only about 10%. That is a setting, not a model limit: choosing
+the threshold for a recall of at least 35% gives 37% to 41% recall at 46% to 52% test precision
+for every model except the LSTM (31%), and the blends are best at 52% (the `precision_at_recall`
+tables in the report).
+Both blends use equal weights (Section 1.1.2); the table is not an endorsement of any one model,
+and the intervals in Section 1.1.2 (about ±5.5 points on test precision) apply.
+
+**The recall-first operating point** is from the day-by-day replay of Section 4.11 (recall-tuned
+blend, weights LightGBM 0.2 / LSTM 0 / AFT 0.5 / TCN 0.3; `k` = 1). There a catch means warned at
+least 1 day before the failure, so these rows are **not directly comparable** with the tables
+above, which allow any flag inside the warning window.
+
+| Tier (test) | Precision | Recall | Caught | Missed | Missed % | False alarms |
+|---|---|---|---|---|---|---|
+| Warn | 27.0% | 62.5% | 925 | 554 | 37.5% | 2,506 |
+| Cordon | 33.5% | 56.6% | 837 | 642 | 43.4% | 1,662 |
+| Migrate | 54.8% | 35.1% | 519 | 960 | 64.9% | 428 |
+| Drain | 75.8% | 3.2% | 47 | 1,432 | 96.8% | 15 |
+
+The tiers nest: a cordon drive is always a warn drive. Warn is non-disruptive, so its 2,506 false
+alarms cost a watchlist entry each; the 1,662 false cordons are real actions. The goal (90%
+precision at 10% or more recall) is still not met at any operating point in this section.
+
 ### 1.2 The two-stage gain is not established
 
 Two paired bootstraps now exist, both over the same resampled drives with
