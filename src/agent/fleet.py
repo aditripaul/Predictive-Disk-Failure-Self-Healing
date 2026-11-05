@@ -309,21 +309,32 @@ def _recording_executor(executed: list[dict[str, Any]]):
 
 
 def load_precomputed_scores(
-    scores_path: Path, fallback_thresholds: dict[str, float]
+    scores_path: Path,
+    fallback_thresholds: dict[str, float],
+    thresholds_path: Path | None = None,
 ) -> tuple[pl.DataFrame, str, dict[str, float]]:
     """`(drive_id, date, p_fail)` from a `train_merged_models` scores parquet,
     the run id the agent logs for it, and its validation-tuned action tiers
     (from the `agent_thresholds_h*.json` beside it; tiers with no reachable
-    threshold fall back to configs/agent.yaml, as for an MLflow run)."""
+    threshold fall back to configs/agent.yaml, as for an MLflow run).
+
+    `thresholds_path` names a different file with the same layout (`score_column`,
+    `action_tiers`): how one model's column of the table is acted on with that
+    model's own tiers, since `train-merged` writes tiers for the agent ensemble only."""
     from src.models.threshold import resolve_action_thresholds
 
     # The thresholds file shares the scores file's suffix, tag included:
     # merged_scores_h30.parquet -> agent_thresholds_h30.json,
     # merged_scores_h30_<tag>.parquet -> agent_thresholds_h30_<tag>.json.
     prefix = "merged_scores_"
-    if not scores_path.stem.startswith(prefix):
-        raise ValueError(f"{scores_path.name} is not a `train-merged` scores file ({prefix}*)")
-    meta_path = scores_path.with_name(f"agent_thresholds_{scores_path.stem[len(prefix) :]}.json")
+    if thresholds_path is not None:
+        meta_path = thresholds_path
+    else:
+        if not scores_path.stem.startswith(prefix):
+            raise ValueError(f"{scores_path.name} is not a `train-merged` scores file ({prefix}*)")
+        meta_path = scores_path.with_name(
+            f"agent_thresholds_{scores_path.stem[len(prefix) :]}.json"
+        )
     if not meta_path.exists():
         raise FileNotFoundError(f"{meta_path} not found; run `make train-merged` first.")
     meta = json.loads(meta_path.read_text())
@@ -366,6 +377,7 @@ def build_fleet_dependencies(
     model_config: dict | None = None,
     agent_config: dict | None = None,
     scores_path: Path | None = None,
+    thresholds_path: Path | None = None,
 ) -> FleetAgent:
     """Bind the MAPE-K loop to the real gold feature table and trained model.
 
@@ -391,7 +403,7 @@ def build_fleet_dependencies(
     precomputed: pl.DataFrame | None = None
     if scores_path is not None:
         precomputed, resolved_run_id, action_thresholds = load_precomputed_scores(
-            Path(scores_path), agent_config["action_thresholds"]
+            Path(scores_path), agent_config["action_thresholds"], thresholds_path
         )
     else:
         import mlflow

@@ -112,6 +112,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "model. The column and action tiers come from agent_thresholds_h30.json beside it.",
     )
     parser.add_argument(
+        "--thresholds-path",
+        type=Path,
+        default=None,
+        help="With --scores-path: a thresholds file (score_column, action_tiers) other than "
+        "agent_thresholds_*.json beside the scores, e.g. one model's tiers from "
+        "`scripts/run_agent_models.py`.",
+    )
+    parser.add_argument(
         "--thread-id",
         default=None,
         help="Resume a specific LangGraph thread. Default: a fresh one per "
@@ -185,6 +193,7 @@ def main(argv: list[str] | None = None) -> None:
         run_id=args.run_id,
         max_candidates=args.max_candidates,
         scores_path=args.scores_path,
+        thresholds_path=args.thresholds_path,
     )
 
     decisions: list[dict] = []

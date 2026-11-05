@@ -2,7 +2,7 @@
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
-	build-sequences train-lstm train-sequence train-merged train-all pack-merged-scores unpack-merged-scores score-fleet plots \
+	build-sequences train-lstm train-sequence train-merged train-all agent-models merged-tables pack-merged-scores unpack-merged-scores score-fleet plots \
 	agent-demo agent-fleet agent-pit family-calibration plot-late-hits dashboard api final-report
 
 # --- setup -----------------------------------------------------------------
@@ -187,6 +187,20 @@ train-all:
 	$(MAKE) train-sequence SEQUENCE_ARGS="--arch lstm --horizon-days $(HORIZON) --tag $(RUN_TAG)"
 	$(MAKE) train-sequence SEQUENCE_ARGS="--arch tcn --horizon-days $(HORIZON) --tag $(RUN_TAG)"
 	$(MAKE) train-merged MERGED_TAG=$(RUN_TAG) MERGED_ARGS="--lightgbm-scores data/tmp/lightgbm_scores_h$(HORIZON)_$(RUN_TAG).parquet --lstm-scores data/tmp/sequence_model/scores_h$(HORIZON)_$(RUN_TAG).npz --tcn-scores data/tmp/sequence_model/scores_h$(HORIZON)_tcn_$(RUN_TAG).npz"
+
+# The agent loop (MAPE-K) once per model of a train-merged run, each with the action tiers
+# tuned for that model, then the tables. Window: the test split. One snapshot, no clock,
+# so it looks ahead and is not point-in-time (runbook Section 4.7); it records a test access.
+#   make agent-models REPORT=data/audit/data_quality_reports/merged_evaluation_report_<tag>.json \
+#       SCORES=data/tmp/merged/merged_scores_h30_<tag>.parquet OUT_DIR=data/audit/agent_models_<tag>
+#   make merged-tables REPORT=... [AGENT_DIR=data/audit/agent_models_<tag>]
+agent-models:
+	@test -n "$(REPORT)" -a -n "$(SCORES)" -a -n "$(OUT_DIR)" || { echo "usage: make agent-models REPORT=<report.json> SCORES=<scores.parquet> OUT_DIR=<dir>"; exit 2; }
+	uv run python scripts/run_agent_models.py $(REPORT) $(SCORES) $(OUT_DIR) $(AGENT_MODELS_ARGS)
+
+merged-tables:
+	@test -n "$(REPORT)" || { echo "usage: make merged-tables REPORT=<report.json> [AGENT_DIR=<dir>]"; exit 2; }
+	uv run python scripts/report_merged_tables.py $(REPORT) $(if $(AGENT_DIR),--agent-dir $(AGENT_DIR)) $(TABLES_ARGS)
 
 experiment-model:
 	uv run python pipelines/experiment_model.py $(EXPERIMENT_ARGS)
