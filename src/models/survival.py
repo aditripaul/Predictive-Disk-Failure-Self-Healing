@@ -145,3 +145,97 @@ def train_aft(
         verbose_eval=False,
     )
     return AftModel(booster, horizon_days)
+
+
+# --- Cox proportional hazards (merged approach, ported from aryan_v2) ---------
+#
+# Same censoring rule as the AFT model (`survival_bounds`): an outcome is only
+# seen up to the split's cutoff + horizon. XGBoost's `survival:cox` takes one
+# signed label per row: +t for an observed failure at time t, -t for a row
+# right-censored at t.
+
+COX_PARAMS: dict[str, Any] = {
+    "objective": "survival:cox",
+    "tree_method": "hist",
+    "max_depth": 6,
+    "learning_rate": 0.05,
+    "min_child_weight": 20,
+    "reg_lambda": 10.0,
+    "colsample_bytree": 0.7,
+    "subsample": 0.8,
+    "verbosity": 0,
+    "disable_default_eval_metric": 1,
+}
+
+
+def cox_labels(lower: np.ndarray, upper: np.ndarray) -> np.ndarray:
+    """Signed Cox label from `survival_bounds`' (lower, upper): +time for an
+    observed failure (lower == upper), -time for a censored row (upper = inf)."""
+    lower = np.asarray(lower, dtype=np.float64)
+    observed = np.isfinite(np.asarray(upper, dtype=np.float64))
+    return np.where(observed, lower, -lower).astype(np.float32)
+
+
+def risk_from_hazard_ratio(hazard_ratio: np.ndarray) -> np.ndarray:
+    """Monotone map of the Cox hazard ratio (exp(margin), > 0) into (0, 1)."""
+    hr = np.asarray(hazard_ratio, dtype=np.float64)
+    return hr / (1.0 + hr)
+
+
+class CoxModel:
+    """A trained Cox booster with `predict_proba(x)[:, 1]` = risk."""
+
+    def __init__(self, booster: xgb.Booster) -> None:
+        self.booster = booster
+
+    @property
+    def tree_count(self) -> int:
+        return int(self.booster.best_iteration) + 1
+
+    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+        hr = self.booster.predict(xgb.DMatrix(x), iteration_range=(0, self.tree_count))
+        risk = risk_from_hazard_ratio(hr)
+        return np.column_stack([1.0 - risk, risk])
+
+    def gain_by_feature(self, feature_count: int) -> np.ndarray:
+        gains = np.zeros(feature_count, dtype=np.float64)
+        for name, gain in self.booster.get_score(importance_type="total_gain").items():
+            gains[int(name[1:])] = gain
+        return gains
+
+
+def train_cox(
+    x_train: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    *,
+    eval_x: np.ndarray,
+    eval_y: np.ndarray,
+    sample_weight: np.ndarray | None = None,
+    params: dict[str, Any] | None = None,
+    num_boost_round: int = 1000,
+    early_stopping_rounds: int = 50,
+) -> CoxModel:
+    """Cox on censored time to failure; early-stops on validation average
+    precision of the risk against the binary H-day label (as `train_aft`)."""
+    train_matrix = xgb.QuantileDMatrix(
+        x_train, label=cox_labels(lower, upper), weight=sample_weight
+    )
+    eval_matrix = xgb.QuantileDMatrix(eval_x, ref=train_matrix)
+    eval_labels = np.asarray(eval_y)
+
+    def average_precision(predicted: np.ndarray, _: xgb.DMatrix) -> tuple[str, float]:
+        # Either the margin or exp(margin) - both monotone in risk, so AP is the same.
+        return "average_precision", float(average_precision_score(eval_labels, predicted))
+
+    booster = xgb.train(
+        {**COX_PARAMS, **(params or {})},
+        train_matrix,
+        num_boost_round=num_boost_round,
+        evals=[(eval_matrix, "validation")],
+        custom_metric=average_precision,
+        maximize=True,
+        early_stopping_rounds=early_stopping_rounds,
+        verbose_eval=False,
+    )
+    return CoxModel(booster)

@@ -140,6 +140,14 @@ def _batch_fn(dense: DenseTelemetry, rows: pl.DataFrame, window_days: int):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--horizon-days", type=int)
+    parser.add_argument(
+        "--arch",
+        choices=("lstm", "tcn"),
+        default="lstm",
+        help="lstm (default, unchanged) or tcn: the dilated temporal CNN of the merged approach "
+        "(sequence_model.tcn). A tcn run writes its report, scores and weights with a _tcn "
+        "suffix so it never overwrites the LSTM's.",
+    )
     parser.add_argument("--max-train-rows", type=int, help="override sequence_model.max_train_rows")
     parser.add_argument("--max-epochs", type=int, help="override sequence_model.max_epochs")
     parser.add_argument(
@@ -172,7 +180,7 @@ def main() -> None:
 
     import torch  # deferred: the extra is optional
 
-    from src.models.sequence_net import SequenceNet, predict_scores, train_sequence_net
+    from src.models.sequence_net import build_sequence_net, predict_scores, train_sequence_net
 
     configure_logging()
     apply_memory_limit_from_config()
@@ -186,7 +194,8 @@ def main() -> None:
     # validation subsample and the runs differ only in the model.
     subsample_seed = seq_cfg.get("seed", 0)
     seed = args.seed if args.seed is not None else subsample_seed
-    tag_suffix = f"_{args.tag}" if args.tag else ""
+    tag_suffix = ("_tcn" if args.arch == "tcn" else "") + (f"_{args.tag}" if args.tag else "")
+    arch_cfg = seq_cfg.get("tcn", {}) if args.arch == "tcn" else seq_cfg
     torch.set_num_threads(args.threads)
 
     gold_dir = Path(data_config["gold_dir"])
@@ -242,15 +251,19 @@ def main() -> None:
     train_batch = _batch_fn(dense, train_rows, window_days)
     early_batch = _batch_fn(dense, early_rows, window_days)
 
-    model = SequenceNet(
+    torch.manual_seed(seed)  # initial weights: same seed, same network
+    model = build_sequence_net(
+        args.arch,
         n_channels=dense.n_channels,
         n_static=static_feature_count(),
-        hidden_size=args.hidden_size or seq_cfg["hidden_size"],
+        hidden_size=args.hidden_size or arch_cfg.get("hidden_size", seq_cfg["hidden_size"]),
         num_layers=seq_cfg["num_layers"],
-        dropout=args.dropout if args.dropout is not None else seq_cfg["dropout"],
+        dropout=args.dropout
+        if args.dropout is not None
+        else arch_cfg.get("dropout", seq_cfg["dropout"]),
     )
 
-    def validation_average_precision(current: SequenceNet) -> float:
+    def validation_average_precision(current: torch.nn.Module) -> float:
         scores = predict_scores(current, early_batch, early_rows.height)
         return float(average_precision_score(y_early, scores))
 
@@ -308,6 +321,10 @@ def main() -> None:
         scores = predict_scores(model, _batch_fn(dense, part, window_days), part.height)
         return part["drive_idx"].to_numpy(), part["label"].to_numpy(), scores
 
+    def split_day_idx(name: str) -> np.ndarray:
+        # Same order as score_split, so rows can be joined back to (drive_id, date).
+        return parts[name].sort(["drive_idx", "day_idx"])["day_idx"].to_numpy()
+
     t_score = time.perf_counter()
     val_ids, y_val, val_scores = score_split("validation")
     logger.info(
@@ -324,7 +341,7 @@ def main() -> None:
     )
     test_ids, y_test, test_scores = score_split("test")
     if args.drive_fraction >= 1.0:  # a smoke run is not a test-set evaluation
-        record_test_access(variant="lstm", purpose="train_sequence_model headline test metrics")
+        record_test_access(variant=args.arch, purpose="train_sequence_model headline test metrics")
     logger.info(
         "sequence_test_scored", rows=len(y_test), seconds=round(time.perf_counter() - t_score, 1)
     )
@@ -332,7 +349,7 @@ def main() -> None:
     threshold = threshold_result["threshold"]
     report = {
         "horizon_days": horizon_days,
-        "model_type": "lstm",
+        "model_type": args.arch,
         "drive_fraction": args.drive_fraction,
         "seed": seed,
         "tag": args.tag,
@@ -376,8 +393,11 @@ def main() -> None:
         test_drive_idx=test_ids,
         test_label=y_test,
         test_score=test_scores,
+        validation_day_idx=split_day_idx("validation"),
+        test_day_idx=split_day_idx("test"),
+        start_date=np.array(str(start_date)),
     )
-    torch.save(model.state_dict(), out_dir / f"lstm_h{horizon_days}{tag_suffix}.pt")
+    torch.save(model.state_dict(), out_dir / f"{args.arch}_h{horizon_days}{tag_suffix}.pt")
     logger.info(
         "sequence_report_written",
         path=str(report_path),

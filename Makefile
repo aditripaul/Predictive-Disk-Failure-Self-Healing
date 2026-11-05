@@ -2,7 +2,7 @@
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
-	build-sequences train-lstm train-sequence score-fleet plots \
+	build-sequences train-lstm train-sequence train-merged score-fleet plots \
 	agent-demo agent-fleet agent-pit family-calibration plot-late-hits dashboard api final-report
 
 # --- setup -----------------------------------------------------------------
@@ -139,6 +139,9 @@ train:
 
 train-sequence:
 	uv run --extra torch python pipelines/train_sequence_model.py $(SEQUENCE_ARGS)
+
+train-merged:
+	uv run python pipelines/train_merged_models.py $(MERGED_ARGS)
 
 experiment-model:
 	uv run python pipelines/experiment_model.py $(EXPERIMENT_ARGS)

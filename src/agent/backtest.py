@@ -124,6 +124,9 @@ def _bucket(
         "with_labels": len(with_labels),
         "caught": len(caught),
         "precision": len(caught) / len(with_labels) if with_labels else None,
+        # Only acted tiers count toward agent_precision; a warn/monitor row is
+        # the hit rate of drives the agent did NOT remove from service.
+        "acted": label.split(" ")[0] in ACTIVE_ACTIONS,
     }
 
 
@@ -197,7 +200,9 @@ def score_decisions(
     acted_observed = acted & observed
     caught = acted_observed & failing
 
-    precision = len(caught) / len(acted_observed) if acted_observed else 0.0
+    # None, not 0.0, when nothing was acted on: there is nothing to score,
+    # matching the per-tier rows (which report None for an empty bucket).
+    precision = len(caught) / len(acted_observed) if acted_observed else None
     recall = len(caught) / len(failing) if failing else 0.0
 
     eligible = above_threshold_count if above_threshold_count is not None else candidate_count

@@ -59,8 +59,71 @@ class SequenceNet(nn.Module):
         return logits
 
 
+class TemporalConvNet(nn.Module):
+    """Dilated temporal CNN over the same 30-day window (merged approach,
+    ported from aryan_v2's `sequence.TCN`): four conv blocks with dilations
+    1, 2, 4, 8, then mean-, max- and last-step pooling joined with the static
+    vector. The window ends on the scored day (`gather_windows`), so the
+    symmetric padding sees no day after it. aryan_v2 embedded the drive
+    family; here the static vector this repo's LSTM uses takes its place, so
+    the two sequence models differ only in architecture."""
+
+    def __init__(
+        self,
+        n_channels: int,
+        n_static: int,
+        hidden_size: int = 64,
+        dilations: tuple[int, ...] = (1, 2, 4, 8),
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        layers: list[nn.Module] = []
+        c = n_channels
+        for d in dilations:
+            layers += [
+                nn.Conv1d(c, hidden_size, 3, padding=d, dilation=d),
+                nn.BatchNorm1d(hidden_size),
+                nn.GELU(),
+            ]
+            c = hidden_size
+        self.conv = nn.Sequential(*layers)
+        self.static = nn.Sequential(nn.Linear(n_static, 16), nn.ReLU())
+        self.head = nn.Sequential(
+            nn.Linear(3 * hidden_size + 16, 64),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(64, 1),
+        )
+
+    def forward(self, x: torch.Tensor, static: torch.Tensor) -> torch.Tensor:
+        z = self.conv(x.transpose(1, 2))
+        pooled = torch.cat([z.mean(2), z.amax(2), z[:, :, -1], self.static(static)], dim=1)
+        logits: torch.Tensor = self.head(pooled).squeeze(-1)
+        return logits
+
+
+SEQUENCE_ARCHS = ("lstm", "tcn")
+
+
+def build_sequence_net(
+    arch: str,
+    n_channels: int,
+    n_static: int,
+    *,
+    hidden_size: int = 64,
+    num_layers: int = 2,
+    dropout: float = 0.1,
+) -> nn.Module:
+    """`SequenceNet` (LSTM) or `TemporalConvNet` by name."""
+    if arch == "lstm":
+        return SequenceNet(n_channels, n_static, hidden_size, num_layers, dropout)
+    if arch == "tcn":
+        return TemporalConvNet(n_channels, n_static, hidden_size, dropout=dropout)
+    raise ValueError(f"unknown sequence arch {arch!r}; expected one of {SEQUENCE_ARCHS}")
+
+
 def predict_scores(
-    model: SequenceNet, batch_fn: BatchFn, n_rows: int, *, batch_size: int = 16384
+    model: nn.Module, batch_fn: BatchFn, n_rows: int, *, batch_size: int = 16384
 ) -> np.ndarray:
     """Probabilities for rows `0..n_rows-1`, in order."""
     model.eval()
@@ -75,11 +138,11 @@ def predict_scores(
 
 
 def train_sequence_net(
-    model: SequenceNet,
+    model: nn.Module,
     train_batch_fn: BatchFn,
     y_train: np.ndarray,
     *,
-    evaluate: Callable[[SequenceNet], float],
+    evaluate: Callable[[nn.Module], float],
     positive_weight_power: float = 0.5,
     learning_rate: float = 2e-3,
     batch_size: int = 2048,
@@ -87,7 +150,7 @@ def train_sequence_net(
     patience: int = 3,
     seed: int = 0,
     on_epoch: Callable[[int, float, float], None] | None = None,
-) -> tuple[SequenceNet, list[dict[str, float]]]:
+) -> tuple[nn.Module, list[dict[str, float]]]:
     """Trains `model` and returns it with the best-validation weights restored,
     plus per-epoch `{"epoch", "loss", "validation_average_precision"}`.
 

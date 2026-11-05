@@ -252,6 +252,40 @@ sequence_model:
   max_train_rows: 3000000
   early_stopping_max_negatives: 500000
   seed: 0
+  # `make train-sequence SEQUENCE_ARGS="--arch tcn"`: the dilated temporal CNN
+  # of the merged approach (aryan_v2 sequence.TCN). Everything not set here
+  # (window, attributes, learning rate, batch, epochs, patience, negatives cap,
+  # seed) is the LSTM's, so the two differ only in architecture.
+  tcn:
+    hidden_size: 64
+    dropout: 0.1
+
+# Merged approach (`make train-merged`): aryan_v2's survival and sequence
+# models as stages on this pipeline's frame, splits and evaluation, plus
+# validation-rank blends of them with the LightGBM (two-stage) score. Reads the
+# work dir and scores that `make train TRAIN_ARGS="--keep-work-dir --save-scores"`
+# and `make train-sequence` (LSTM, then SEQUENCE_ARGS="--arch tcn") leave.
+merged_models:
+  seed: 0
+  # Survival stages, trained on the train rows with outcomes censored at
+  # train_end (`survival_bounds`, cutoff = last train row + horizon).
+  aft:
+    weighting: none          # none | spw (as experiment_model's xgboost_aft[_spw])
+  cox:
+    weighting: none
+  num_boost_round: 1000
+  early_stopping_rounds: 50
+  early_stopping_max_negatives: 1500000
+  # Rows must be scored by every member to be compared; fewer than this share
+  # of the LightGBM rows in common fails the run instead of quietly comparing
+  # different populations.
+  min_join_coverage: 0.95
+  # Members by name: lightgbm, aft, cox, lstm, tcn. Equal weights.
+  ensembles:
+    lgbm_aft_tcn: [lightgbm, aft, tcn]
+    lgbm_lstm_aft_tcn: [lightgbm, lstm, aft, tcn]
+  # The blend `make agent-fleet ARGS="--scores-path ..."` acts on.
+  agent_ensemble: lgbm_lstm_aft_tcn
 
 mlflow:
   tracking_uri: sqlite:///mlflow/mlflow.db

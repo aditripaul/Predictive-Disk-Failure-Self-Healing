@@ -40,6 +40,7 @@ import argparse
 import datetime as dt
 import json
 import tempfile
+import time
 import uuid
 from collections import Counter
 from pathlib import Path
@@ -69,8 +70,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--start-date", default=None, metavar="YYYY-MM-DD")
     parser.add_argument("--end-date", default=None, metavar="YYYY-MM-DD")
     parser.add_argument("--run-id", default=None, help="MLflow run; default: latest for horizon")
-    parser.add_argument("--cycles", type=int, default=1)
+    parser.add_argument(
+        "--cycles",
+        type=int,
+        default=1,
+        help="Agent cycles; each decides ONE drive. 0 = run until the candidate "
+        "pool is exhausted (bounded by candidates x max selections per drive).",
+    )
     parser.add_argument("--max-candidates", type=int, default=DEFAULT_MAX_CANDIDATES)
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=500,
+        metavar="N",
+        help="Log progress every N cycles (0 = off).",
+    )
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument(
         "--checkpoint-path",
@@ -81,6 +95,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "checkpoint per node exhausted 20 GB). Not the configured path "
         "either, because that would let one run resume another's per-drive "
         "hysteresis and cooldown state. Pass a path to override.",
+    )
+    parser.add_argument(
+        "--scores-path",
+        type=Path,
+        default=None,
+        help="Act on precomputed scores (merged approach: <scratch>/merged/"
+        "merged_scores_h30.parquet from `make train-merged`) instead of an MLflow "
+        "model. The column and action tiers come from agent_thresholds_h30.json beside it.",
     )
     parser.add_argument(
         "--thread-id",
@@ -154,6 +176,7 @@ def main(argv: list[str] | None = None) -> None:
         end_date=_date(args.end_date),
         run_id=args.run_id,
         max_candidates=args.max_candidates,
+        scores_path=args.scores_path,
     )
 
     decisions: list[dict] = []
@@ -188,7 +211,13 @@ def main(argv: list[str] | None = None) -> None:
             plan_kwargs=fleet.plan_kwargs,
         ) as app,
     ):
-        for cycle in range(args.cycles):
+        # --cycles 0: until the pool empties. Every cycle either removes a
+        # drive or counts a selection toward its max_selections, so this
+        # bound is never reached before the pool is exhausted.
+        n_cycles = args.cycles or len(fleet.candidates) * max_selections
+        started = time.monotonic()
+        decided: set[str] = set()
+        for cycle in range(n_cycles):
             result = app.invoke({"drive_risk_state": risk_state}, config=config)
             proposal = result.get("proposed_action")
             if proposal is None:
@@ -207,11 +236,26 @@ def main(argv: list[str] | None = None) -> None:
                     "human_review_required": result["human_review_required"],
                 }
             )
+            decided.add(proposal["drive_id"])
             reason = advance_pool(
                 fleet.candidates, proposal, selections, max_selections=max_selections
             )
             if reason is not None:
                 removed[proposal["drive_id"]] = reason
+            if args.progress_every and (cycle + 1) % args.progress_every == 0:
+                elapsed = time.monotonic() - started
+                per_drive = elapsed / len(decided)
+                remaining = len(fleet.candidates)
+                logger.info(
+                    "agent_fleet_progress",
+                    cycle=cycle + 1,
+                    elapsed_s=round(elapsed, 1),
+                    drives_decided=len(decided),
+                    pool_remaining=remaining,
+                    sec_per_decided_drive=round(per_drive, 3),
+                    projected_remaining_s=round(remaining * per_drive, 1),
+                    projected_total_s=round(elapsed + remaining * per_drive, 1),
+                )
             # Prune to drives still in the pool: a drive that has left can
             # never be selected again, so its counters are dead weight that
             # every subsequent checkpoint would carry.

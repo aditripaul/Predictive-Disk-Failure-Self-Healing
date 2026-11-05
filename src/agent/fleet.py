@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -66,9 +67,11 @@ DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
 AGENT_CONFIG_PATH = Path("configs/agent.yaml")
 
-#: How many drives reach checkpointed state. Only the highest-scoring one is
-#: ever acted on, so this bounds the checkpoint rather than the decision.
-DEFAULT_MAX_CANDIDATES = 100
+#: How many above-threshold drives the replay pool holds. Each cycle decides
+#: one drive, so drives past this cap are never decided at all. 100 truncated
+#: 2,274 of 2,374 above-threshold test drives on the full run; 5000 holds them
+#: all. Override with `--max-candidates`.
+DEFAULT_MAX_CANDIDATES = 5000
 #: Left-side rows per slice of the snapshot join. Smaller than the training
 #: join's 2,000,000 because each slice is read at full width: 500k x 246
 #: float64 is under 1 GB, where 2M would be 3.9 GB for an output that is one
@@ -305,6 +308,48 @@ def _recording_executor(executed: list[dict[str, Any]]):
     return execute, validate
 
 
+def load_precomputed_scores(
+    scores_path: Path, fallback_thresholds: dict[str, float]
+) -> tuple[pl.DataFrame, str, dict[str, float]]:
+    """`(drive_id, date, p_fail)` from a `train_merged_models` scores parquet,
+    the run id the agent logs for it, and its validation-tuned action tiers
+    (from the `agent_thresholds_h*.json` beside it; tiers with no reachable
+    threshold fall back to configs/agent.yaml, as for an MLflow run)."""
+    from src.models.threshold import resolve_action_thresholds
+
+    horizon_tag = scores_path.stem.rsplit("_", 1)[-1]  # merged_scores_h30 -> h30
+    meta_path = scores_path.with_name(f"agent_thresholds_{horizon_tag}.json")
+    if not meta_path.exists():
+        raise FileNotFoundError(f"{meta_path} not found; run `make train-merged` first.")
+    meta = json.loads(meta_path.read_text())
+    column = meta["score_column"]
+    scores = pl.read_parquet(scores_path, columns=["drive_id", "date", column]).rename(
+        {column: "p_fail"}
+    )
+    if scores.select("drive_id", "date").is_duplicated().any():
+        raise ValueError(f"{scores_path} repeats a (drive_id, date) row")
+    thresholds = resolve_action_thresholds(meta["action_tiers"], fallback_thresholds)
+    return scores, f"precomputed:{column}", thresholds
+
+
+def join_precomputed_scores(snapshot: pl.DataFrame, scores: pl.DataFrame) -> pl.DataFrame:
+    """The snapshot rows that have a precomputed score, with it as `p_fail`.
+    A drive whose snapshot day was not scored (outside the evaluated splits)
+    is left out and logged rather than given an invented score."""
+    joined = snapshot.join(
+        scores.with_columns(pl.col("date").cast(snapshot.schema["date"])),
+        on=["drive_id", "date"],
+        how="inner",
+    )
+    logger.info(
+        "precomputed_scores_joined",
+        snapshot_drives=snapshot.height,
+        scored_drives=joined.height,
+        unscored_drives=snapshot.height - joined.height,
+    )
+    return joined
+
+
 def build_fleet_dependencies(
     *,
     start_date: dt.date | None = None,
@@ -315,8 +360,14 @@ def build_fleet_dependencies(
     data_config: dict | None = None,
     model_config: dict | None = None,
     agent_config: dict | None = None,
+    scores_path: Path | None = None,
 ) -> FleetAgent:
     """Bind the MAPE-K loop to the real gold feature table and trained model.
+
+    `scores_path` (merged approach): act on precomputed scores instead of an
+    MLflow model - `train_merged_models`' `merged_scores_h*.parquet`, with the
+    `agent_thresholds_h*.json` written beside it naming the column and its
+    action tiers (tuned on validation). See `load_precomputed_scores`.
 
     The snapshot is built once, here, because `fleet_state_provider` is
     called twice per cycle and a real scan is not free. To advance the clock,
@@ -332,15 +383,21 @@ def build_fleet_dependencies(
     if not metadata_path.exists():
         raise FileNotFoundError(f"{metadata_path} not found; run `make build-silver` first.")
 
-    import mlflow
+    precomputed: pl.DataFrame | None = None
+    if scores_path is not None:
+        precomputed, resolved_run_id, action_thresholds = load_precomputed_scores(
+            Path(scores_path), agent_config["action_thresholds"]
+        )
+    else:
+        import mlflow
 
-    mlflow.set_tracking_uri(model_config["mlflow"]["tracking_uri"])
-    resolved_run_id = run_id or latest_run_id_for_horizon(
-        model_config["mlflow"]["experiment_name"], model_config["primary_horizon_days"]
-    )
-    action_thresholds = action_thresholds_for_run(
-        resolved_run_id, agent_config["action_thresholds"]
-    )
+        mlflow.set_tracking_uri(model_config["mlflow"]["tracking_uri"])
+        resolved_run_id = run_id or latest_run_id_for_horizon(
+            model_config["mlflow"]["experiment_name"], model_config["primary_horizon_days"]
+        )
+        action_thresholds = action_thresholds_for_run(
+            resolved_run_id, agent_config["action_thresholds"]
+        )
 
     if overlaps_test_split(start_date, end_date, model_config["splits"]):
         record_test_access(
@@ -360,9 +417,13 @@ def build_fleet_dependencies(
         end_date=end_date,
         chunk_rows=DEFAULT_SNAPSHOT_CHUNK_ROWS,
     )
-    scored = score_snapshot(
-        snapshot, load_scoring_model(resolved_run_id, model_config["model"].get("type", "lightgbm"))
-    )
+    if precomputed is not None:
+        scored = join_precomputed_scores(snapshot, precomputed)
+    else:
+        scored = score_snapshot(
+            snapshot,
+            load_scoring_model(resolved_run_id, model_config["model"].get("type", "lightgbm")),
+        )
     drives, above_threshold = to_candidate_drives(
         scored, action_thresholds=action_thresholds, max_candidates=max_candidates
     )
