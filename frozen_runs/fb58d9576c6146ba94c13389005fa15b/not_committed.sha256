@@ -1,0 +1,3 @@
+3e1934466c109277d8ddf6dcb13664e1cccad013cdfe1da3c7b3805e08e352fc  <scratch>/lightgbm_scores_h30_h30_seed0.parquet
+263992af8613c7f3989e66a538e92a6008f919e520441fc84892c0472ffd90fe  <scratch>/sequence_model/scores_h30_h30_seed0.npz
+922de5ecb52ff7c0fdd7ed9fd0b2794199c0e866f9980bb7bb47f74fe3e6205b  <scratch>/sequence_model/scores_h30_tcn_h30_seed0.npz

@@ -234,3 +234,44 @@ def test_tagged_scores_find_their_own_thresholds_file(tmp_path) -> None:
     assert t0["warn"] == 0.41 and t1["warn"] == 0.42
     with pytest.raises(ValueError):
         load_precomputed_scores(tmp_path / "other_name.parquet", fallback)
+
+
+def _write_inputs(tmp_path, *, day_idx: bool = True, lgbm_cols: tuple[str, ...] | None = None):
+    from pipelines import train_merged_models as tm
+
+    cols = lgbm_cols if lgbm_cols is not None else tm.LIGHTGBM_COLUMNS
+    lgbm = tmp_path / "lgbm.parquet"
+    pl.DataFrame({c: [1] for c in cols}).write_parquet(lgbm)
+    keys = {k: np.zeros(1) for k in tm.SEQUENCE_KEYS}
+    if not day_idx:
+        keys = {k: v for k, v in keys.items() if not k.endswith("day_idx")}
+    seq = tmp_path / "seq.npz"
+    np.savez(seq, **keys)
+    return lgbm, seq
+
+
+def test_check_inputs_accepts_complete_inputs(tmp_path) -> None:
+    from pipelines import train_merged_models as tm
+
+    lgbm, seq = _write_inputs(tmp_path)
+    tm.check_inputs(lgbm, {"lstm": seq, "tcn": seq})
+
+
+def test_check_inputs_reports_every_problem_before_any_training(tmp_path) -> None:
+    from pipelines import train_merged_models as tm
+
+    lgbm, old_seq = _write_inputs(tmp_path, day_idx=False, lgbm_cols=("split", "drive_id"))
+    with pytest.raises(SystemExit) as exc:
+        tm.check_inputs(lgbm, {"lstm": old_seq, "tcn": tmp_path / "absent.npz"})
+    message = str(exc.value)
+    assert "no column(s)" in message and "date" in message  # LightGBM columns
+    assert "validation_day_idx" in message and "predates the merged approach" in message
+    assert "absent.npz: not found" in message  # all three listed together
+
+
+def test_check_inputs_reports_a_missing_lightgbm_file(tmp_path) -> None:
+    from pipelines import train_merged_models as tm
+
+    _, seq = _write_inputs(tmp_path)
+    with pytest.raises(SystemExit, match="not found"):
+        tm.check_inputs(tmp_path / "none.parquet", {"lstm": seq})

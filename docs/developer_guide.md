@@ -110,6 +110,9 @@ would fail with "ruff: command not found."
 | `make full-experiment` / `clean-kept` / `full-pipeline` | Train with kept arrays then run the experiment; remove kept work directories; ingest through plots |
 | `make build-sequences` / `train-lstm` | Optional LSTM comparison branch (§5.7) - `train-lstm` requires `uv sync --extra torch` |
 | `make train-sequence` | LSTM over each drive's raw 30-day history, evaluated like `make train` so the two compare directly (§5.7.1); needs the torch extra |
+| `make train-merged` | AFT and Cox survival models plus validation-rank blends with the LightGBM, LSTM and TCN scores, compared on identical rows; `MERGED_TAG`, `MERGED_ARGS` (`docs/pipeline_usage.md`, "Merged approach") |
+| `make train-all RUN_TAG=<tag>` | `train`, the LSTM, the TCN and `train-merged` in order under one tag (about 2.5 to 3 hours); the individual targets are unchanged |
+| `make pack-merged-scores` / `unpack-merged-scores` | Pack a `train-merged` score table into parts under 50 MB for git and rebuild it exactly (`src/models/score_pack.py`) |
 | `make score-fleet` | Batch-scores the current fleet with the latest MLflow run for `primary_horizon_days` (and that run's second-stage model and tier thresholds, when it has them); writes `data/audit/predictions/` (§5.8) |
 | `make evaluate-frozen` | Scores one sealed or external split, once, against a frozen run: `ARGS="--run-id <id> --split sealed\|external_smartz"`. Writes `data/audit/frozen_evaluations/` and refuses a repeat (§5.14) |
 | `make plots` | Renders performance plots (calibration, ROC curves, feature importance, failures by drive family, class imbalance, metric comparison; SHAP when enabled) to `data/audit/plots/` (§5.9) |

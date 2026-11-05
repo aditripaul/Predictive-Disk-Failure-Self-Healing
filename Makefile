@@ -2,7 +2,7 @@
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
-	build-sequences train-lstm train-sequence train-merged score-fleet plots \
+	build-sequences train-lstm train-sequence train-merged train-all pack-merged-scores unpack-merged-scores score-fleet plots \
 	agent-demo agent-fleet agent-pit family-calibration plot-late-hits dashboard api final-report
 
 # --- setup -----------------------------------------------------------------
@@ -154,6 +154,39 @@ train-sequence:
 # MERGED_ARGS to replace), and never writes the files `make train` produces.
 train-merged:
 	uv run python pipelines/train_merged_models.py $(if $(MERGED_TAG),--tag $(MERGED_TAG)) $(MERGED_ARGS)
+
+# A train-merged score table is about 1 GB, over GitHub's 100 MB file limit. Pack it
+# into parts under 50 MB (drops the recomputable blend columns, stores the sequence
+# nets' scores as exact float32) and rebuild it; the pack is verified equal to the
+# original before it finishes. Both refuse to overwrite existing output (add
+# --overwrite via PACK_ARGS).
+#   make pack-merged-scores SCORES=data/tmp/merged/merged_scores_h30_h30_seed0.parquet \
+#       PACK_DIR=frozen_runs/<run id>/scores
+#   make unpack-merged-scores PACK_DIR=frozen_runs/<run id>/scores \
+#       OUT=data/tmp/merged/merged_scores_rebuilt.parquet
+pack-merged-scores:
+	@test -n "$(SCORES)" -a -n "$(PACK_DIR)" || { echo "usage: make pack-merged-scores SCORES=<parquet> PACK_DIR=<dir>"; exit 2; }
+	uv run python scripts/pack_merged_scores.py pack $(SCORES) $(PACK_DIR) $(PACK_ARGS)
+
+unpack-merged-scores:
+	@test -n "$(PACK_DIR)" -a -n "$(OUT)" || { echo "usage: make unpack-merged-scores PACK_DIR=<dir> OUT=<parquet>"; exit 2; }
+	uv run python scripts/pack_merged_scores.py rebuild $(PACK_DIR) $(OUT) $(PACK_ARGS)
+
+# The whole merged-approach comparison under one tag: LightGBM (keeping the training
+# arrays and saving scores), the LSTM, the TCN, then train-merged on exactly those
+# outputs. Each step is the individual target with the tag threaded through, so the
+# steps can also be run one at a time (to resume after a failure, run the remaining
+# ones: a tagged step refuses to overwrite its own earlier outputs).
+#   make train-all RUN_TAG=h30_seed0              # about 2.5 to 3 hours on this data
+#   make train-all RUN_TAG=h30_seed0 HORIZON=30   # HORIZON defaults to 30
+# Leaves the kept training arrays (several GB) in data/tmp/; `make clean-kept` removes them.
+HORIZON ?= 30
+train-all:
+	@test -n "$(RUN_TAG)" || { echo "usage: make train-all RUN_TAG=<tag>  (e.g. h30_seed0)"; exit 2; }
+	$(MAKE) train TRAIN_TAG=$(RUN_TAG) TRAIN_ARGS="--horizon-days $(HORIZON) --keep-work-dir --save-scores"
+	$(MAKE) train-sequence SEQUENCE_ARGS="--arch lstm --horizon-days $(HORIZON) --tag $(RUN_TAG)"
+	$(MAKE) train-sequence SEQUENCE_ARGS="--arch tcn --horizon-days $(HORIZON) --tag $(RUN_TAG)"
+	$(MAKE) train-merged MERGED_TAG=$(RUN_TAG) MERGED_ARGS="--lightgbm-scores data/tmp/lightgbm_scores_h$(HORIZON)_$(RUN_TAG).parquet --lstm-scores data/tmp/sequence_model/scores_h$(HORIZON)_$(RUN_TAG).npz --tcn-scores data/tmp/sequence_model/scores_h$(HORIZON)_tcn_$(RUN_TAG).npz"
 
 experiment-model:
 	uv run python pipelines/experiment_model.py $(EXPERIMENT_ARGS)

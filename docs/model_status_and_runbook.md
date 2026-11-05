@@ -120,6 +120,51 @@ the run is not loadable from the repository by id. Its files are copied to
 stages, model card, checksums; see its README) so they can be inspected and
 checked; `score-fleet` and `evaluate-frozen` still read MLflow, not that folder.
 
+### 1.1.2 Frozen merged-approach run (2026-11-05)
+
+`make train-merged MERGED_TAG=h30_seed0` (MLflow run
+`fb58d9576c6146ba94c13389005fa15b`), the first complete run of the merged
+approach. It compares XGBoost AFT and Cox survival models, the LightGBM
+two-stage (run `839d92bc`, Section 1.1.1), an LSTM and a TCN, and two
+rank blends, all on the same 15,359,094 validation and 21,297,371 test
+drive-days (100% coverage for every member) and the Section 2.2 split. Like
+Section 1.1.1 it is **not a replacement** for Section 1.1's run.
+
+| Per drive, threshold chosen on validation | Val precision | Test precision [95% CI] | Test recall | Caught / false alarms | Test AUROC | Test AUPRC |
+|---|---|---|---|---|---|---|
+| LightGBM two-stage | 59.2% | 57.1% [51.6, 62.6] | 12.0% | 178 / 134 | 0.923 | 0.339 |
+| AFT | 64.2% | 68.5% [63.0, 74.1] | 12.4% | 183 / 84 | 0.921 | 0.387 |
+| Cox | 60.6% | 62.9% [57.6, 67.9] | 13.7% | 202 / 119 | 0.927 | 0.357 |
+| LSTM | 44.3% | 52.7% [48.2, 57.1] | 15.6% | 231 / 207 | 0.923 | 0.281 |
+| TCN | 55.5% | 70.5% [65.2, 75.6] | 13.6% | 201 / 84 | 0.900 | 0.348 |
+| Blend LightGBM + AFT + TCN | 66.8% | 70.1% [64.9, 75.0] | 13.7% | 202 / 86 | 0.921 | 0.389 |
+| Blend LightGBM + LSTM + AFT + TCN (agent) | 64.5% | 69.7% [64.4, 75.0] | 12.6% | 186 / 81 | 0.925 | 0.382 |
+
+At matched test false-alarm rates the blends and AFT catch more than
+LightGBM: at 0.1% the LightGBM + AFT + TCN blend recalls 33.3% against 26.8%,
+and at 0.05% 23.6% against 15.7%.
+
+**Read it as "AFT and the blends look better than LightGBM alone", not as a
+confirmed gain.** It is one seed; the test window has been looked at many
+times (`data/audit/test_access_log.jsonl`); the intervals resample drives only,
+so they omit seed-to-seed variation; and the validation precisions are the
+ones the thresholds were tuned on. The TCN's jump from 55.5% on validation to
+70.5% on test comes partly from the higher test base rate (0.417% against
+0.323% of drives; about 6 points) and partly from a 15% lower false-alarm
+rate, on 84 false alarms, which is within sampling noise. AFT is the member
+that beats LightGBM on both splits. **The goal (90% precision at >= 10%
+recall) is not met**; the best figure here is about 70%.
+
+**Do not retrain this run or re-tag over it.** Its files are in
+`frozen_runs/fb58d9576c6146ba94c13389005fa15b/` (report, agent thresholds,
+both boosters, the LSTM and TCN weights, checksums; see its README). The
+1 GB blended score table is committed packed, as 14 parts under 45 MB
+(`make unpack-merged-scores` rebuilds it with every value equal to the
+original, Section 2A of `docs/pipeline_usage.md`); the LightGBM scores and the
+sequence score archives are over GitHub's file limit, so only their checksums
+are committed. Nothing loads from that folder: `score-fleet` and
+`evaluate-frozen` read MLflow, which is local.
+
 ### 1.2 The two-stage gain is not established
 
 Two paired bootstraps now exist, both over the same resampled drives with
