@@ -30,6 +30,7 @@ tags never overwrite each other; `.smoke` is added by `--smoke`):
         (action tiers of `merged_models.agent_ensemble`)
     <scratch>/merged[.smoke]/{aft,cox}_h30[_TAG].json   (the trained boosters)
 
+The run refuses to start if any of these exist (`--overwrite` replaces them).
 Unless `--smoke`, the run is also logged to MLflow (the experiment named in
 configs/model.yaml): the merged_models config, per-model and per-ensemble
 drive-level metrics, and the report, thresholds and boosters as artifacts. The
@@ -77,6 +78,7 @@ from src.models.threshold import (
 )
 from src.models.training import early_stopping_subset
 from src.models.uncertainty import drive_level_bootstrap_ci
+from src.outputs import refuse_overwrite
 from src.resource_limits import apply_memory_limit_from_config
 
 logger = get_logger(__name__)
@@ -277,6 +279,12 @@ def main(argv: list[str] | None = None) -> None:
         "each other (pass the tagged parquet to `agent-fleet --scores-path`).",
     )
     parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace this tag's existing outputs. Without it the run refuses to start if any "
+        "output file already exists.",
+    )
+    parser.add_argument(
         "--smoke",
         action="store_true",
         help="Small-subset run: writes .smoke outputs, records no test access. Not a result.",
@@ -297,6 +305,12 @@ def main(argv: list[str] | None = None) -> None:
     horizon_days = int(meta.get("horizon_days") or model_config["primary_horizon_days"])
     windows = split_windows(model_config, horizon_days)
     suffix = ".smoke" if args.smoke else ""
+    audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
+    out_dir = scratch / f"merged{suffix}"
+    paths = output_paths(
+        audit_dir, out_dir, horizon_days=horizon_days, smoke_suffix=suffix, tag=args.tag
+    )
+    refuse_overwrite(paths.values(), overwrite=args.overwrite)
     t0 = time.perf_counter()
 
     ids = {
@@ -496,13 +510,8 @@ def main(argv: list[str] | None = None) -> None:
         "models": results,
         "elapsed_seconds": round(time.perf_counter() - t0, 1),
     }
-    audit_dir = Path(data_config["audit_dir"]) / "data_quality_reports"
     audit_dir.mkdir(parents=True, exist_ok=True)
-    out_dir = scratch / f"merged{suffix}"
     out_dir.mkdir(parents=True, exist_ok=True)
-    paths = output_paths(
-        audit_dir, out_dir, horizon_days=horizon_days, smoke_suffix=suffix, tag=args.tag
-    )
     report["tag"] = args.tag
 
     # A smoke run is not a result, so it is not tracked (as it records no test access).

@@ -52,6 +52,7 @@ from src.agent.fleet import DEFAULT_MAX_CANDIDATES, build_fleet_dependencies
 from src.agent.graph import compiled_agent
 from src.config import AgentSettings
 from src.logging_config import configure_logging, get_logger
+from src.outputs import refuse_overwrite
 from src.resource_limits import apply_memory_limit_from_config
 
 logger = get_logger(__name__)
@@ -86,6 +87,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Log progress every N cycles (0 = off).",
     )
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace --out if it exists. Without it the run refuses to start, so a run on "
+        "merged scores (--scores-path) needs its own --out to be compared with another.",
+    )
     parser.add_argument(
         "--checkpoint-path",
         default=None,
@@ -170,6 +177,7 @@ def main(argv: list[str] | None = None) -> None:
     configure_logging()
     apply_memory_limit_from_config()
     args = parse_args(argv)
+    refuse_overwrite([args.out], overwrite=args.overwrite)
 
     fleet = build_fleet_dependencies(
         start_date=_date(args.start_date),

@@ -116,7 +116,7 @@ def test_a_two_cycle_drive_leaves_nothing_behind():
     assert peak <= 2, f"risk state peaked at {peak} entries"
 
 
-def test_the_default_checkpoint_is_a_file_not_memory():
+def test_the_default_checkpoint_is_a_file_not_memory(tmp_path):
     """:memory: retains every checkpoint in RAM; a 10,000-cycle run holds
     its whole history."""
     from pipelines.run_agent_fleet import parse_args
@@ -146,7 +146,7 @@ def test_the_default_checkpoint_is_a_file_not_memory():
         with pytest.raises(RuntimeError, match="stop before"):
             from pipelines.run_agent_fleet import main
 
-            main(["--cycles", "1"])
+            main(["--cycles", "1", "--out", str(tmp_path / "run.json")])
 
     assert captured["path"] != ":memory:"
     assert captured["path"].endswith("checkpoints.sqlite")

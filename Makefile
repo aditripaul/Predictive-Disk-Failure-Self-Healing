@@ -137,11 +137,18 @@ build-labels:
 train:
 	uv run python pipelines/train_model.py $(TRAIN_ARGS)
 
+# Refuses to overwrite an existing report/scores/weights; give each run its own
+# `--tag` (SEQUENCE_ARGS="--arch tcn --tag s1") or add --overwrite.
 train-sequence:
 	uv run --extra torch python pipelines/train_sequence_model.py $(SEQUENCE_ARGS)
 
+# `make train-merged MERGED_TAG=h30_seed0` tags every output (report, scores,
+# thresholds, boosters) with _h30_seed0 so it does not overwrite another run's, and
+# names the MLflow run after it. Extra flags (e.g. --smoke): MERGED_ARGS=... .
+# It refuses to start if any output for that tag exists (add --overwrite via
+# MERGED_ARGS to replace), and never writes the files `make train` produces.
 train-merged:
-	uv run python pipelines/train_merged_models.py $(MERGED_ARGS)
+	uv run python pipelines/train_merged_models.py $(if $(MERGED_TAG),--tag $(MERGED_TAG)) $(MERGED_ARGS)
 
 experiment-model:
 	uv run python pipelines/experiment_model.py $(EXPERIMENT_ARGS)
@@ -180,6 +187,8 @@ agent-demo:
 #   make agent-fleet ARGS="--start-date 2026-04-01 --end-date 2026-05-31 --cycles 50"
 # The second is a backtest on the test split and records a test-split
 # access (src/models/access_log.py).
+# Refuses to overwrite --out (default data/audit/agent_fleet_run.json): give a
+# run on merged scores its own, e.g. ARGS="--scores-path ... --out data/audit/agent_fleet_merged_h30_seed0.json".
 agent-fleet:
 	uv run python pipelines/run_agent_fleet.py $(ARGS)
 

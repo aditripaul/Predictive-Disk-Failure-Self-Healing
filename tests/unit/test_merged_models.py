@@ -169,12 +169,12 @@ def test_tag_keeps_untagged_names_and_separates_tagged_runs(tmp_path) -> None:
 
     kwargs = {"horizon_days": 30, "smoke_suffix": ""}
     plain = tm.output_paths(tmp_path, tmp_path, tag=None, **kwargs)
-    a = tm.output_paths(tmp_path, tmp_path, tag="run1", **kwargs)
-    b = tm.output_paths(tmp_path, tmp_path, tag="run2", **kwargs)
+    a = tm.output_paths(tmp_path, tmp_path, tag="h30_seed0", **kwargs)
+    b = tm.output_paths(tmp_path, tmp_path, tag="h30_seed1", **kwargs)
     assert plain["report"].name == "merged_evaluation_report.json"
     assert plain["scores"].name == "merged_scores_h30.parquet"
     assert plain["thresholds"].name == "agent_thresholds_h30.json"
-    assert a["scores"].name == "merged_scores_h30_run1.parquet"
+    assert a["scores"].name == "merged_scores_h30_h30_seed0.parquet"
     assert not set(a.values()) & set(b.values())
     assert not set(a.values()) & set(plain.values())
     smoke = tm.output_paths(tmp_path, tmp_path, horizon_days=30, smoke_suffix=".smoke", tag="x")
