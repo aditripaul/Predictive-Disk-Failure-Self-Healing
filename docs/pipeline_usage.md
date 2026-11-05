@@ -340,19 +340,32 @@ Trains XGBoost AFT and Cox survival models on the kept training arrays and
 compares them, side by side and as validation-rank blends, with the two-stage
 LightGBM and the LSTM and TCN scores, on the same rows, split dates and
 drive-level metrics (`pipelines/train_merged_models.py`). It trains no
-LightGBM, LSTM or TCN itself, so run these first, each with a tag so nothing is
-overwritten:
+LightGBM, LSTM or TCN itself, so those run first, each with the same tag so nothing
+is overwritten. One command does all four steps:
 
 ```bash
-make train TRAIN_TAG=h30_seed0 TRAIN_ARGS="--keep-work-dir --save-scores"
-make train-sequence SEQUENCE_ARGS="--arch tcn --tag h30_seed0"
-make train-merged MERGED_TAG=h30_seed0 MERGED_ARGS="--lightgbm-scores data/tmp/lightgbm_scores_h30_h30_seed0.parquet"
+make train-all RUN_TAG=h30_seed0       # about 2.5 to 3 hours; HORIZON=30 by default
 ```
 
-`--lightgbm-scores` is needed because a tagged `make train` names its scores file
-with the tag. The LSTM scores are read from `data/tmp/sequence_model/scores_h30.npz`
-unless `--lstm-scores` is given, and the kept work dir is the newest
-`train_model_frame_*` unless `--work-dir` is given.
+which is exactly:
+
+```bash
+make train TRAIN_TAG=h30_seed0 TRAIN_ARGS="--horizon-days 30 --keep-work-dir --save-scores"
+make train-sequence SEQUENCE_ARGS="--arch lstm --horizon-days 30 --tag h30_seed0"
+make train-sequence SEQUENCE_ARGS="--arch tcn --horizon-days 30 --tag h30_seed0"
+make train-merged MERGED_TAG=h30_seed0 MERGED_ARGS="--lightgbm-scores data/tmp/lightgbm_scores_h30_h30_seed0.parquet --lstm-scores data/tmp/sequence_model/scores_h30_h30_seed0.npz --tcn-scores data/tmp/sequence_model/scores_h30_tcn_h30_seed0.npz"
+```
+
+`train-all` stops at the first failing step. To resume, run the remaining steps from
+the list above: a tagged step refuses to overwrite its own earlier outputs, so
+re-running `train-all` with the same tag stops at step 1. It leaves the kept training
+arrays (several GB) in `data/tmp/`; `make clean-kept` removes them.
+
+The three score paths are passed explicitly because a tagged run names its outputs
+with the tag (the defaults are the untagged names). A sequence-score file written
+before the merged approach has no day indices and is rejected before any model
+trains. The kept work dir is the newest `train_model_frame_*` unless `--work-dir`
+is given.
 
 | Option | Effect |
 |---|---|
@@ -460,6 +473,7 @@ Expect it to take well over an hour on Q1 alone.
 | `make final-report` | Writes `data/audit/data_quality_reports/final_evaluation_report.json`: the model's drive-level results and action tiers, a goal-status section (target met or not, and the gap), the data period, and the chaos, latency and crash-recovery test results. Runs those tests, so it takes a few minutes. |
 | `make agent-demo` | Runs the decision-agent demo once. |
 | `make train-merged` | AFT and Cox survival models plus rank blends with LightGBM, LSTM and TCN, compared on the same rows. `MERGED_TAG` and `MERGED_ARGS`; see "Merged approach" above. |
+| `make train-all RUN_TAG=<tag>` | The four merged-approach steps under one tag: `train` (keeping arrays, saving scores), `train-sequence` for the LSTM and the TCN, then `train-merged` on those outputs. About 2.5 to 3 hours; see "Merged approach" above. |
 | `make pack-merged-scores`, `make unpack-merged-scores` | Pack a `train-merged` score table into parts under 50 MB for git, and rebuild it exactly (see "Packing a score table for git"). |
 | `make agent-fleet` | Runs the decision loop on the real gold features and the trained model, executor simulated (section 2.8). Refuses to overwrite `--out` (default `data/audit/agent_fleet_run.json`); give a new `--out` or add `--overwrite`. |
 | `make agent-pit` | Measures the flagging policy at fixed dates (section 2.8). |
