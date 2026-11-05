@@ -1,0 +1,104 @@
+{
+  "columns": [
+    "drive_id",
+    "date",
+    "label",
+    "aft",
+    "cox",
+    "lightgbm",
+    "lstm",
+    "tcn",
+    "lgbm_aft_tcn",
+    "lgbm_lstm_aft_tcn",
+    "split"
+  ],
+  "float32_columns": [
+    "lstm",
+    "tcn"
+  ],
+  "dtypes": {
+    "drive_id": "String",
+    "date": "Date",
+    "label": "Int8",
+    "aft": "Float64",
+    "cox": "Float64",
+    "lightgbm": "Float64",
+    "lstm": "Float64",
+    "tcn": "Float64",
+    "lgbm_aft_tcn": "Float64",
+    "lgbm_lstm_aft_tcn": "Float64",
+    "split": "String"
+  },
+  "ensembles": {
+    "lgbm_aft_tcn": [
+      "lightgbm",
+      "aft",
+      "tcn"
+    ],
+    "lgbm_lstm_aft_tcn": [
+      "lightgbm",
+      "lstm",
+      "aft",
+      "tcn"
+    ]
+  },
+  "rows": 36656465,
+  "parts": [
+    {
+      "file": "part-00.parquet",
+      "rows": 2800000
+    },
+    {
+      "file": "part-01.parquet",
+      "rows": 2800000
+    },
+    {
+      "file": "part-02.parquet",
+      "rows": 2800000
+    },
+    {
+      "file": "part-03.parquet",
+      "rows": 2800000
+    },
+    {
+      "file": "part-04.parquet",
+      "rows": 2800000
+    },
+    {
+      "file": "part-05.parquet",
+      "rows": 2800000
+    },
+    {
+      "file": "part-06.parquet",
+      "rows": 2800000
+    },
+    {
+      "file": "part-07.parquet",
+      "rows": 2800000
+    },
+    {
+      "file": "part-08.parquet",
+      "rows": 2800000
+    },
+    {
+      "file": "part-09.parquet",
+      "rows": 2800000
+    },
+    {
+      "file": "part-10.parquet",
+      "rows": 2800000
+    },
+    {
+      "file": "part-11.parquet",
+      "rows": 2800000
+    },
+    {
+      "file": "part-12.parquet",
+      "rows": 2800000
+    },
+    {
+      "file": "part-13.parquet",
+      "rows": 256465
+    }
+  ]
+}

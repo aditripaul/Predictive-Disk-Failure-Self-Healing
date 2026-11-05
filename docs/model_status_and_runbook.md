@@ -158,11 +158,12 @@ recall) is not met**; the best figure here is about 70%.
 **Do not retrain this run or re-tag over it.** Its files are in
 `frozen_runs/fb58d9576c6146ba94c13389005fa15b/` (report, agent thresholds,
 both boosters, the LSTM and TCN weights, checksums; see its README). The
-1 GB blended score table and the sequence score archives are over GitHub's file
-limit, so only their checksums are committed. The blend cannot be rebuilt from
-that folder alone, because each member's validation scores are the rank
-reference, and nothing loads from it; `score-fleet` and `evaluate-frozen` read
-MLflow, which is local.
+1 GB blended score table is committed packed, as 14 parts under 45 MB
+(`make unpack-merged-scores` rebuilds it with every value equal to the
+original, Section 2A of `docs/pipeline_usage.md`); the LightGBM scores and the
+sequence score archives are over GitHub's file limit, so only their checksums
+are committed. Nothing loads from that folder: `score-fleet` and
+`evaluate-frozen` read MLflow, which is local.
 
 ### 1.2 The two-stage gain is not established
 

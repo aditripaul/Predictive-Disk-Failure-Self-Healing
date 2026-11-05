@@ -372,6 +372,38 @@ To act on the blended scores, give the agent its own output file, since
 make agent-fleet ARGS="--scores-path data/tmp/merged/merged_scores_h30_h30_seed0.parquet --out data/audit/agent_fleet_merged_h30_seed0.json"
 ```
 
+#### Packing a score table for git
+
+A `train-merged` score table is about 1 GB, over GitHub's 100 MB per-file limit,
+and git history keeps every byte pushed. To commit one (a frozen run's, say), pack
+it, and rebuild it when needed:
+
+```bash
+make pack-merged-scores SCORES=data/tmp/merged/merged_scores_h30_h30_seed0.parquet \
+    PACK_DIR=frozen_runs/<run id>/scores
+make unpack-merged-scores PACK_DIR=frozen_runs/<run id>/scores \
+    OUT=data/tmp/merged/merged_scores_rebuilt.parquet
+```
+
+`pack` writes `part-NN.parquet` files of at most about 45 MB and a `MANIFEST.json`
+(columns, dtypes, the blend recipes, per-part row counts). To get there it:
+
+1. drops the rank-blend columns, which are a deterministic function of the member
+   scores and their validation scores, and recomputes them on rebuild, summing in
+   the recorded member order;
+2. stores the columns in `--float32` (default `lstm tcn`, the sequence nets) as
+   float32, and refuses a column that is not exactly representable;
+3. rebuilds the table from the parts and fails unless it equals the original.
+
+Output is about 40% smaller (423 MB for the 1 GB table in the frozen run), not
+small: the scores are high-entropy floats. Both commands refuse to overwrite
+existing output; add `PACK_ARGS=--overwrite`. `PACK_ARGS` also takes
+`--rows-per-part N`, `--float32 col ...` and `--ensemble NAME=m1,m2,...`
+(default: `merged_models.ensembles` in `configs/model.yaml`; the pack records its
+own copy, so later config changes do not alter a rebuild). The rebuilt file
+equals the original on every value but is not byte-identical, so compare values,
+not file hashes.
+
 ### Model comparison
 
 | Command | What it does |
@@ -428,6 +460,7 @@ Expect it to take well over an hour on Q1 alone.
 | `make final-report` | Writes `data/audit/data_quality_reports/final_evaluation_report.json`: the model's drive-level results and action tiers, a goal-status section (target met or not, and the gap), the data period, and the chaos, latency and crash-recovery test results. Runs those tests, so it takes a few minutes. |
 | `make agent-demo` | Runs the decision-agent demo once. |
 | `make train-merged` | AFT and Cox survival models plus rank blends with LightGBM, LSTM and TCN, compared on the same rows. `MERGED_TAG` and `MERGED_ARGS`; see "Merged approach" above. |
+| `make pack-merged-scores`, `make unpack-merged-scores` | Pack a `train-merged` score table into parts under 50 MB for git, and rebuild it exactly (see "Packing a score table for git"). |
 | `make agent-fleet` | Runs the decision loop on the real gold features and the trained model, executor simulated (section 2.8). Refuses to overwrite `--out` (default `data/audit/agent_fleet_run.json`); give a new `--out` or add `--overwrite`. |
 | `make agent-pit` | Measures the flagging policy at fixed dates (section 2.8). |
 | `make family-calibration` | Per-family recalibration, fitted on validation snapshots and judged on test (section 2.8). |
