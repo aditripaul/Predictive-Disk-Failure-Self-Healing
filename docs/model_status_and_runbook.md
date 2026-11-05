@@ -115,7 +115,10 @@ SHA-256 prefixes of what was frozen, to detect a changed file:
 
 The MLflow store (`mlflow/mlflow.db`, `mlruns/`) is local and ignored by git,
 and its artifact URIs are absolute paths on the machine that trained it, so
-the run itself is not in the repository; this section is the record of it.
+the run is not loadable from the repository by id. Its files are copied to
+`frozen_runs/839d92bcd305494a8930d0dfbbb3f2a6/` (spec, tiers, both LightGBM
+stages, model card, checksums; see its README) so they can be inspected and
+checked; `score-fleet` and `evaluate-frozen` still read MLflow, not that folder.
 
 ### 1.2 The two-stage gain is not established
 
