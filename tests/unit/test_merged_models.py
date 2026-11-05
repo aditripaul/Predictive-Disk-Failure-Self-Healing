@@ -204,3 +204,33 @@ def test_mlflow_metrics_are_flat_and_finite() -> None:
         "aft__validation_drive_recall": 0.1,
         "aft__test_drive_recall": 0.2,
     }
+
+
+def test_tagged_scores_find_their_own_thresholds_file(tmp_path) -> None:
+    """`train-merged --tag` names the scores and thresholds files with the tag; the
+    agent must pair them by that suffix, not by the last underscore-separated word."""
+    import json
+
+    from src.agent.fleet import load_precomputed_scores
+
+    def write(tag: str, warn: float) -> None:
+        pl.DataFrame({"drive_id": ["a"], "date": [dt.date(2026, 5, 31)], "m": [0.9]}).write_parquet(
+            tmp_path / f"merged_scores_h30{tag}.parquet"
+        )
+        (tmp_path / f"agent_thresholds_h30{tag}.json").write_text(
+            json.dumps(
+                {
+                    "score_column": "m",
+                    "action_tiers": {"warn": warn, "cordon": None, "migrate": None, "drain": None},
+                }
+            )
+        )
+
+    write("_h30_seed0", 0.41)
+    write("_h30_seed1", 0.42)
+    fallback = {"warn": 0.3, "cordon": 0.5, "migrate": 0.7, "drain": 0.9}
+    _, _, t0 = load_precomputed_scores(tmp_path / "merged_scores_h30_h30_seed0.parquet", fallback)
+    _, _, t1 = load_precomputed_scores(tmp_path / "merged_scores_h30_h30_seed1.parquet", fallback)
+    assert t0["warn"] == 0.41 and t1["warn"] == 0.42
+    with pytest.raises(ValueError):
+        load_precomputed_scores(tmp_path / "other_name.parquet", fallback)

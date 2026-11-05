@@ -272,6 +272,7 @@ Each step needs the ones before it.
 | `TRAIN_ARGS=--keep-work-dir` | Keeps the training arrays in `data/tmp/train_model_frame_*` for the experiment tool. Delete them with `make clean-kept`. |
 | `TRAIN_ARGS="--horizon-days 14"` | Trains for a horizon in `horizons_days` other than the default. The run is logged with that horizon; `score-fleet` only uses runs for the primary horizon (`primary_horizon_days`, now 30). |
 | `TRAIN_ARGS=--save-scores` | Also writes the final validation and test scores (`drive_id`, `date`, `label`, `score`; two-stage included) to `data/tmp/lightgbm_scores_h<horizon>.parquet`, so another model can be compared or blended on the same drives (`scripts/compare_sequence_vs_tree.py`). |
+| `TRAIN_TAG=h30_seed0` | Appends `_h30_seed0` to every file the run writes (`model_evaluation_report`, `action_tiers`, `shap_feature_importance`, the model card, and the `--save-scores` parquet) and names the MLflow run after it, so it does not replace another run's. A tagged run refuses to start if any of those files exists; add `--overwrite` to `TRAIN_ARGS` to replace them. MLflow artifacts keep their canonical names (`action_tiers.json`, `frozen_spec.json`), because `score-fleet` and `evaluate-frozen` load them by name. Without a tag the fixed names are used and overwritten on each run, as before. |
 | `TRAIN_ARGS=--two-stage` | Forces the second stage on for this run. It is already on by default (`model.two_stage.enabled: true`); set that to `false` for the single model. The second stage is a model that re-ranks the first model's highest-scoring rows (`src/models/two_stage.py`). Thresholds, tiers and reports are then built on the combined score, with the first model alone logged beside it (`stage1_alone_precision_at_recall`). `make score-fleet` uses the second stage automatically for a run trained with it. Same as `model.two_stage.enabled: true`. Adds three extra fits of the first model, so roughly doubles the model-fitting time. |
 
 Examples:
@@ -310,11 +311,17 @@ validation and 21.3M test drive-days) and fits in the 20 GB memory cap.
 | `--train-only --tag t1` | Trains and stops, writing `sequence_tuning_t1.json` (validation average precision per epoch). Reads no test rows and logs no test access: for choosing settings on validation. |
 | `--horizon-days N` | A horizon other than the primary one. |
 
+`make train-sequence` refuses to start if the report, scores or weights for its
+`--tag` (or the untagged names) already exist, so a repeat run needs a new
+`--tag` or `--overwrite`. It checks before any training, so a collision fails in
+seconds.
+
 A full run logs one test-split access. To compare with, or blend into, LightGBM
 on the same drives:
 
 ```bash
 make train TRAIN_ARGS=--save-scores     # LightGBM scores; overwrites the evaluation report, so back it up
+                                        # (or add TRAIN_TAG=<tag> to keep the existing files)
 make train-sequence                     # the untagged run (called s0 below)
 make train-sequence SEQUENCE_ARGS="--seed 1 --tag s1"
 uv run --extra torch python scripts/compare_sequence_vs_tree.py --tags s0 s1
@@ -326,6 +333,44 @@ with LightGBM (rank average, weight chosen on validation only), their ensemble,
 the drives each catches at matched false-alarm rates, and a paired bootstrap on
 blend minus LightGBM. It logs one test-split access. Results: runbook sections
 5.9 to 5.12.
+
+### Merged approach (`make train-merged`)
+
+Trains XGBoost AFT and Cox survival models on the kept training arrays and
+compares them, side by side and as validation-rank blends, with the two-stage
+LightGBM and the LSTM and TCN scores, on the same rows, split dates and
+drive-level metrics (`pipelines/train_merged_models.py`). It trains no
+LightGBM, LSTM or TCN itself, so run these first, each with a tag so nothing is
+overwritten:
+
+```bash
+make train TRAIN_TAG=h30_seed0 TRAIN_ARGS="--keep-work-dir --save-scores"
+make train-sequence SEQUENCE_ARGS="--arch tcn --tag h30_seed0"
+make train-merged MERGED_TAG=h30_seed0 MERGED_ARGS="--lightgbm-scores data/tmp/lightgbm_scores_h30_h30_seed0.parquet"
+```
+
+`--lightgbm-scores` is needed because a tagged `make train` names its scores file
+with the tag. The LSTM scores are read from `data/tmp/sequence_model/scores_h30.npz`
+unless `--lstm-scores` is given, and the kept work dir is the newest
+`train_model_frame_*` unless `--work-dir` is given.
+
+| Option | Effect |
+|---|---|
+| `MERGED_TAG=name` | Appends `_name` to every output: `merged_evaluation_report`, `merged_scores_h30.parquet`, `agent_thresholds_h30.json`, and the trained boosters `aft_h30.json` and `cox_h30.json`. Reports go to `data/audit/data_quality_reports/`, the rest to `data/tmp/merged/`. |
+| `MERGED_ARGS=--overwrite` | Replaces the tag's existing outputs. Without it the run refuses to start if any exists. |
+| `MERGED_ARGS=--smoke` | Small-subset run with `.smoke` outputs, no MLflow run and no test access recorded. Not a result. |
+
+A run that is not `--smoke` logs to MLflow (the experiment in `configs/model.yaml`):
+parameters, per-model and per-ensemble drive-level metrics, and the report, scores,
+thresholds and boosters as artifacts. The run id is written into the report as
+`mlflow_run_id`, and the run records one test-split access.
+
+To act on the blended scores, give the agent its own output file, since
+`make agent-fleet` refuses to overwrite an existing one:
+
+```bash
+make agent-fleet ARGS="--scores-path data/tmp/merged/merged_scores_h30_h30_seed0.parquet --out data/audit/agent_fleet_merged_h30_seed0.json"
+```
 
 ### Model comparison
 
@@ -382,7 +427,8 @@ Expect it to take well over an hour on Q1 alone.
 | `make evaluate-frozen` | Scores one sealed or external split, once, against a frozen run (section 2.5). `ARGS="--run-id <id> --split sealed"`. |
 | `make final-report` | Writes `data/audit/data_quality_reports/final_evaluation_report.json`: the model's drive-level results and action tiers, a goal-status section (target met or not, and the gap), the data period, and the chaos, latency and crash-recovery test results. Runs those tests, so it takes a few minutes. |
 | `make agent-demo` | Runs the decision-agent demo once. |
-| `make agent-fleet` | Runs the decision loop on the real gold features and the trained model, executor simulated (section 2.8). |
+| `make train-merged` | AFT and Cox survival models plus rank blends with LightGBM, LSTM and TCN, compared on the same rows. `MERGED_TAG` and `MERGED_ARGS`; see "Merged approach" above. |
+| `make agent-fleet` | Runs the decision loop on the real gold features and the trained model, executor simulated (section 2.8). Refuses to overwrite `--out` (default `data/audit/agent_fleet_run.json`); give a new `--out` or add `--overwrite`. |
 | `make agent-pit` | Measures the flagging policy at fixed dates (section 2.8). |
 | `make family-calibration` | Per-family recalibration, fitted on validation snapshots and judged on test (section 2.8). |
 | `make api` / `make dashboard` | Starts the FastAPI service / the Streamlit dashboard. |

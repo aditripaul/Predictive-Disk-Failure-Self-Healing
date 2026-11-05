@@ -18,8 +18,10 @@ def test_guard_names_every_existing_file(tmp_path) -> None:
     with pytest.raises(SystemExit) as exc:
         refuse_overwrite([a, b])
     assert str(a) in str(exc.value) and str(b) not in str(exc.value)
-    a.write_text("{}")  # untouched by the refusal
-    assert a.read_text() == "{}"
+    a.write_text("kept")
+    with pytest.raises(SystemExit):
+        refuse_overwrite([a])
+    assert a.read_text() == "kept"  # a refusal leaves the existing file as it was
 
 
 def test_guard_allows_explicit_overwrite(tmp_path) -> None:
@@ -29,11 +31,12 @@ def test_guard_allows_explicit_overwrite(tmp_path) -> None:
 
 
 def test_every_merged_output_is_guarded(tmp_path) -> None:
+    """Each output file on its own is enough to stop a run."""
     paths = tm.output_paths(tmp_path, tmp_path, horizon_days=30, smoke_suffix="", tag="h30_seed0")
-    for name, path in paths.items():
+    refuse_overwrite(paths.values())  # nothing exists yet
+    for path in paths.values():
         path.write_text("x")
-        with pytest.raises(SystemExit):
+        with pytest.raises(SystemExit) as exc:
             refuse_overwrite(paths.values())
+        assert str(path) in str(exc.value)
         path.unlink()
-        refuse_overwrite(paths.values())  # clean again, so each file is checked alone
-        assert name in paths
