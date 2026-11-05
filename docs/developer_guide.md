@@ -114,6 +114,7 @@ would fail with "ruff: command not found."
 | `make train-all RUN_TAG=<tag>` | `train`, the LSTM, the TCN and `train-merged` in order under one tag (about 2.5 to 3 hours); the individual targets are unchanged |
 | `make agent-models` / `merged-tables` | The agent loop once per `train-merged` model with that model's own tiers, and the per-model and agent-loop markdown tables (`src/reporting/merged_tables.py`; `docs/pipeline_usage.md`) |
 | `make tune-blend-weights` | Validation-only search of a rank blend's weights, no retraining (`src/models/blend_weights.py`; `docs/pipeline_usage.md`) |
+| `make recall-policy` | Daily replay of a recall-first alerting policy (warn net plus nested tiers) over a packed score table (`src/agent/recall_replay.py`; runbook 4.11) |
 | `make pack-merged-scores` / `unpack-merged-scores` | Pack a `train-merged` score table into parts under 50 MB for git and rebuild it exactly (`src/models/score_pack.py`) |
 | `make score-fleet` | Batch-scores the current fleet with the latest MLflow run for `primary_horizon_days` (and that run's second-stage model and tier thresholds, when it has them); writes `data/audit/predictions/` (§5.8) |
 | `make evaluate-frozen` | Scores one sealed or external split, once, against a frozen run: `ARGS="--run-id <id> --split sealed\|external_smartz"`. Writes `data/audit/frozen_evaluations/` and refuses a repeat (§5.14) |

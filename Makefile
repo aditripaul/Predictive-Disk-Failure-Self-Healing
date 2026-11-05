@@ -2,7 +2,7 @@
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
-	build-sequences train-lstm train-sequence train-merged train-all agent-models merged-tables tune-blend-weights pack-merged-scores unpack-merged-scores score-fleet plots \
+	build-sequences train-lstm train-sequence train-merged train-all agent-models merged-tables tune-blend-weights recall-policy pack-merged-scores unpack-merged-scores score-fleet plots \
 	agent-demo agent-fleet agent-pit family-calibration plot-late-hits dashboard api final-report
 
 # --- setup -----------------------------------------------------------------
@@ -209,6 +209,16 @@ merged-tables:
 tune-blend-weights:
 	@test -n "$(PACK_DIR)" -a -n "$(OUT_DIR)" || { echo "usage: make tune-blend-weights PACK_DIR=<dir> OUT_DIR=<dir>"; exit 2; }
 	uv run python scripts/tune_blend_weights.py $(PACK_DIR) $(OUT_DIR) $(TUNE_ARGS)
+
+# A day-by-day replay of a recall-first alerting policy over a packed train-merged score table: a
+# WARN threshold set on validation for RECALL_ARGS="--recall-target 0.6" (a catch needs a warning
+# at least --lead-min days before the failure), precision-tuned cordon/migrate/drain tiers with
+# --hysteresis k consecutive days. One recorded test look. It picks a looser operating point and
+# measures its cost; it does not improve the model's ranking.
+#   make recall-policy PACK_DIR=frozen_runs/<run id>/scores OUT_DIR=data/audit/recall_policy_<tag>
+recall-policy:
+	@test -n "$(PACK_DIR)" -a -n "$(OUT_DIR)" || { echo "usage: make recall-policy PACK_DIR=<dir> OUT_DIR=<dir>"; exit 2; }
+	uv run python scripts/run_recall_policy.py $(PACK_DIR) $(OUT_DIR) $(RECALL_ARGS)
 
 experiment-model:
 	uv run python pipelines/experiment_model.py $(EXPERIMENT_ARGS)

@@ -1584,6 +1584,70 @@ false-alarm rate, raw score against recalibrated:
   to 5.12 is the only candidate measured so far, and it is a ranking change, not
   a way to classify a false positive).
 
+### 4.11 A recall-first policy, replayed day by day (2026-11-05)
+
+The goal: catch more than 60% of failing drives, with the agent's tiers making the
+low precision affordable. `make recall-policy` (`scripts/run_recall_policy.py`,
+`src/agent/recall_replay.py`) replays a policy in date order over the frozen
+merged run's score table (runbook 1.1.2), using the recall-first blend weights
+LightGBM 0.2, LSTM 0, AFT 0.5, TCN 0.3, taken from the validation-only search
+`make tune-blend-weights` (`docs/pipeline_usage.md`); they are not adopted into
+`train-merged`, which still blends with equal weights.
+
+**Policy.** WARN (non-disruptive) the first day the score reaches a threshold set on
+validation so that 60% of failing drives were warned at least 1 day before failing
+(0.99579 in rank-score units). Escalate to cordon, migrate or drain when the score has
+cleared that tier's threshold (the existing lift-target tiers, tuned on validation) on
+`k` consecutive scored days; `k` = 1 and 2 are both shown. **A catch needs a warning in
+the 30 days before the failure but not on the failure day**; a same-day flag is not a
+save (Section 4.7). Precision is over drives and uses the same rule as recall; tiers
+therefore nest.
+
+**Result** (one replay of the test window 2026-04-01 to 05-31, 1,479 failing drives
+judged; thresholds from validation):
+
+| Split | k | Recall (lead >= 1 d) | Recall (lead >= 7 d) | Warn precision | Cordon precision | Migrate precision | Drain precision | Median lead |
+|---|---|---|---|---|---|---|---|---|
+| validation | 1 | 60.1% | 54.0% | 24.0% | 30.0% | 47.4% | 73.3% | 25 d |
+| validation | 2 | 60.1% | 54.0% | 24.0% | 30.2% | 49.2% | 75.0% | 25 d |
+| test | 1 | **62.5%** | 51.9% | 27.0% | 33.5% | 54.8% | 75.8% | 21 d |
+| test | 2 | **62.5%** | 51.9% | 27.0% | 34.2% | 55.3% | 70.7% | 21 d |
+
+Test volume, k = 1: 3,431 drives warned (about 1% of the fleet; 925 caught), 2,499 reached
+cordon (837 caught, so 1,662 false cordons), 947 reached migrate (519 caught) and 62
+reached drain (47 caught). By recall: cordon and above catches 56.6% of failing drives,
+migrate and above 35.1%, drain 3.2%. About 37 new warnings a day and a watchlist of about
+390 drives (peak 501), after 1,188 drives that were already above the threshold when the
+window opened.
+
+**What it shows.**
+
+- **60% recall is reachable, at a price.** Warned drives are right 24% to 27% of the time.
+  The warn tier absorbs that cheaply (a watchlist, no fleet change); it is the destructive
+  tiers that need precision.
+- **The tiers do not absorb the warn volume.** 73% of warned drives (2,499 of 3,431) also
+  reach cordon, because the cordon threshold (0.9973) sits just above the warn threshold
+  (0.9958) in rank-score space. Cordon is 34% precise, so two of three cordons are on drives
+  that do not fail in time. Covering the low precision needs the destructive tiers set
+  higher than the existing lift targets, which is a cost-model decision (Section 4.7), not
+  something this replay settles.
+- **A second look does not help here either.** k = 2 gives about the same precision (34.2%
+  against 33.5% at cordon) for a 9-point lower share of caught drives that were escalated (81% against 90%),
+  as in Section 4.8.
+- **This does not improve the model.** It picks a looser operating point and counts the
+  alerts. The chosen weights are not worse than equal weights at very low false-alarm
+  rates on validation (recall at 1e-4, 2e-4, 5e-4: 7.2%, 11.3%, 20.6% against 6.6%, 10.8%,
+  19.4%), but their gain is about one recall point and was picked from 287 vectors.
+
+**Limits.** One test window and one blend; the replay spent two recorded test looks
+(the first used a stricter tier-precision rule that made tiers look worse than warn, and
+counted drives already warned at the window's start as new; both were fixed and the replay
+re-run, so only the second is reported). The live loop's confidence, maturity and
+staleness gates and topology guardrails are not modelled; daily consecutive-day hysteresis
+approximates the loop's per-cycle hysteresis. Late hits (warned, failing 31 to 60 days
+after the last warning) are 222 of 2,808 on validation but 12 of 1,041 on test, where only
+warnings before 2026-05-01 have 60 days of follow-up, so the test figure is not comparable.
+
 ## 5. What we learned
 
 ### 5.1 Evaluation is per drive, not per drive-day
