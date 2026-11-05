@@ -134,8 +134,13 @@ build-labels:
 
 # `make train TRAIN_ARGS=--keep-work-dir` keeps the scratch arrays for
 # `make experiment-model` (pipelines/experiment_model.py).
+# `make train TRAIN_TAG=h30_seed0 TRAIN_ARGS="--keep-work-dir --save-scores"` suffixes
+# every file the run writes (report, action tiers, SHAP, model card, saved scores) and
+# names the MLflow run, so it does not replace the untagged run's. A tagged run refuses
+# to start if its files exist (--overwrite in TRAIN_ARGS to replace). Feed its scores
+# to the merged run with MERGED_ARGS="--lightgbm-scores data/tmp/lightgbm_scores_h30_h30_seed0.parquet".
 train:
-	uv run python pipelines/train_model.py $(TRAIN_ARGS)
+	uv run python pipelines/train_model.py $(if $(TRAIN_TAG),--tag $(TRAIN_TAG)) $(TRAIN_ARGS)
 
 # Refuses to overwrite an existing report/scores/weights; give each run its own
 # `--tag` (SEQUENCE_ARGS="--arch tcn --tag s1") or add --overwrite.
