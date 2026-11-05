@@ -150,6 +150,8 @@ would run: the fleet as of a date, judged on what happens next
 (the repository default window), which is a different run from the frozen one
 above, on a longer test window and a different drive-level convention, so its
 precision does not compare directly with the table above.
+That window's model is frozen as run `839d92bc` (runbook Section 1.1.1), a
+retrain that reproduces `0c183df0` exactly.
 
 Pooled over nine weekly test snapshots (3.14M drive-snapshots, 3,832 failing,
 base rate 0.122%):

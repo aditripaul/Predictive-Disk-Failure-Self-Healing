@@ -72,6 +72,51 @@ evaluated test population did not change. Section 4.5 holds the fuller
 breakdown: the per-tier results, the drive counts at four operating points
 and the warning lead time all come from that run.
 
+### 1.1.1 Frozen run for the quarter-aligned window (2026-11-05)
+
+MLflow run `839d92bcd305494a8930d0dfbbb3f2a6` (name `h30_seed0`), trained with
+`make train TRAIN_TAG=h30_seed0 TRAIN_ARGS="--keep-work-dir --save-scores"` on
+the repository-default window of Section 2.2: train to 2026-01-15, validation
+2026-02-15 to 2026-03-31, test 2026-04-01 to 2026-05-31, 30-day horizon,
+two-stage LightGBM, 246 features. It is a **second frozen run, not a
+replacement for the one in Section 1.1**: the two answer different windows, and
+Section 4.6 found the Section 1.1 model slightly ahead at matched false-alarm
+rate (not a confirmed regression). Use the Section 1.1 run where its window is
+the one you mean.
+
+It reproduces the earlier run `0c183df0` exactly: the evaluation report and
+`action_tiers.json` are byte-identical and the 36,656,465-row validation and
+test score table is identical, so every figure in Sections 4.6 to 4.10 and the
+point-in-time work applies to it. It was retrained because the earlier run is not in
+the MLflow store on the machine that holds the data (that store held no runs).
+
+| Per drive, threshold 0.9514 chosen on validation | Precision | Caught | False alarms | AUROC | AUPRC |
+|---|---|---|---|---|---|
+| Validation | 59.2% | 113 of 1,124 | 78 | 0.923 | 0.304 |
+| Test | 57.1% | 178 of 1,479 | 134 | 0.923 | 0.339 |
+
+Test recall is 12.0%. The goal (90% precision at >= 10% recall) is **not met**,
+and the second-stage gain remains unconfirmed (Section 1.2).
+
+**Do not retrain this run, and do not re-tag over it.** The run carries
+`frozen_spec.json` (thresholds, the 246 feature columns, the calibrator),
+`action_tiers.json` and `two_stage.json`; nothing is re-chosen at evaluation
+time. Tagged outputs from `make train TRAIN_TAG=...` never overwrite another
+tag's, and a rerun of the same tag refuses to start without `--overwrite`.
+
+SHA-256 prefixes of what was frozen, to detect a changed file:
+
+| File | SHA-256 (first 16) |
+|---|---|
+| `frozen_spec.json` | `3d8207f3a2e7ffe2` |
+| `action_tiers.json` | `932aa5411173d542` |
+| `two_stage.json` | `ca0d7c14631f6738` |
+| `lightgbm_scores_h30_h30_seed0.parquet` | `3e1934466c109277` |
+
+The MLflow store (`mlflow/mlflow.db`, `mlruns/`) is local and ignored by git,
+and its artifact URIs are absolute paths on the machine that trained it, so
+the run itself is not in the repository; this section is the record of it.
+
 ### 1.2 The two-stage gain is not established
 
 Two paired bootstraps now exist, both over the same resampled drives with
