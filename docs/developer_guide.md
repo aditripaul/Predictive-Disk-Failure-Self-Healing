@@ -1219,7 +1219,8 @@ is judged on the fleet figure only.
 `make train TRAIN_ARGS=--two-stage` forces it on for one run):
 
 1. Stage 1 is the ordinary model. Its candidate threshold is the validation
-   threshold that still catches `candidate_recall` (0.5) of failing drives.
+   threshold that still catches `candidate_recall` of failing drives (0.8 since
+   2026-11-06, 0.5 before).
 2. Train rows are scored out of fold by drive (`n_folds`), so Stage 2 learns
    from Stage 1 scores like those it meets in use.
 3. Stage 2 is a LightGBM trained on the candidate train rows, with the Stage
@@ -1285,6 +1286,13 @@ and should not be rewired to this.
 ---
 
 ### 5.14 The sealed split and the single-shot frozen evaluation
+
+**Status (2026-11-06):** the sealed window (Q3 2026) was used as the test set
+of the Q1+Q2 -> Q3 runs (`splits.test_split: sealed`), so nothing is sealed at
+present and `make evaluate-frozen` refuses `--split sealed` while that is so.
+What follows describes the mechanism for the next sealed window; note that
+`evaluate_frozen.py` reads the sealed split without a date cap and needs one
+(the last day of data minus the horizon) first.
 
 Everything above chooses something on validation and reports it on test. Do
 that often enough and test stops being a held-out set: the access log in
@@ -1922,9 +1930,10 @@ Data / model:
 - The second-stage model's precision gain is not confirmed - a direct paired
   bootstrap test on the current build gives an interval that includes 0.
   `docs/model_status_and_runbook.md` §1.2.
-- Neither sealed evaluation has been run: the Q3 2026 quarter is sealed but
-  unscored, and SMART-Z has a split reserved but no data ingested, so
-  stability over time and across vendors are both unmeasured (§5.14).
+- Neither sealed evaluation has been run: the Q3 2026 quarter was used as a
+  test set instead (2026-11-06, §5.14), and SMART-Z has a split reserved but
+  no data ingested, so stability across vendors is unmeasured and stability
+  over time rests on that one further period.
 - `predictor` is never backed by the trained Phase 5 model in `demo.py`/the
   API's default wiring - it's a hardcoded two-drive fixture. Wiring a real
   MLflow-registered model in is the natural next step (see §11).

@@ -36,14 +36,15 @@ quarters are downloaded:
 sources:
   backblaze:
     start_date: "2025-10-01"      # Q4 2025 onwards (the repo default)
-    end_date: "2026-06-30"        # through Q2 2026; "2026-03-31" for Q1 only
+    end_date: "2026-09-30"        # through Q3 2026 (the test set); "2026-03-31" for Q1 only
 download:
   backblaze:
-    quarters: ["Q3_2025", "Q4_2025", "Q1_2026", "Q2_2026"]
+    quarters: ["Q3_2025", "Q4_2025", "Q1_2026", "Q2_2026", "Q3_2026"]
 ```
 
 The download list is deliberately wider than what is ingested: Q3 2025 is on
-disk for the parked 60-day horizon experiment but `start_date` excludes it.
+disk but `start_date` excludes it (it was for the 60-day horizon experiment,
+run on 2026-11-06 on the Q1+Q2 -> Q3 window).
 Bronze reflects whatever was last ingested and `make build-silver` reads
 Bronze rather than the raw CSVs, so narrowing `start_date` does not narrow
 what the pipeline sees until Bronze is rebuilt (`rm -rf

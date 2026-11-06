@@ -299,9 +299,10 @@ person. The measured figures and how they were obtained are in
 `docs/system_summary.md`.
 
 One thing these numbers are **not**: a statement about generalization. They
-come from one fleet, one six-month period and one three-week test window. A
-later quarter is deliberately sealed and has not been scored yet, and the
-second (cross-vendor) data set has not been evaluated at all.
+come from one fleet and one six-month training period. The 30-day two-stage
+model was also tested on Q3 2026, a quarter it never saw (59.0% precision at
+12.5% recall), but no further untouched period exists, and the second
+(cross-vendor) data set has not been evaluated at all.
 
 ---
 

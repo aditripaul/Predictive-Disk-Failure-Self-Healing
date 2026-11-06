@@ -81,7 +81,7 @@ checked; `score-fleet` and `evaluate-frozen` still read MLflow, not that folder.
   `frozen_spec.json` columns still exist in the 246-column frame, so
   `evaluate_frozen.py` would select them and score without complaint.
   The same applies to `c9845215896e47a397317cadd3983b6d` (commit `313bacb`).
-  Neither may be used for the sealed quarter.
+  Neither may be scored on any held-out period.
 
 ### 1.1.2 Frozen merged-approach run (2026-11-05)
 
@@ -203,9 +203,11 @@ precision at 10% or more recall) is still not met at any operating point in this
 `docs/cascade_wide_net.md`, MLflow `c05a109a`). Test, means over 3 seeds. Stage 1 is refitted
 in each seed rather than taken from the frozen model, so its 10% row (59.4%, 171 caught) differs
 slightly from the production LightGBM row above. Compare these rows with each other, not with the
-first table. **No net was adopted**: production keeps the 50% net (`candidate_recall: 0.5`),
+first table. **No net was adopted by that rule**: it kept the 50% net (`candidate_recall: 0.5`),
 because every wider net caught slightly fewer drives at 60% recall, and the decision rule fixed
-before the run required recall not to drop.
+before the run required recall not to drop. On 2026-11-06 the 80% net was adopted anyway, post
+hoc, and run on Q3 2026 (Section 1.1.4), where its gain is weaker and it is not confirmed; the
+rows below labelled "production setting" are the 50% net as it was then.
 
 | Model | Recall level | Precision | Recall | Caught | Missed % | False alarms |
 |---|---|---|---|---|---|---|
@@ -566,7 +568,11 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
 make install
 ```
 
-### 2.2 Q4 2025 - Q2 2026, quarter-aligned (the repository default)
+### 2.2 Q4 2025 - Q2 2026, quarter-aligned (the default until 2026-11-06)
+
+**Superseded as the default** by the Q1+Q2 -> Q3 window of Section 1.1.4
+(`configs/model.yaml` `splits`; the key table in Section 9 lists the old and
+new values). The window below is kept as the record of the runs made on it.
 
 **Run once, on 2026-10-18** - results in Section 4.6. The numbers of
 the earlier frozen run (2026-10-09, no longer available) come from a narrower window, below, and this window's
@@ -2133,7 +2139,8 @@ rates of 1e-4, 5e-4 and 1e-3.
 - **Test-split accesses.** `data/audit/test_access_log.jsonl` now has 46
   entries; this section added the three seed runs, a check run and the
   comparison. Any further use of these test numbers
-  to choose a method (including this blend) needs the sealed quarter.
+  to choose a method (including this blend) needs a period not yet used (Q3
+  2026 was spent on the LightGBM-only runs of Section 1.1.4).
 
 ### 5.12 Precision and recall of the blend at each operating point
 
@@ -2163,7 +2170,8 @@ sealed-quarter caveat of Section 5.11 applies.
 - **No deployable threshold has been set for the blend.** LightGBM's own
   operating point (threshold chosen on validation for 10% recall) gives 57.1%
   precision at 12.0% recall on test. The equivalent for the blend would be
-  chosen on validation and then read once on the sealed quarter.
+  chosen on validation and then read once on an untouched period (the sealed
+  quarter was used as a test set on 2026-11-06, Section 1.1.4).
 
 ## 6. The experiment tool
 
@@ -2212,6 +2220,15 @@ moved. The agent's earlier
 usable. None of these is 90%, and the evidence-gate and hysteresis stages
 added nothing to precision on this data.
 
+**On Q3 2026 the goal is still not met** (Section 1.1.4): the 30-day model
+gives 59.0% precision at 12.5% recall (63.3% at 9.0% for the 60-day model, at a
+higher base rate), the warn tier 17.3% at 60.9%, and above 60% recall false
+alarms outnumber catches about 4 to 1. No Stage 2 kind, horizon or net moved the
+curve above 20% recall by more than about a point. At 70% recall precision is
+about 12%, so 80% precision there is roughly eight times beyond what the data
+supports; the 20% of failing drives that show no SMART change before failure
+cap recall near 80%.
+
 **The goal is stated at a 30-day horizon, and the horizon is part of it.**
 Precision moves with the base rate, so a longer label raises it mechanically:
 at an identical operating point, doubling the positive rate takes precision
@@ -2252,7 +2269,8 @@ What was tried, in the order it was tested:
 7. **Sequence model (LSTM):** run and recorded. Alone it is no better than
    LightGBM; blended with it, it adds a small recall gain (about 2 points at a
    5e-4 to 1e-3 false-alarm rate) that held across four seeds. Not reported as
-   settled until it is read once on the sealed quarter (Sections 5.9 to 5.12).
+   settled until it is read once on an untouched period (Sections 5.9 to 5.12;
+Q3 2026 was used for the LightGBM runs of Section 1.1.4, not for the blend).
 
 What could still change the picture:
 
@@ -2317,7 +2335,7 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 - **Longer windows** (60 and 90 days) and "days since an error counter first
   became nonzero".
 
-**Closed since (2026-10-07 to 2026-10-09):**
+**Closed since (2026-10-07 to 2026-11-06):**
 
 - **Uncertainty on the headline numbers.** `src/models/uncertainty.py`
   reports a drive-level bootstrap interval for test precision and recall, and
@@ -2328,11 +2346,28 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 - **An append-only log of every test-split computation** (Section 1.4).
 - **Action-tier targets expressed as lift** rather than precision
   (Section 1.7).
+- **The multi-seed second-stage comparison and the 60-day horizon run**
+  (2026-11-06, Sections 1.1.4 and 4.12): Stage 2 helps only at the strict end;
+  no longer horizon ranks better.
 - **The raw `failure` flag excluded from the feature list**: it marks the failure day
   itself, a label in disguise.
 
 **Model and evaluation:**
 
+- **No untouched period.** Q3 2026 was used as a test set (Section 1.1.4);
+  the choices examined on it (0.8 net, survival Stage 2, horizon) are
+  descriptive and unconfirmed. The rules new data must apply are in
+  `docs/q3_horizon_and_cascade_run.md` section 6. `evaluate_frozen.py` needs a
+  sealed-split date cap before any quarter is sealed again.
+- **Untested ideas for the 60-80% recall band** (2026-11-06 review): a cohort
+  feature (trailing failure rate of the drive's batch or vault; screen on
+  validation first) and a sequence-model third stage on the Stage 1 suspects
+  (variants: a TCN blended on the suspects, or pretrained then fine-tuned on
+  the pool). Expected gain is a few points at most. SVM or autoencoder stages
+  and a PatchTST were judged unlikely to add information (same features, same
+  signal); a longer window is the first thing to test for PatchTST.
+- **Same-period validation overstates precision by 15-20 points** (Section
+  1.1.4), the same pattern as Section 4.4.
 - **Validation precision is still above test** after the split fix (56.7%
   against 41.4%); about half is the higher failure rate in the validation
   period, the rest is unexplained (Section 4.4).
@@ -2366,10 +2401,9 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 
 | File | Key | Current value | Meaning |
 |---|---|---|---|
-| `configs/data.yaml` | `sources.backblaze.start_date` / `end_date` | 2025-10-01 / 2026-06-30 | Which raw daily CSVs `make ingest-backblaze` reads. Q3 2025 is downloaded but excluded (Section 2.2) |
-| `configs/data.yaml` | `download.backblaze.quarters` | Q3_2025, Q4_2025, Q1_2026, Q2_2026 | Quarterly archives `make download-backblaze` fetches. Wider than what is ingested, so the parked 60-day run needs no download |
+| `configs/data.yaml` | `sources.backblaze.start_date` / `end_date` | 2025-10-01 / 2026-09-30 | Which raw daily CSVs `make ingest-backblaze` reads. Q3 2025 is downloaded but excluded (Section 2.2) |
+| `configs/data.yaml` | `download.backblaze.quarters` | Q3_2025, Q4_2025, Q1_2026, Q2_2026, Q3_2026 | Quarterly archives `make download-backblaze` fetches. Wider than what is ingested, so the parked 60-day run needs no download |
 | `configs/model.yaml` | `primary_horizon_days` | 30 | Horizon the shipped model is trained and scored for (was 14) |
-| `configs/model.yaml` | `horizons_days` | [7, 14, 30] | Horizons whose labels exist (60 is parked, Section 2.4) |
 | `configs/model.yaml` | `model.max_train_rows` | 5000000 | Training-row cap |
 | `configs/model.yaml` | `model.positive_weight_power` | 0.5 | Positive weight = (neg/pos)^0.5 |
 | `configs/model.yaml` | `model.early_stopping_rounds` | 50 | Early stopping patience (average precision) |

@@ -952,8 +952,9 @@ Known gaps worth knowing before you rely on any of it:
   endpoint, and nothing sweeps the approval queue for reviews that have
   missed their SLA.
 - SMART-Z has a split reserved for it but has not been evaluated, and the
-  sealed quarter has not been scored, so neither cross-vendor nor
-  across-time stability has been measured.
+  sealed quarter (Q3 2026) was used as a test set, not scored once against a
+  frozen run, so cross-vendor stability is unmeasured and across-time stability
+  rests on one further period (the LightGBM two-stage model held up on Q3).
 
 The full list, with the reasoning behind each, is in
 `docs/developer_guide.md` §13.

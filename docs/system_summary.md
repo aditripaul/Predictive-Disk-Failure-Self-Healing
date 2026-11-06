@@ -108,7 +108,7 @@ so a drive's many near-identical rows move together.
 `0ee06c01ff2a427ca76011fb1afb8ce3`, was trained before two bugs in
 `feature_confidence` were fixed (see Section 7 and ADR 0002); its own
 feature columns are now far outside the distribution the rebuilt data
-produces, so it may not be scored on the sealed quarter or SMART-Z even
+produces, so it may not be scored on any held-out period or SMART-Z even
 though every one of its expected columns still exists in the new frame.
 
 **The fuller breakdown below** - drive counts, the action tiers and the
@@ -156,7 +156,7 @@ The figures above score the model. This is the policy the agent runs - the
 score, the tier thresholds and the loop around them - measured the way it
 would run: the fleet as of a date, judged on what happens next
 (`make agent-pit`, ADR 0003). It is for the quarter-aligned model `0c183df0`
-(the repository default window), which is a different run from the frozen one
+(the earlier quarter-aligned window, Q2 2026 as test), which is a different run from the frozen one
 above, on a longer test window and a different drive-level convention, so its
 precision does not compare directly with the table above.
 That window's model is frozen as run `839d92bc` (runbook Section 1.1.1), a
@@ -236,9 +236,10 @@ were still in service when the data ended.
 - Every computation touching the test split appends a line to
   `data/audit/test_access_log.jsonl`, so the number of comparisons behind a
   reported gain is recorded rather than recalled.
-- A final quarter (Q3 2026) is sealed: no training, validation or test step
-  reads it. It is scored once, against the frozen run, by
-  `make evaluate-frozen`.
+- A final quarter (Q3 2026) was sealed until 2026-11-06, when its single-shot
+  evaluation was skipped by decision and it became the test set of the Q1+Q2
+  -> Q3 runs; `make evaluate-frozen` now refuses it, and nothing is sealed at
+  present.
 - A raw-attribute screen (`scripts/screen_raw_attributes.py`) measured
   single-attribute separation and spatial clustering directly against
   Backblaze's own CSVs, independent of the gold pipeline, before any of
@@ -311,8 +312,9 @@ were still in service when the data ended.
 - **Limited test periods.** The frozen run's figures come from one
   three-week window. The policy measurements use nine weekly snapshots over a
   61-day window, which show base-rate drift alone moving precision between
-  17.6% and 31.3%. The sealed quarter exists to test stability over time and
-  has not been scored yet. Failures per month fell about 40% across the test
+  17.6% and 31.3%. Q3 2026 gave a second period for the LightGBM two-stage model
+  (59.0% precision at 12.5% recall, against 57.1% at 12.0%); no further
+  untouched period exists. Failures per month fell about 40% across the test
   window, for a reason not yet identified.
 
 ## 8. Where to look
