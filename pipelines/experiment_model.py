@@ -42,6 +42,7 @@ from src.models.evaluation import (
     top_k_from_drive_table,
 )
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
+from src.models.stacking import STACK_KIND, fit_stack
 from src.models.survival import AftModel, drive_concordance, survival_bounds, train_aft
 from src.models.threshold import tune_drive_level_threshold
 from src.models.training import (
@@ -71,6 +72,9 @@ from src.reporting.plots import save_figure
 from src.resource_limits import apply_memory_limit_from_config
 
 logger = get_logger(__name__)
+
+#: Every kind the experiment compares: the Stage 2 models plus the stack of them.
+EXPERIMENT_KINDS = (*STAGE2_KINDS, STACK_KIND)
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
@@ -792,33 +796,71 @@ def two_stage_experiment(
     jobs = [
         (net, kind)
         for net in candidate_recalls
-        for kind in stage2_kinds
+        for kind in sorted(stage2_kinds, key=lambda k: k == STACK_KIND)
         if kind == "lightgbm" or survival_nets is None or net in survival_nets
     ]
+    fitted_stage2: dict[tuple[float, str], Any] = {}
+    net_reports: dict[tuple[float, str], dict[str, Any]] = {}
     for net, kind in jobs:
         t1 = time.perf_counter()
         levels = [r for r in recall_levels if r <= net + 1e-9]
-        model, report = fit_second_stage(
-            fit,
-            stage1,
-            x_train=data["x_train"],
-            y_train=data["y_train"],
-            train_drives=data["train_drives"],
-            x_val=data["x_val"],
-            y_val=data["y_val"],
-            val_drives=data["val_drives"],
-            val_stage1_scores=val_s1,
-            candidate_recall=net,
-            n_folds=n_folds,
-            seed=seed,
-            train_stage1_scores=train_oof,
-            stage2_params=stage2_params,
-            early_stopping_max_negatives=early_stopping_max_negatives,
-            stage2_kind=kind,
-            train_survival_bounds=survival_bounds_train,
-            horizon_days=data.get("horizon_days"),
-            survival_params=survival_params,
-        )
+        if kind == STACK_KIND:
+            members = {
+                k: fitted_stage2[(net, k)] for k in STAGE2_KINDS if (net, k) in fitted_stage2
+            }
+            model, report = fit_stack(
+                stage1,
+                members,
+                x_val=data["x_val"],
+                y_val=data["y_val"],
+                val_drives=data["val_drives"],
+                val_stage1_scores=val_s1,
+                candidate_threshold=next(
+                    (net_reports[(net, k)]["candidate_threshold"] for k in members), 0.0
+                ),
+            )
+            # The stack shares the candidates and Stage 1 of its members.
+            if members:
+                first = net_reports[(net, next(iter(members)))]
+                report = {
+                    **{
+                        key: first[key]
+                        for key in (
+                            "stage1_trees",
+                            "candidate_recall",
+                            "n_folds",
+                            "seed",
+                            "candidates",
+                        )
+                        if key in first
+                    },
+                    **report,
+                }
+        else:
+            model, report = fit_second_stage(
+                fit,
+                stage1,
+                x_train=data["x_train"],
+                y_train=data["y_train"],
+                train_drives=data["train_drives"],
+                x_val=data["x_val"],
+                y_val=data["y_val"],
+                val_drives=data["val_drives"],
+                val_stage1_scores=val_s1,
+                candidate_recall=net,
+                n_folds=n_folds,
+                seed=seed,
+                train_stage1_scores=train_oof,
+                stage2_params=stage2_params,
+                early_stopping_max_negatives=early_stopping_max_negatives,
+                stage2_kind=kind,
+                train_survival_bounds=survival_bounds_train,
+                horizon_days=data.get("horizon_days"),
+                survival_params=survival_params,
+            )
+        if model is not None and kind != STACK_KIND:
+            fitted_stage2[(net, kind)] = model.stage2
+            net_reports[(net, kind)] = report
         report["stage2_kind"] = kind
         report["stage1"] = [stage1_rows[r] for r in levels]
         if model is None:
@@ -1024,7 +1066,9 @@ def summarize_two_stage_seeds(reports: list[dict[str, Any]]) -> list[dict[str, A
 def summarize_two_stage_nets(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """`summarize_two_stage_seeds` per net, plus each net's mean candidate
     pool and ceiling over the seeds that trained it."""
-    keys = sorted({_net_key(r) for r in reports}, key=lambda k: (k[0], STAGE2_KINDS.index(k[1])))
+    keys = sorted(
+        {_net_key(r) for r in reports}, key=lambda k: (k[0], EXPERIMENT_KINDS.index(k[1]))
+    )
     out = []
     for net, kind in keys:
         group = [r for r in reports if _net_key(r) == (net, kind)]
@@ -1729,7 +1773,7 @@ def main() -> None:
         "--stage2-kinds",
         nargs="+",
         default=None,
-        choices=list(STAGE2_KINDS),
+        choices=list(EXPERIMENT_KINDS),
         help="With --two-stage: Stage 2 models to compare per net. Survival kinds (cox, aft) "
         "are paired against the LightGBM Stage 2 of the same net. Default "
         "model.two_stage.experiment.stage2_kinds (lightgbm).",

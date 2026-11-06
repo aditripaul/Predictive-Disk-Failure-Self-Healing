@@ -640,3 +640,58 @@ def test_two_stage_experiment_compares_stage2_kinds(tmp_path):
     names = {name for name, _, _ in two_stage_mlflow_metrics({"runs": reports, "summary": nets})}
     assert "net80_cox_c_index_cascade" in names and "net80_c_index_cascade" in names
     assert any(name.startswith("net80_aft_r60_mean_vs_lightgbm") for name in names)
+
+
+def test_stack_blends_fitted_stage2_models(tmp_path):
+    """A stack of the LightGBM and Cox Stage 2 of one net: same candidates,
+    weights on the simplex, scores on the cascade's one scale."""
+    x_train, y_train, train_drives = _split(1, 900, tmp_path, "tr")
+    x_val, y_val, val_drives = _split(2, 500, tmp_path, "va")
+    x_test, y_test, test_drives = _split(3, 500, tmp_path, "te")
+    data = {
+        "horizon_days": 30,
+        "x_train": np.asarray(x_train),
+        "y_train": y_train,
+        "train_drives": train_drives,
+        "train_ids": _ids(train_drives, y_train),
+        "x_val": x_val,
+        "y_val": y_val,
+        "val_drives": val_drives,
+        "x_test": x_test,
+        "y_test": y_test,
+        "test_drives": test_drives,
+        "test_ids": _ids(test_drives, y_test, start="2026-07-01"),
+        "es_idx": early_stopping_subset(y_val),
+    }
+    reports = two_stage_experiment(
+        data,
+        candidate_recalls=(0.8,),
+        recall_levels=(0.10, 0.50),
+        stage2_kinds=("stack", "lightgbm", "cox"),  # order is not the caller's burden
+        n_boot=30,
+    )
+    assert [r["stage2_kind"] for r in reports] == ["lightgbm", "cox", "stack"]
+    stack = reports[-1]
+    assert stack["status"] == "ok", stack
+    weights = stack["stack"]["weights"]
+    assert set(weights) == {"lightgbm", "cox"} and abs(sum(weights.values()) - 1) < 1e-9
+    ap = stack["stack"]["validation_drive_ap"]
+    assert ap["stack"] >= max(ap["lightgbm"], ap["cox"], ap["equal_weights"]) - 1e-12
+    assert stack["candidates"] == reports[0]["candidates"]
+    assert any("paired_vs_lightgbm" in row for row in stack["two_stage"])
+    assert stack["stage2_trees"] == reports[0]["stage2_trees"] + reports[1]["stage2_trees"]
+
+
+def test_stack_needs_two_members():
+    from src.models.stacking import fit_stack
+
+    model, report = fit_stack(
+        None,
+        {"lightgbm": object()},
+        x_val=np.zeros((2, 1)),
+        y_val=np.zeros(2),
+        val_drives=np.array([0, 1]),
+        val_stage1_scores=np.zeros(2),
+        candidate_threshold=0.5,
+    )
+    assert model is None and "at least two" in report["status"]

@@ -934,9 +934,10 @@ Where each section's numbers come from:
 | Section | Source |
 |---|---|
 | 1.1.4 (Q1+Q2 -> Q3 runs) | Training reports `data/audit/data_quality_reports/model_evaluation_report_h<H>_q1q2_q3.json` and `action_tiers_h<H>_q1q2_q3.json`; cascade and survival Stage 2 `data/audit/cascade_q3_h30/`, `_h44/`, `_h60/`; horizon comparison `data/audit/horizon_q3/`; runs `frozen_runs/c459046e.../`, `a2cd06d5.../`, `804a20ce.../` |
+| 4.13 (stacked Stage 2, not confirmed, frozen) | `data/audit/stack_q3_h30/`, `_h44/`, `_h60/`; launcher, logs and `CHECKSUMS.sha256` in `data/audit/stack_q3_logs/` (git-ignored: local until force-added) |
 | 1.1.5 (deep dive) | `data/audit/deep_dive_q3_h30/` |
-| 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` (local, not committed) |
 | 1.1.6 (cluster action policy) | `data/audit/cluster_policy_h30/` |
+| 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` (local, not committed) |
 | 4.7 - 4.10 (point-in-time policy, family calibration) | `data/audit/agent_point_in_time*`, `agent_pit_validation*`, `family_calibration.json` |
 | Every look at test | `data/audit/test_access_log.jsonl` (local, never committed) |
 
@@ -1006,8 +1007,8 @@ gives the precision each tier would be expected to reach:
 The per-run curves are in `frozen_runs/c459046e.../figures/`
 (`validation_precision_recall.png`, `test_precision_recall.png`).
 
-
 ## 2. How to run the pipeline
+
 ### 2.1 Setup
 
 ```bash
@@ -2363,6 +2364,121 @@ to validity are in `docs/cascade_wide_net.md`; results are in its Section 9.
   weaker (1 of 3 seeds) and it is not confirmed.
 - Goal still unmet.
 
+### 4.13 A stacked Stage 2: LightGBM + Cox (run 2026-11-06, not confirmed, outputs frozen)
+
+Question: does a blend of the LightGBM and Cox Stage 2 re-rank the Stage 1
+candidates better than either alone? Section 1.1.4 found Cox matches LightGBM
+within about 1 point at every level, so any gain would sit at the strict end.
+
+**Method.** A new Stage 2 kind, `stack` (`src/models/stacking.py`), blends the
+two Stage 2 models already fitted for the same net; nothing is retrained. Each
+member's score becomes its rank against that member's validation candidate
+scores (`src/models/ensemble.py::validation_rank`, so test is not used), and
+the weights are searched on a 0.1 simplex grid for drive-level average
+precision on the validation candidates. The members early-stopped on the same
+validation rows, so the blend's validation score is optimistic; only the paired
+test comparison counts. A stack is compared, not deployed (`log_two_stage`
+accepts a LightGBM Stage 2 only). Same settings as Section 1.1.4: nets 0.5 and
+0.8, survival nets 0.8, 3 seeds, paired drive bootstrap against Stage 1 alone
+and against the LightGBM Stage 2 (`paired_vs_lightgbm`).
+
+**Commands.** The Q3 runs below read the kept work directories of the three
+Q1+Q2 -> Q3 training runs (`data/tmp/train_model_frame_fag3o60h` for 30 days,
+`ff5ejt7a` for 44, `xjxdieoe` for 60). Run from the repository root:
+
+```bash
+# 1. The runs this one repeats (Section 1.1.4); scripts as run on 2026-11-06:
+bash data/audit/q3_logs/run_q3.sh        # build-labels, then make train per horizon
+                                         #   TRAIN_ARGS="--horizon-days H --keep-work-dir --save-scores"
+bash data/audit/q3_logs/run_cascade.sh   # make experiment-model ... --two-stage, kinds from config
+
+# 2. The stacked run: lightgbm + cox + stack, per horizon
+bash data/audit/stack_q3_logs/run_stack.sh "$PWD"
+#   which runs, for H in 30 (fag3o60h), 44 (ff5ejt7a), 60 (xjxdieoe):
+make experiment-model EXPERIMENT_ARGS="--work-dir data/tmp/train_model_frame_<dir> \
+  --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack \
+  --two-stage-out data/audit/stack_q3_h<H>"
+
+# 3. Tests of the new code
+uv run pytest tests/unit/test_two_stage.py
+```
+
+Each run appends a line to `data/audit/test_access_log.jsonl` and writes
+`experiment_results.json` into the work directory, as the Section 1.1.4 run
+did. Outputs: `data/audit/stack_q3_h30/`, `_h44/`, `_h60/` (`tables.md`,
+`experiment_two_stage.json`, `figures/`, `code.patch` = the uncommitted diff at
+launch) and `data/audit/stack_q3_logs/` (the launcher and one log per horizon).
+The table headed "Survival Stage 2 against the LightGBM Stage 2" also lists the
+stack; the numbers are right, the heading predates the stack kind.
+
+**Results** (Q3 2026 test, per drive, 0.8 net, mean of 3 seeds, thresholds from
+validation; run 2026-11-06 20:12-21:37 IST; the LightGBM and Cox rows reproduce
+the Section 1.1.4 tables exactly, so the repeat is consistent with that run).
+Precision / recall at each recall level; the last column is the stack minus
+the LightGBM Stage 2 in precision points, with how many of the 3 seeds have the
+paired 95% interval above / below 0:
+
+| Horizon | Level | Stage 1 alone | LightGBM Stage 2 | Cox | Stack | Stack minus LightGBM |
+|---|---|---|---|---|---|---|
+| 30 | 10% | 56.5% | 61.7% / 10.4% | 61.0% / 15.7% | **64.9% / 11.6%** | +3.2 (1 / 0) |
+| 30 | 35% | 41.6% | 42.3% / 36.3% | 40.7% / 37.0% | 41.7% / 37.2% | -0.5 (0 / 0) |
+| 30 | 60% | 20.1% | 19.9% / 58.6% | 20.3% / 58.3% | 19.9% / 58.9% | 0.0 (0 / 0) |
+| 44 | 10% | 59.0% | 58.4% / 15.4% | 63.2% / 16.1% | **64.6% / 14.1%** | +6.1 (3 / 0) |
+| 44 | 35% | 45.2% | 45.9% / 32.7% | 45.1% / 35.1% | 45.9% / 34.2% | 0.0 (0 / 0) |
+| 44 | 60% | 23.2% | 23.1% / 55.7% | 22.9% / 56.5% | 23.4% / 56.2% | +0.3 (1 / 1) |
+| 60 | 10% | 69.6% | 68.4% / 11.4% | 70.6% / 13.4% | 68.0% / 15.5% | -0.4 (0 / 0) |
+| 60 | 35% | 49.6% | 51.5% / 28.0% | 50.3% / 31.2% | 52.0% / 29.8% | +0.6 (1 / 0) |
+| 60 | 60% | 26.6% | 27.9% / 49.6% | 26.5% / 51.5% | 27.0% / 50.5% | -0.9 (0 / 3) |
+
+- **Not confirmed.** The rule proposed before the run (interval above 0 in at
+  least 2 of 3 seeds, at both 10% and 35% recall) is met by no horizon: 44 days
+  passes at 10% (3 / 3) but not at 35% (0 / 3); 30 days gets 1 / 3 at 10%; 60
+  days gets none. That rule was suggested in conversation, not written to a
+  file before the run, so treat it as a description of how the result was
+  read, not as a pre-registration.
+- **The 44-day gain is mostly Cox, not the blend.** Cox alone reaches 63.2% at
+  10% against 58.4% for LightGBM, so the stack's +6.1 over LightGBM is +1.4
+  over Cox. The 60-day stack is below LightGBM at 60% recall in 3 / 3 seeds
+  (-0.9).
+- **Same pattern as the 0.8 net itself:** any gain sits at the strict end
+  (10% recall), where one or two seeds carry it; at 35% and above the stack
+  lies on top of LightGBM and Stage 1, as every Stage 2 kind does (Section
+  1.1.4).
+- **The weights are not stable:** LightGBM / Cox 0.4 / 0.6, 0.5 / 0.5 and 0.6 /
+  0.4 at 30 days; 0.5 / 0.5, 0.4 / 0.6 and 0.3 / 0.7 at 44; 0.5 / 0.5, 0.3 /
+  0.7 and 0.5 / 0.5 at 60. Validation drive-level average precision of the
+  stack is 0.544-0.547 (30), 0.573-0.581 (44), 0.587-0.596 (60), within about
+  0.01 of either member and partly optimistic (members early-stopped on the
+  same rows).
+- **Not adopted.** The production Stage 2 stays the LightGBM at the 0.8 net
+  (`c459046e` and the 44- and 60-day runs). Q3 was already a test set, so these
+  are descriptive; a confirmation needs an untouched quarter and the rules of
+  `docs/q3_horizon_and_cascade_run.md` section 6.
+
+**Frozen outputs.** Do not re-run into these folders (the runner refuses to
+overwrite) and do not edit them. SHA-256 prefixes (first 16), full list in
+`data/audit/stack_q3_logs/CHECKSUMS.sha256`; verify from the repository root
+with `sha256sum -c data/audit/stack_q3_logs/CHECKSUMS.sha256`:
+
+| File | SHA-256 (first 16) |
+|---|---|
+| `stack_q3_h30/experiment_two_stage.json` | `28e34940a6c1a904` |
+| `stack_q3_h44/experiment_two_stage.json` | `2cebafd0a4210cac` |
+| `stack_q3_h60/experiment_two_stage.json` | `38ec83854ab4e699` |
+| `stack_q3_h30/tables.md`, `_h44/`, `_h60/` | `c4c275ba13058c8a`, `ffc7bfb976d6240d`, `34344e99f016b60c` |
+| `stack_q3_logs/run_stack.sh` | `b44c437016a87086` |
+
+`data/audit/*/*` is git-ignored, so these folders are local until force-added
+(see `data/audit/README.md`); the checksums are what lets a later reader detect a
+changed file. MLflow runs: `5ab8f0bb` (30 days), `7a568b77` (44), `47d8ff0c` (60).
+
+**Overlap check, not yet reproducible.** A drive-level comparison of the
+`cox` and `lightgbm` columns of `data/tmp/merged/merged_scores_h30_h30_seed0.parquet`
+(April-May test window, Cox as a standalone model, not as a Stage 2) found
+Spearman 0.90 and, at a false-alarm rate of 1e-4, 22 failing drives shared of
+54 (LightGBM) and 92 (Cox); at 1e-3, 322 shared of 397 and 415. That script
+was a one-off in a scratch directory and is not in the repository.
+
 ## 5. What we learned
 
 ### 5.1 Evaluation is per drive, not per drive-day
@@ -2634,6 +2750,9 @@ make experiment-model EXPERIMENT_ARGS="--variants reg_spw xgboost --skip-baselin
 - `--per-model N`: one model per drive family, for the N families with the most
   failing validation drives, each compared with the pooled model on the same
   test drives. Ran on real data for the first time on 2026-10-06 (Section 4.1).
+- `--two-stage --stage2-kinds lightgbm cox aft stack`: Stage 2 models compared
+  per net; `stack` blends the fitted LightGBM and Cox Stage 2 by
+  validation-fitted rank weights and needs both (Section 4.13).
 - Results go to `experiment_results.json`, `experiment_deep_dive.json` and
   `experiment_per_model.json` in the kept work directory.
 
@@ -2805,6 +2924,10 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   descriptive and unconfirmed. The rules new data must apply are in
   `docs/q3_horizon_and_cascade_run.md` section 6. `evaluate_frozen.py` needs a
   sealed-split date cap before any quarter is sealed again.
+- **Stacked Stage 2 (LightGBM + Cox) was run and not adopted** (2026-11-06,
+  Section 4.13): +3.2 / +6.1 / -0.4 points at 10% recall for 30 / 44 / 60 days,
+  nothing at 35% recall and above, unstable weights; the 44-day gain is mostly
+  Cox. Outputs frozen.
 - **Untested ideas for the 60-80% recall band** (2026-11-06 review): a cohort
   feature (trailing failure rate of the drive's batch or vault; screen on
   validation first) and a sequence-model third stage on the Stage 1 suspects
