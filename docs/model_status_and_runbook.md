@@ -1,8 +1,10 @@
 # Model status, results and runbook
 
-> **Current state (2026-10-09).** Read Section 1 first. The pipeline runs on
-> **Q1 + Q2 2026** with a **30-day horizon** and corrected split dates, and
-> the model of record is the frozen run in Section 1.1. Section 4 is the
+> **Current state (2026-10-09; model of record retired 2026-11-06).** Read
+> Section 1 first. The pipeline runs on **Q1 + Q2 2026** with a **30-day
+> horizon** and corrected split dates. The frozen run of Section 1.1 is
+> **retired** and there is no model of record until the Q1+Q2 -> Q3 runs
+> (`docs/q3_horizon_and_cascade_run.md`) are reported. Section 4 is the
 > measurement record in the order it was produced; Section 5 holds the
 > lessons from the earlier Q1-only, 14-day work, which still apply. For a
 > shorter overview see `docs/system_summary.md`.
@@ -20,9 +22,19 @@ features, labels, training, fleet scoring, plots and the final report.
 **The stated goal is not met.** It was 95% precision at 35-50% recall, then
 90% at >= 10% recall, both per drive on the real fleet (Section 7).
 
-### 1.1 The current model
+### 1.1 The retired model of record
 
-Frozen MLflow run `29e338248d8948ccb41ee58db5321e76` (experiment named in
+**Retired 2026-11-06.** The frozen run below is no longer the model of
+record and is not frozen for any evaluation. It was kept unchanged to be
+scored once on the sealed quarter and on SMART-Z, but neither can happen:
+its artifacts exist on no machine this repository can reach (no MLflow run in
+`mlflow/mlflow.db`, no `frozen_runs/` copy; Section 8, "Open items"), and the sealed quarter
+(Q3 2026) is now an ordinary test set (Section 1.4,
+`docs/q3_horizon_and_cascade_run.md`). The numbers below stay as the
+historical record of that run; they are not reproducible from this
+repository.
+
+Frozen MLflow run (retired; experiment named in
 `configs/model.yaml`, store `sqlite:///mlflow/mlflow.db`), dataset version
 `20261009T051152748998Z`, Q1 + Q2 2026 data, 30-day horizon, two-stage
 model, 246 features. Per drive, on test, with thresholds chosen on
@@ -270,7 +282,7 @@ both models at matched test recall, and they disagree about significance:
 | Run | Features | Stage 1 | Two-stage | Gap | 95% CI |
 |---|---|---|---|---|---|
 | `0ee06c01` | 212 | 0.389 | 0.496 | 0.107 | [0.032, 0.185] |
-| `29e33824` | 246 | 0.450 | 0.486 | 0.036 | **[-0.055, 0.128]** |
+| Retired frozen run (Section 1.1) | 246 | 0.450 | 0.486 | 0.036 | **[-0.055, 0.128]** |
 
 The second interval includes 0, so the gain is **not** confirmed on the
 current feature set. The two runs do not contradict each other - each point
@@ -2214,9 +2226,9 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   false alarms.
 - **Branches:** current work is on `adi_dev`; `main` holds the state before
   the 30-day default and the split fix.
-- **The frozen run is not in this repository's MLflow store.** The real-data
+- **The retired frozen run is not in this repository's MLflow store.** The real-data
   runs were made on the data machine, so `mlflow/mlflow.db` here ends at
-  2026-10-06 and `data/audit/` holds no report for run `29e33824`. Section 1.1
+  2026-10-06 and `data/audit/` holds no report for it. Section 1.1
   is the record for it. Re-running `make train` locally will not reproduce
   that run; it would produce a new one.
 

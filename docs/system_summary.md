@@ -80,9 +80,12 @@ figure to compare with the literature (Amram et al., 2021, used about 15%
 positives). The model and its alerts are identical either way; only the mix
 of drives it is judged on changes.
 
-**The model of record** is a frozen training run, `29e338248d8948ccb41ee58db5321e76`,
-kept unchanged so that the sealed quarter and the cross-vendor set can each be
-scored against it exactly once:
+**The previous model of record**, a frozen training run, was **retired on
+2026-11-06**: its artifacts
+are not available to this repository, so it can never be scored on the sealed
+quarter or the cross-vendor set, and Q3 2026 is now used as a test set
+(`docs/q3_horizon_and_cascade_run.md`). Its results, kept as a historical
+record:
 
 | Operating point | Precision, real fleet (0.18% fail) | Failing drives caught | Precision, 15% fail |
 |---|---|---|---|

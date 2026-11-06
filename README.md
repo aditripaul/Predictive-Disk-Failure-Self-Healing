@@ -645,8 +645,9 @@ later set to 90% precision at ≥ 10% recall (`configs/model.yaml`
 
 ### Measured Result (Backblaze Q1 + Q2 2026, 30-day horizon, per drive, test)
 
-The model of record is a frozen training run, kept unchanged so the sealed
-quarter and the cross-vendor set can each be scored against it once:
+From the previous model of record, a frozen run retired on
+2026-11-06 (its artifacts are not available to this repository, and the sealed
+quarter, Q3 2026, is now a test set; see `docs/q3_horizon_and_cascade_run.md`):
 
 | Operating point | Precision on the real fleet (0.18% of drives fail) | Same alerts, test set with 15% failing |
 |---|---|---|

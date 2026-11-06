@@ -221,7 +221,7 @@ per drive per day with SMART attributes and a failure flag.
 | Drives | 363,548 |
 | Failing drives in the test period | 621 of about 354,000 (0.18%) |
 
-That is the window of the frozen model of record (Section 8.1). The repository
+That is the window of the retired frozen model of record (Section 8.1). The repository
 default is now a quarter-aligned window, used for the runs in Sections 8.4 to
 8.7 and Section 9 items 13 to 18:
 
@@ -524,9 +524,11 @@ set: 621 failing and 353,328 healthy drives.
 
 ### 8.1 Precision and recall
 
-**The model of record** is a frozen training run
-(`29e338248d8948ccb41ee58db5321e76`), kept unchanged so that the sealed
-quarter and the cross-vendor set can each be scored against it exactly once:
+**The previous model of record**, a frozen training run, was **retired on
+2026-11-06**: its artifacts
+are not available to this repository, so it can never be scored on the sealed
+quarter or the cross-vendor set, and Q3 2026 is now used as a test set. Its
+results, kept as a historical record:
 
 | Operating point | Precision, real fleet (0.18% fail) | Failing drives caught | At 15% failing | Lift |
 |---|---|---|---|---|
@@ -1233,8 +1235,8 @@ section 1.1 is the record for it.
 | Horizon | 30 days |
 | Splits, frozen run | training rows the first 75 days of Q1 and Q2 2026, validation the 25 days after the 30-day purge, test the following 21 days |
 | Splits, quarter-aligned run | training rows the first 107 days of Q4 2025 to Q2 2026, validation the last 45 days of Q1, test the first 61 days of Q2 |
-| Sealed window | Q3 2026; read only by the single-shot frozen evaluation |
-| Frozen run | `29e338248d8948ccb41ee58db5321e76`; its dataset version is recorded in the runbook, Section 1.1 |
+| Sealed window | Q3 2026 until 2026-11-06, now a test set; Q4 2026 is the next sealed quarter |
+| Frozen run | retired 2026-11-06; its dataset version is recorded in the runbook, Section 1.1 |
 | Features | 246 (212 before the sixth priority attribute and the confidence-formula fixes) |
 | First stage | LightGBM, 31 leaves, at least 200 rows per leaf, L2 10, learning rate 0.05 (tree count for this specific run not recorded in the runbook) |
 | Class weighting | square root of the healthy-to-failing ratio |

@@ -289,8 +289,8 @@ Measured on the real build: `recency_factor` median 0.6065, p95 0.6065, max
    *models*, which were tested and lost to pooled (0.128 vs 0.217 on HGST).
    Falsifiable check for the next run: if attribute availability causes the
    per-family gap, adding `smart_196` should narrow it.
-   - **Tested 2026-10-09, not supported.** On run `29e338248d8948ccb41ee58db5321e76`
-     (246 features) the pooled model's drive AUPRC is 0.473 on
+   - **Tested 2026-10-09, not supported.** On the frozen 246-feature run of
+     2026-10-09 (since retired) the pooled model's drive AUPRC is 0.473 on
      ST12000NM0008 against 0.244 on HGST HUH721212ALN604; the gap did not
      narrow. The headline also did not move: test drive precision 0.486
      against the previous 0.496, recall 0.087 against 0.105, row AUPRC 0.1108
