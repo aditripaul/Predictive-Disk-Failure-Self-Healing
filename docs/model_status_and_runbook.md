@@ -140,7 +140,7 @@ Every table in this section is generated from saved outputs, with no test-split 
         TABLES_ARGS="--status --recall-policy data/audit/recall_policy_h30_seed0_v2/summary.json \
         --cascade data/audit/cascade_wide_net_h30/experiment_two_stage.json"
 
-The two `data/audit` inputs are local and not committed. The rows below match that output
+The two `data/audit` inputs are tracked. The rows below match that output
 verbatim (checked 2026-11-06).
 
 Test window 2026-04-01 to 2026-05-31, **1,479 failing drives**. Each model's threshold was
@@ -1134,9 +1134,9 @@ Where each section's numbers come from:
 | 1.1.4a (stacked Stage 2, not confirmed, frozen) | `data/audit/stack_q3_h30/`, `_h44/`, `_h60/`; launcher, logs and `CHECKSUMS.sha256` in `data/audit/stack_q3_logs/` (tracked) |
 | 1.1.5 (deep dive) | `data/audit/deep_dive_q3_h30/` |
 | 1.1.6 (cluster action policy) | `data/audit/cluster_policy_h30/` |
-| 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` (local, not committed) |
+| 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` |
 | 4.7 - 4.10 (point-in-time policy, family calibration) | `data/audit/agent_point_in_time*`, `agent_pit_validation*`, `family_calibration.json` |
-| Every look at test | `data/audit/test_access_log.jsonl` (local, never committed) |
+| Every look at test | `data/audit/test_access_log.jsonl` (tracked, append-only) |
 
 What git tracks under `data/audit/` and what stays local is listed in its
 README; the Q1+Q2 -> Q3 results are all tracked.

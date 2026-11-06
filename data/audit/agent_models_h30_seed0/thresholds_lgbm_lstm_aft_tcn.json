@@ -1,0 +1,10 @@
+{
+  "score_column": "lgbm_lstm_aft_tcn",
+  "action_tiers": {
+    "warn": 0.9920057621888374,
+    "cordon": 0.9969827647385973,
+    "migrate": 0.9992691137901754,
+    "drain": 0.9999629698210064
+  },
+  "threshold": 0.9998282776314801
+}

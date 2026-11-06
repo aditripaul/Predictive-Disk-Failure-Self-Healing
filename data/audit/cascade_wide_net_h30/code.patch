@@ -1,0 +1,1122 @@
+diff --git a/configs/model.yaml b/configs/model.yaml
+index 2c88136..9b989e4 100644
+--- a/configs/model.yaml
++++ b/configs/model.yaml
+@@ -45,6 +45,32 @@ model:
+     # like the ones it will meet in use.
+     n_folds: 3
+     seed: 0
++    # Second-stage LightGBM overrides. min_child_samples 50 was set for a
++    # pool of ~10k candidate rows (the 0.5 net); a wider net gives the second
++    # stage up to millions of rows, where 50 is weaker regularisation than
++    # the first stage's 200.
++    stage2_params:
++      min_child_samples: 50
++    # The second stage early-stops on every positive validation candidate
++    # row plus at most this many negatives (as the first stage does above).
++    # Changes nothing at the 0.5 net (~20k candidates); bounds memory for a
++    # wide one.
++    early_stopping_max_negatives: 1500000
++    # Defaults of `make experiment-model EXPERIMENT_ARGS="--two-stage ..."`:
++    # the wide-net comparison (docs/model_status_and_runbook.md section 4.12).
++    # Every net is compared with the first model alone at each recall level
++    # up to the net, paired within each seed.
++    experiment:
++      candidate_recalls: [0.5, 0.7, 0.8, 0.9]
++      recall_levels: [0.05, 0.10, 0.20, 0.35, 0.50, 0.60, 0.70, 0.80]
++      seeds: 3
++      # A failing drive also counts as caught "with lead" only when a row at
++      # least this many days before its failure clears the threshold.
++      lead_min_days: 1
++      # Cost of a missed failure over a false alarm. An illustration (from a
++      # 1000:50 example), not a measured cost.
++      cost_ratio: 20
++      n_boot: 1000
+   params:
+     objective: binary
+     num_leaves: 31
+diff --git a/pipelines/experiment_model.py b/pipelines/experiment_model.py
+index 6a6917c..af3cfa2 100644
+--- a/pipelines/experiment_model.py
++++ b/pipelines/experiment_model.py
+@@ -17,6 +17,7 @@ from __future__ import annotations
+ import argparse
+ import json
+ import re
++import subprocess
+ import time
+ from pathlib import Path
+ from typing import Any
+@@ -30,7 +31,7 @@ from sklearn.ensemble import IsolationForest
+ from sklearn.metrics import precision_recall_curve
+ 
+ from src.logging_config import configure_logging, get_logger
+-from src.models.access_log import record_test_access
++from src.models.access_log import _git_sha, record_test_access
+ from src.models.alerting import SMOOTHERS, analyze_false_alarms, smooth_scores
+ from src.models.evaluation import (
+     compute_auprc,
+@@ -46,7 +47,16 @@ from src.models.training import (
+     early_stopping_subset,
+     predict_proba_positive,
+ )
+-from src.models.two_stage import drive_folds, fit_second_stage, lightgbm_fitter  # noqa: F401
++from src.models.two_stage import (  # noqa: F401
++    drive_folds,
++    fit_second_stage,
++    lightgbm_fitter,
++    out_of_fold_scores,
++    threshold_at_drive_recall,
++    tree_count,
++)
++from src.models.uncertainty import paired_flag_difference_ci
++from src.outputs import refuse_overwrite
+ from src.resource_limits import apply_memory_limit_from_config
+ 
+ logger = get_logger(__name__)
+@@ -133,6 +143,21 @@ VARIANTS: dict[str, tuple[dict[str, Any], str, str]] = {
+ }
+ 
+ 
++def _tracked_diff() -> str:
++    """`git diff HEAD` of tracked code, configs and docs, not data/ ("" when
++    clean or git is unavailable)."""
++    try:
++        return subprocess.run(
++            ["git", "diff", "HEAD", "--", ".", ":(exclude)data"],
++            capture_output=True,
++            text=True,
++            check=True,
++            timeout=30,
++        ).stdout
++    except (OSError, subprocess.SubprocessError):
++        return ""
++
++
+ def _find_work_dir(explicit: Path | None) -> Path:
+     if explicit is not None:
+         return explicit
+@@ -556,20 +581,127 @@ def _fit_lgbm(
+     return model
+ 
+ 
+-def two_stage_experiment(
+-    data: dict[str, Any], *, n_folds: int = 3, candidate_recall: float = 0.5, seed: int = 0
++#: Recall levels of the two-stage comparison when neither the command line nor
++#: `model.two_stage.experiment` names them.
++TWO_STAGE_RECALL_LEVELS = (0.05, 0.10, 0.20, 0.35)
++
++#: (drive labels, drive scores, drive scores counting only rows at least
++#: `lead_min_days` before the failure, or None), one entry per drive, ordered
++#: by drive_id.
++DriveView = tuple[np.ndarray, np.ndarray, np.ndarray | None]
++
++
++def drive_view(
++    drive_ids: np.ndarray,
++    y: np.ndarray,
++    scores: np.ndarray,
++    days_to_event: np.ndarray | None = None,
++    lead_min_days: int = 1,
++) -> DriveView:
++    """The drive table `drive_level_table` builds (same labels, scores and
++    order), plus a lead-aware score: for a failing drive the highest score
++    over its positive rows at least `lead_min_days` before the failure
++    (-inf when it has none), for a healthy drive its ordinary score. A drive
++    flagged only on the day it fails is caught by the first and missed by the
++    second. Built once per score vector, so many thresholds cost no further
++    pass over the rows."""
++    df = pl.DataFrame({"drive_id": drive_ids, "y": y, "score": scores})
++    positive = pl.col("y") == 1
++    aggs = [
++        positive.any().alias("failing"),
++        pl.col("score").filter(positive).max().alias("positive_max"),
++        pl.col("score").max().alias("all_max"),
++    ]
++    if days_to_event is not None:
++        df = df.with_columns(early=pl.Series(days_to_event).fill_null(-1) >= lead_min_days)
++        aggs.append(pl.col("score").filter(positive & pl.col("early")).max().alias("lead_max"))
++    table = df.group_by("drive_id").agg(aggs).sort("drive_id")
++    failing = table["failing"].to_numpy()
++    all_max = table["all_max"].to_numpy().astype(float)
++    drive_scores = np.where(failing, table["positive_max"].fill_null(-np.inf).to_numpy(), all_max)
++    lead = None
++    if days_to_event is not None:
++        lead = np.where(failing, table["lead_max"].fill_null(-np.inf).to_numpy(), all_max)
++    return failing.astype(int), drive_scores.astype(float), lead
++
++
++def view_metrics(view: DriveView, threshold: float, cost_ratio: float) -> dict[str, Any]:
++    """Drive-level counts at `threshold` (as `drive_level_metrics`), plus
++    recall with lead and an illustrative cost: missed failures x
++    `cost_ratio` + false alarms."""
++    labels, scores, lead = view
++    failing = labels == 1
++    flagged = scores >= threshold
++    caught = int((flagged & failing).sum())
++    false_alarms = int((flagged & ~failing).sum())
++    failing_count, healthy_count = int(failing.sum()), int((~failing).sum())
++    out: dict[str, Any] = {
++        "failing_drive_count": failing_count,
++        "healthy_drive_count": healthy_count,
++        "caught_drive_count": caught,
++        "false_alarm_drive_count": false_alarms,
++        "precision": caught / (caught + false_alarms) if caught + false_alarms else 0.0,
++        "recall": caught / failing_count if failing_count else 0.0,
++        "false_alarm_rate": false_alarms / healthy_count if healthy_count else 0.0,
++        "cost": (failing_count - caught) * cost_ratio + false_alarms,
++    }
++    if lead is not None:
++        caught_lead = int(((lead >= threshold) & failing).sum())
++        out["caught_with_lead_count"] = caught_lead
++        out["recall_with_lead"] = caught_lead / failing_count if failing_count else 0.0
++    return out
++
++
++def level_row(
++    target_recall: float, val_view: DriveView, test_view: DriveView, cost_ratio: float
+ ) -> dict[str, Any]:
++    """One recall level: the threshold chosen on validation (the most precise
++    one catching at least `target_recall` of failing drives, as
++    `precision_at_recall_table`), applied to test."""
++    threshold = threshold_at_drive_recall(val_view[0], val_view[1], target_recall)
++    if threshold is None:
++        return {"target_recall": target_recall, "threshold": None}
++    return {
++        "target_recall": target_recall,
++        "threshold": threshold,
++        "validation": view_metrics(val_view, threshold, cost_ratio),
++        "test": view_metrics(test_view, threshold, cost_ratio),
++    }
++
++
++def two_stage_experiment(
++    data: dict[str, Any],
++    *,
++    candidate_recalls: tuple[float, ...] = (0.5,),
++    recall_levels: tuple[float, ...] = TWO_STAGE_RECALL_LEVELS,
++    n_folds: int = 3,
++    seed: int = 0,
++    lead_min_days: int = 1,
++    cost_ratio: float = 20.0,
++    n_boot: int = 1000,
++    stage2_params: dict[str, Any] | None = None,
++    early_stopping_max_negatives: int | None = None,
++) -> list[dict[str, Any]]:
+     """Does a second model trained only on the hard cases beat the pooled model?
+ 
+     Uses the same code `make train TRAIN_ARGS=--two-stage` runs
+     (src/models/two_stage.py): Stage 1 is the pooled model; Stage 2 is trained
+     on the train rows Stage 1 scores above its candidate threshold, with
+-    out-of-fold Stage 1 scores. The report compares both at the same recall
+-    levels, on the same test drives, with thresholds chosen on validation.
+-    `seed` sets the fold assignment and both models' sampling, so repeated
+-    seeds show how much of a difference is chance."""
++    out-of-fold Stage 1 scores. One report per net in `candidate_recalls`
++    (the validation recall the candidate threshold keeps), each comparing
++    both models at every level of `recall_levels` up to the net, on the same
++    test drives, with thresholds chosen on validation. Stage 1, its scores and
++    its out-of-fold train scores are computed once and shared by every net.
++    `seed` sets the fold assignment, both models' sampling and the bootstrap
++    resamples, so repeated seeds show how much of a difference is chance.
++
++    A level equal to the net is a no-op by construction (its threshold is the
++    candidate threshold, and the cascade flags what Stage 1 flags); it is
++    kept as a check."""
+     record_test_access(
+-        variant="two_stage_experiment", purpose="experiment_model two-stage test scoring"
++        variant="two_stage_experiment",
++        purpose="experiment_model two-stage test scoring",
++        extra={"seed": seed, "candidate_recalls": list(candidate_recalls)},
+     )
+     model_cfg = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["model"]
+     fit = lightgbm_fitter(
+@@ -578,6 +710,7 @@ def two_stage_experiment(
+         early_stopping_rounds=50,
+         seed=seed,
+     )
++    t0 = time.perf_counter()
+     sub = data["es_idx"]
+     stage1 = fit(
+         data["x_train"],
+@@ -587,118 +720,288 @@ def two_stage_experiment(
+     )
+     val_s1 = predict_proba_positive(stage1, data["x_val"])
+     test_s1 = predict_proba_positive(stage1, data["x_test"])
+-    model, report = fit_second_stage(
++    train_oof = out_of_fold_scores(
+         fit,
+-        stage1,
+-        x_train=data["x_train"],
+-        y_train=data["y_train"],
+-        train_drives=data["train_drives"],
+-        x_val=data["x_val"],
+-        y_val=data["y_val"],
+-        val_drives=data["val_drives"],
+-        val_stage1_scores=val_s1,
+-        candidate_recall=candidate_recall,
++        data["x_train"],
++        data["y_train"],
++        data["train_drives"],
++        n_estimators=tree_count(stage1),
+         n_folds=n_folds,
+         seed=seed,
+     )
+-    if model is None:
+-        return report
+-    report["candidates"]["test_rows"] = int((test_s1 >= model.candidate_threshold).sum())
+-    recalls = tuple(r for r in (0.05, 0.10, 0.20, 0.35) if r <= candidate_recall)
+-    for name, val_scores, test_scores in (
+-        ("stage1", val_s1, test_s1),
+-        (
+-            "two_stage",
+-            model.final_scores(data["x_val"], val_s1),
+-            model.final_scores(data["x_test"], test_s1),
+-        ),
+-    ):
+-        report[name] = precision_at_recall_table(
+-            data["val_drives"],
+-            data["y_val"],
+-            val_scores,
+-            data["test_drives"],
+-            data["y_test"],
+-            test_scores,
+-            recalls=recalls,
++    logger.info("two_stage_stage1_done", seed=seed, seconds=round(time.perf_counter() - t0))
++
++    def view(split: str, scores: np.ndarray) -> DriveView:
++        return drive_view(
++            data[f"{split}_drives"],
++            data[f"y_{split}"],
++            scores,
++            data.get(f"{split}_days_to_event"),
++            lead_min_days,
+         )
+-    return report
++
++    s1_val, s1_test = view("val", val_s1), view("test", test_s1)
++    stage1_rows = {r: level_row(r, s1_val, s1_test, cost_ratio) for r in recall_levels}
++
++    reports: list[dict[str, Any]] = []
++    for net in candidate_recalls:
++        t1 = time.perf_counter()
++        levels = [r for r in recall_levels if r <= net + 1e-9]
++        model, report = fit_second_stage(
++            fit,
++            stage1,
++            x_train=data["x_train"],
++            y_train=data["y_train"],
++            train_drives=data["train_drives"],
++            x_val=data["x_val"],
++            y_val=data["y_val"],
++            val_drives=data["val_drives"],
++            val_stage1_scores=val_s1,
++            candidate_recall=net,
++            n_folds=n_folds,
++            seed=seed,
++            train_stage1_scores=train_oof,
++            stage2_params=stage2_params,
++            early_stopping_max_negatives=early_stopping_max_negatives,
++        )
++        report["stage1"] = [stage1_rows[r] for r in levels]
++        if model is None:
++            reports.append(report)
++            continue
++        threshold = model.candidate_threshold
++        test_candidates = test_s1 >= threshold
++        report["candidates"]["test_rows"] = int(test_candidates.sum())
++        report["candidates"]["test_positive_rows"] = int(data["y_test"][test_candidates].sum())
++        # The leaky bucket: no threshold on the combined score can catch a
++        # failing drive Stage 1 did not pass, so Stage 1's recall at the
++        # candidate threshold is the most the cascade can reach. The share of
++        # drives passing Stage 1 is what a drift monitor would watch.
++        at_net = view_metrics(s1_test, threshold, cost_ratio)
++        report["ceiling"] = {
++            "test_recall": at_net["recall"],
++            "test_recall_with_lead": at_net.get("recall_with_lead"),
++            "validation_drive_share": float((s1_val[1] >= threshold).mean()),
++            "test_drive_share": float((s1_test[1] >= threshold).mean()),
++        }
++        c_val = view("val", model.final_scores(data["x_val"], val_s1))
++        c_test = view("test", model.final_scores(data["x_test"], test_s1))
++        report["two_stage"] = []
++        for r in levels:
++            row = level_row(r, c_val, c_test, cost_ratio)
++            first = stage1_rows[r]
++            if row["threshold"] is not None and first["threshold"] is not None:
++                # Same seed, same drive count: every net and level of this seed
++                # sees the same resampled drives.
++                row["paired_test"] = paired_flag_difference_ci(
++                    s1_test[0],
++                    s1_test[1] >= first["threshold"],
++                    c_test[1] >= row["threshold"],
++                    n_boot=n_boot,
++                    seed=seed,
++                )
++            report["two_stage"].append(row)
++        report["seconds"] = round(time.perf_counter() - t1)
++        logger.info("two_stage_net_done", seed=seed, net=net, seconds=report["seconds"])
++        reports.append(report)
++    return reports
+ 
+ 
+ def _print_two_stage(report: dict[str, Any]) -> None:
+     print(
+-        f"\n#### TWO STAGE (second model on Stage 1's hard cases) - TEST, drive level"
++        f"\n#### TWO STAGE (net {report['candidate_recall']:.0%}) - TEST, drive level"
+         f" - seed {report['seed']}"
+     )
+     print(f"  stage 1 trees={report['stage1_trees']}  candidates={report.get('candidates')}")
+     if report["status"] != "ok":
+         print(f"  not run: {report['status']}")
+         return
+-    print(f"  stage 2 trees={report['stage2_trees']}")
++    print(f"  stage 2 trees={report['stage2_trees']}  ceiling={report.get('ceiling')}")
+     for stage1_row, two_row in zip(report["stage1"], report["two_stage"], strict=True):
++        paired = two_row.get("paired_test")
++        gap = (
++            f"  gap {paired['difference']:+.3f} [{paired['difference_ci'][0]:+.3f}, "
++            f"{paired['difference_ci'][1]:+.3f}]"
++            if paired
++            else ""
++        )
+         print(
+             f"  recall>={stage1_row['target_recall']:.0%}: stage 1 alone "
+-            f"{_recall_cell(stage1_row)}  |  two stage {_recall_cell(two_row)}"
++            f"{_recall_cell(stage1_row)}  |  two stage {_recall_cell(two_row)}{gap}"
+         )
+ 
+ 
+ def summarize_two_stage_seeds(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+-    """Per recall level, across the seeds that trained a second stage: mean
+-    test precision and recall of each model, and in how many seeds the
+-    two-stage model was at least as good on both (and better on one)."""
++    """Per recall level, across the seeds that trained a second stage (all
++    with the same net): mean test precision and recall of each model, and in
++    how many seeds the two-stage model was at least as good on both (and
++    better on one). With paired bootstraps, also the mean precision gap and in
++    how many seeds its interval lies above (below) 0; with lead-aware recall
++    and cost, their means."""
+     usable = [r for r in reports if r.get("status") == "ok"]
+     summary: list[dict[str, Any]] = []
+     if not usable:
+         return summary
+     for i, first in enumerate(usable[0]["stage1"]):
+-        pairs = [
+-            (r["stage1"][i]["test"], r["two_stage"][i]["test"])
++        rows = [
++            (r["stage1"][i], r["two_stage"][i])
+             for r in usable
+             if r["stage1"][i].get("threshold") is not None
+             and r["two_stage"][i].get("threshold") is not None
+         ]
+-        if not pairs:
++        if not rows:
+             continue
++        pairs = [(one["test"], two["test"]) for one, two in rows]
+ 
+-        def mean(side: int, key: str, pairs: list = pairs) -> float:
+-            return float(np.mean([pair[side][key] for pair in pairs]))
++        def mean(side: int, key: str, pairs: list = pairs) -> float | None:
++            values = [pair[side][key] for pair in pairs if key in pair[side]]
++            return float(np.mean(values)) if values else None
+ 
+-        summary.append(
++        entry: dict[str, Any] = {
++            "target_recall": first["target_recall"],
++            "seeds": len(pairs),
++            "stage1_precision": mean(0, "precision"),
++            "stage1_recall": mean(0, "recall"),
++            "two_stage_precision": mean(1, "precision"),
++            "two_stage_recall": mean(1, "recall"),
++            "precision_gain_min": float(
++                min(two["precision"] - one["precision"] for one, two in pairs)
++            ),
++            "precision_gain_max": float(
++                max(two["precision"] - one["precision"] for one, two in pairs)
++            ),
++            "two_stage_better_seeds": sum(
++                two["precision"] >= one["precision"]
++                and two["recall"] >= one["recall"]
++                and (two["precision"] > one["precision"] or two["recall"] > one["recall"])
++                for one, two in pairs
++            ),
++        }
++        for key in ("recall_with_lead", "cost", "false_alarm_drive_count", "caught_drive_count"):
++            if mean(0, key) is not None:
++                entry[f"stage1_{key}"] = mean(0, key)
++                entry[f"two_stage_{key}"] = mean(1, key)
++        paired = [two["paired_test"] for _, two in rows if "paired_test" in two]
++        if paired:
++            entry["bootstrap_gap_mean"] = float(np.mean([p["difference"] for p in paired]))
++            entry["ci_above_zero_seeds"] = sum(p["difference_ci"][0] > 0 for p in paired)
++            entry["ci_below_zero_seeds"] = sum(p["difference_ci"][1] < 0 for p in paired)
++        summary.append(entry)
++    return summary
++
++
++def summarize_two_stage_nets(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
++    """`summarize_two_stage_seeds` per net, plus each net's mean candidate
++    pool and ceiling over the seeds that trained it."""
++    nets = sorted({r["candidate_recall"] for r in reports})
++    out = []
++    for net in nets:
++        group = [r for r in reports if r["candidate_recall"] == net]
++        usable = [r for r in group if r.get("status") == "ok"]
++
++        def mean(path: tuple[str, str], usable: list = usable) -> float | None:
++            values = [r[path[0]][path[1]] for r in usable if r[path[0]].get(path[1]) is not None]
++            return float(np.mean(values)) if values else None
++
++        out.append(
+             {
+-                "target_recall": first["target_recall"],
+-                "seeds": len(pairs),
+-                "stage1_precision": mean(0, "precision"),
+-                "stage1_recall": mean(0, "recall"),
+-                "two_stage_precision": mean(1, "precision"),
+-                "two_stage_recall": mean(1, "recall"),
+-                "precision_gain_min": float(
+-                    min(two["precision"] - one["precision"] for one, two in pairs)
+-                ),
+-                "precision_gain_max": float(
+-                    max(two["precision"] - one["precision"] for one, two in pairs)
+-                ),
+-                "two_stage_better_seeds": sum(
+-                    two["precision"] >= one["precision"]
+-                    and two["recall"] >= one["recall"]
+-                    and (two["precision"] > one["precision"] or two["recall"] > one["recall"])
+-                    for one, two in pairs
+-                ),
++                "candidate_recall": net,
++                "seeds_run": len(group),
++                "seeds_trained": len(usable),
++                "statuses": sorted({r["status"] for r in group}),
++                "train_rows": mean(("candidates", "train_rows")),
++                "train_positive_share": mean(("candidates", "train_positive_share")),
++                "validation_rows": mean(("candidates", "validation_rows")),
++                "test_rows": mean(("candidates", "test_rows")),
++                "test_ceiling": mean(("ceiling", "test_recall")),
++                "test_ceiling_with_lead": mean(("ceiling", "test_recall_with_lead")),
++                "test_drive_share": mean(("ceiling", "test_drive_share")),
++                "levels": summarize_two_stage_seeds(group),
+             }
+         )
+-    return summary
++    return out
+ 
+ 
+ def _print_two_stage_summary(summary: list[dict[str, Any]]) -> None:
+     print("\n#### TWO STAGE ACROSS SEEDS - TEST, drive level (means)")
+     for row in summary:
++        gap = (
++            f"; bootstrap gap {row['bootstrap_gap_mean']:+.3f}, interval above 0 in "
++            f"{row['ci_above_zero_seeds']}/{row['seeds']}"
++            if "bootstrap_gap_mean" in row
++            else ""
++        )
+         print(
+             f"  recall>={row['target_recall']:.0%} ({row['seeds']} seeds): stage 1 alone "
+             f"P={row['stage1_precision']:.3f} R={row['stage1_recall']:.3f}  |  two stage "
+             f"P={row['two_stage_precision']:.3f} R={row['two_stage_recall']:.3f}  |  "
+             f"precision gain {row['precision_gain_min']:+.3f} to "
+             f"{row['precision_gain_max']:+.3f}; two stage better on precision and recall "
+-            f"in {row['two_stage_better_seeds']}/{row['seeds']}"
++            f"in {row['two_stage_better_seeds']}/{row['seeds']}{gap}"
++        )
++
++
++def _pct(value: float | None) -> str:
++    return "-" if value is None else f"{value:.1%}"
++
++
++def two_stage_tables(nets: list[dict[str, Any]], settings: dict[str, Any]) -> str:
++    """Markdown: one candidate-pool table, then one comparison table per net."""
++    lines = [
++        "# Two-stage cascade, wide Stage 1 nets (test, drive level)",
++        "",
++        f"Work dir `{settings['work_dir']}`, horizon {settings['horizon_days']} days, "
++        f"git `{settings['git_commit']}`. Seeds {settings['seeds']}; thresholds chosen on "
++        f"validation. Recall with lead counts a failing drive only when a row at least "
++        f"{settings['lead_min_days']} day(s) before its failure clears the threshold. Cost = "
++        f"missed failures x {settings['cost_ratio']:g} + false alarms (an illustration, not a "
++        "measured cost). Gap = cascade minus Stage 1 test precision, paired drive bootstrap "
++        f"({settings['n_boot']} resamples, 95%).",
++        "",
++        "## Candidate pools (means over seeds)",
++        "",
++        "| Net | Seeds trained | Train candidate rows | Positive share | Validation candidate "
++        "rows | Test candidate rows | Ceiling (test recall at T1) | Ceiling with lead | "
++        "Test drives passing Stage 1 |",
++        "|---|---|---|---|---|---|---|---|---|",
++    ]
++    for net in nets:
++        rows = [net[k] for k in ("train_rows", "validation_rows", "test_rows")]
++        counts = ["-" if v is None else f"{v:,.0f}" for v in rows]
++        lines.append(
++            f"| {net['candidate_recall']:.0%} | {net['seeds_trained']}/{net['seeds_run']} | "
++            f"{counts[0]} | {_pct(net['train_positive_share'])} | {counts[1]} | {counts[2]} | "
++            f"{_pct(net['test_ceiling'])} | {_pct(net['test_ceiling_with_lead'])} | "
++            f"{_pct(net['test_drive_share'])} |"
+         )
++    for net in nets:
++        lines += [
++            "",
++            f"## Net {net['candidate_recall']:.0%}",
++            "",
++            "| Level | Stage 1 P / R | Cascade P / R | Gain range | Better (P and R) | Gap mean "
++            "| Interval above 0 | Recall with lead S1 / cascade | False alarms S1 / cascade | "
++            "Cost S1 / cascade |",
++            "|---|---|---|---|---|---|---|---|---|---|",
++        ]
++        if not net["levels"]:
++            lines.append(f"| - | not trained: {', '.join(net['statuses'])} |||||||||")
++        for row in net["levels"]:
++            seeds = row["seeds"]
++            gap = row.get("bootstrap_gap_mean")
++            lines.append(
++                f"| {row['target_recall']:.0%} | {_pct(row['stage1_precision'])} / "
++                f"{_pct(row['stage1_recall'])} | {_pct(row['two_stage_precision'])} / "
++                f"{_pct(row['two_stage_recall'])} | {row['precision_gain_min']:+.1%} to "
++                f"{row['precision_gain_max']:+.1%} | {row['two_stage_better_seeds']}/{seeds} | "
++                f"{'-' if gap is None else f'{gap:+.1%}'} | "
++                f"{row.get('ci_above_zero_seeds', '-')}/{seeds} | "
++                f"{_pct(row.get('stage1_recall_with_lead'))} / "
++                f"{_pct(row.get('two_stage_recall_with_lead'))} | "
++                f"{row.get('stage1_false_alarm_drive_count', 0):,.0f} / "
++                f"{row.get('two_stage_false_alarm_drive_count', 0):,.0f} | "
++                f"{row.get('stage1_cost', 0):,.0f} / {row.get('two_stage_cost', 0):,.0f} |"
++            )
++    return "\n".join(lines) + "\n"
+ 
+ 
+ def _anomaly_scores(forest: IsolationForest, x: np.ndarray) -> np.ndarray:
+@@ -1062,11 +1365,41 @@ def main() -> None:
+     parser.add_argument(
+         "--two-stage-seeds",
+         type=int,
+-        default=1,
++        default=None,
+         metavar="N",
+         help="With --two-stage: repeat it with N different seeds (fold assignment and "
+-        "model sampling) and print the mean and spread, to tell a real gain from chance.",
++        "model sampling) and print the mean and spread, to tell a real gain from chance. "
++        "Default model.two_stage.experiment.seeds (1 without that block).",
++    )
++    parser.add_argument(
++        "--candidate-recalls",
++        type=float,
++        nargs="+",
++        default=None,
++        metavar="R",
++        help="With --two-stage: the Stage 1 nets to compare (validation recall the candidate "
++        "threshold keeps). Default model.two_stage.experiment.candidate_recalls.",
++    )
++    parser.add_argument(
++        "--recall-levels",
++        type=float,
++        nargs="+",
++        default=None,
++        metavar="R",
++        help="With --two-stage: recall levels to compare the models at (each net uses the "
++        "levels up to itself). Default model.two_stage.experiment.recall_levels.",
+     )
++    parser.add_argument("--lead-min-days", type=int, default=None)
++    parser.add_argument("--cost-ratio", type=float, default=None)
++    parser.add_argument("--n-boot", type=int, default=None)
++    parser.add_argument(
++        "--two-stage-out",
++        type=Path,
++        default=None,
++        help="With --two-stage: directory for experiment_two_stage.json and tables.md "
++        "(default data/audit/cascade_wide_net_h<horizon>). Refuses to overwrite.",
++    )
++    parser.add_argument("--overwrite", action="store_true")
+     parser.add_argument(
+         "--anomaly-stage",
+         action="store_true",
+@@ -1104,6 +1437,42 @@ def main() -> None:
+     horizon_days = int(frame_meta.get("horizon_days") or model_config["primary_horizon_days"])
+     logger.info("experiment_horizon", horizon_days=horizon_days)
+ 
++    if args.two_stage:
++        two_stage_cfg = model_config["model"].get("two_stage", {})
++        experiment_cfg = two_stage_cfg.get("experiment", {})
++
++        def pick(cli: Any, key: str, fallback: Any) -> Any:
++            return cli if cli is not None else experiment_cfg.get(key, fallback)
++
++        two_stage_settings: dict[str, Any] = {
++            "work_dir": work_dir.name,
++            "horizon_days": horizon_days,
++            "git_commit": _git_sha(),
++            # Tracked changes not yet committed: saved as code.patch beside the
++            # results, so the code that produced them can be rebuilt exactly.
++            "git_dirty": bool(_tracked_diff()),
++            "seeds": max(1, pick(args.two_stage_seeds, "seeds", 1)),
++            "candidate_recalls": pick(args.candidate_recalls, "candidate_recalls", [0.5]),
++            "recall_levels": pick(
++                args.recall_levels, "recall_levels", list(TWO_STAGE_RECALL_LEVELS)
++            ),
++            "lead_min_days": pick(args.lead_min_days, "lead_min_days", 1),
++            "cost_ratio": float(pick(args.cost_ratio, "cost_ratio", 20.0)),
++            "n_boot": pick(args.n_boot, "n_boot", 1000),
++            "n_folds": two_stage_cfg.get("n_folds", 3),
++            "stage2_params": two_stage_cfg.get("stage2_params"),
++            "early_stopping_max_negatives": two_stage_cfg.get("early_stopping_max_negatives"),
++        }
++        two_stage_out = args.two_stage_out or Path(f"data/audit/cascade_wide_net_h{horizon_days}")
++        refuse_overwrite(
++            [two_stage_out / "experiment_two_stage.json", two_stage_out / "tables.md"],
++            overwrite=args.overwrite,
++        )
++        logger.info("two_stage_settings", **two_stage_settings)
++        if two_stage_settings["git_dirty"]:
++            two_stage_out.mkdir(parents=True, exist_ok=True)
++            (two_stage_out / "code.patch").write_text(_tracked_diff())
++
+     val_ids = pl.read_parquet(work_dir / "validation_ids.parquet")
+     test_ids = pl.read_parquet(work_dir / "test_ids.parquet")
+     train_ids = pl.read_parquet(work_dir / "train_ids.parquet")
+@@ -1129,6 +1498,9 @@ def main() -> None:
+         "test_models": test_ids["drive_model"].to_numpy(),
+     }
+     data["es_idx"] = early_stopping_subset(data["y_val"])
++    for split, ids in (("val", val_ids), ("test", test_ids)):
++        if "days_to_event" in ids.columns:
++            data[f"{split}_days_to_event"] = ids["days_to_event"].to_numpy()
+ 
+     results: list[dict[str, Any]] = []
+     if not args.skip_baseline:
+@@ -1164,18 +1536,37 @@ def main() -> None:
+             json.dumps(per_model, indent=2, default=str)
+         )
+     if args.two_stage:
+-        two_stage_reports = []
+-        for seed in range(max(1, args.two_stage_seeds)):
+-            two_stage_reports.append(two_stage_experiment(data, seed=seed))
+-            _print_two_stage(two_stage_reports[-1])
+-        two_stage_summary = summarize_two_stage_seeds(two_stage_reports)
+-        if len(two_stage_reports) > 1:
+-            _print_two_stage_summary(two_stage_summary)
+-        (work_dir / "experiment_two_stage.json").write_text(
+-            json.dumps(
+-                {"runs": two_stage_reports, "summary": two_stage_summary}, indent=2, default=str
++        two_stage_reports: list[dict[str, Any]] = []
++        for seed in range(two_stage_settings["seeds"]):
++            for report in two_stage_experiment(
++                data,
++                seed=seed,
++                candidate_recalls=tuple(two_stage_settings["candidate_recalls"]),
++                recall_levels=tuple(two_stage_settings["recall_levels"]),
++                n_folds=two_stage_settings["n_folds"],
++                lead_min_days=two_stage_settings["lead_min_days"],
++                cost_ratio=two_stage_settings["cost_ratio"],
++                n_boot=two_stage_settings["n_boot"],
++                stage2_params=two_stage_settings["stage2_params"],
++                early_stopping_max_negatives=two_stage_settings["early_stopping_max_negatives"],
++            ):
++                _print_two_stage(report)
++                two_stage_reports.append(report)
++            nets = summarize_two_stage_nets(two_stage_reports)
++            # Rewritten after every seed, so a crash keeps the seeds done.
++            two_stage_out.mkdir(parents=True, exist_ok=True)
++            (two_stage_out / "experiment_two_stage.json").write_text(
++                json.dumps(
++                    {"settings": two_stage_settings, "runs": two_stage_reports, "summary": nets},
++                    indent=2,
++                    default=str,
++                )
+             )
+-        )
++            (two_stage_out / "tables.md").write_text(two_stage_tables(nets, two_stage_settings))
++        for net in summarize_two_stage_nets(two_stage_reports):
++            print(f"\n== net {net['candidate_recall']:.0%}")
++            _print_two_stage_summary(net["levels"])
++        print(f"\nTwo-stage results saved to {two_stage_out}")
+     if args.anomaly_stage:
+         anomaly_report = anomaly_stage_experiment(data)
+         _print_anomaly_stage(anomaly_report)
+diff --git a/pipelines/train_model.py b/pipelines/train_model.py
+index 68bbc53..5524b43 100644
+--- a/pipelines/train_model.py
++++ b/pipelines/train_model.py
+@@ -1116,6 +1116,8 @@ def main() -> None:
+                     candidate_recall=two_stage_cfg.get("candidate_recall", 0.5),
+                     n_folds=two_stage_cfg.get("n_folds", 3),
+                     seed=two_stage_cfg.get("seed", 0),
++                    stage2_params=two_stage_cfg.get("stage2_params"),
++                    early_stopping_max_negatives=two_stage_cfg.get("early_stopping_max_negatives"),
+                 )
+                 results["two_stage"] = two_stage_report
+                 _log_stage("two_stage_trained", t0, **two_stage_report)
+diff --git a/src/models/two_stage.py b/src/models/two_stage.py
+index 136b76e..e639aed 100644
+--- a/src/models/two_stage.py
++++ b/src/models/two_stage.py
+@@ -38,7 +38,12 @@ from sklearn.metrics import precision_recall_curve
+ 
+ import mlflow
+ from src.models.evaluation import drive_level_table
+-from src.models.training import PREDICT_CHUNK_ROWS, predict_proba_positive, train_lightgbm
++from src.models.training import (
++    PREDICT_CHUNK_ROWS,
++    early_stopping_subset,
++    predict_proba_positive,
++    train_lightgbm,
++)
+ 
+ #: Fits one LightGBM. `eval_x`/`eval_y` switch on early stopping;
+ #: `n_estimators` fixes the tree count instead; `extra_params` override the
+@@ -46,7 +51,8 @@ from src.models.training import PREDICT_CHUNK_ROWS, predict_proba_positive, trai
+ Fitter = Callable[..., lgb.LGBMClassifier]
+ 
+ #: Stage 2 sees thousands of rows, not millions: it needs smaller leaves
+-#: than the pipeline's `min_child_samples`.
++#: than the pipeline's `min_child_samples`. The default when
++#: `model.two_stage.stage2_params` is not set.
+ STAGE2_PARAMS = {"min_child_samples": 50}
+ 
+ 
+@@ -126,6 +132,14 @@ def threshold_for_drive_recall(
+     """The highest-precision drive-level threshold that still catches at
+     least `recall` of the failing drives; None if that is not reachable."""
+     labels, drive_scores = drive_level_table(drive_ids, y, scores)
++    return threshold_at_drive_recall(labels, drive_scores, recall)
++
++
++def threshold_at_drive_recall(
++    labels: np.ndarray, drive_scores: np.ndarray, recall: float
++) -> float | None:
++    """`threshold_for_drive_recall` on a drive table already built (one label
++    and score per drive)."""
+     if labels.sum() == 0:
+         return None
+     precision, achieved, thresholds = precision_recall_curve(labels, drive_scores)
+@@ -188,12 +202,24 @@ def fit_second_stage(
+     n_folds: int = 3,
+     seed: int = 0,
+     min_candidate_positives: int = 20,
++    train_stage1_scores: np.ndarray | None = None,
++    stage2_params: dict[str, Any] | None = None,
++    early_stopping_max_negatives: int | None = None,
+ ) -> tuple[TwoStageModel | None, dict[str, Any]]:
+     """Trains Stage 2 for an already-trained `stage1`.
+ 
+     Returns the combined model and a report; the model is None (and
+     `report["status"]` says why) when validation cannot reach
+-    `candidate_recall` or too few failing rows are candidates to train on."""
++    `candidate_recall` or too few failing rows are candidates to train on.
++
++    `train_stage1_scores`: out-of-fold Stage 1 scores of the train rows, when
++    the caller already has them (they depend on the seed, the fold count and
++    Stage 1's tree count, not on `candidate_recall`, so several nets can share
++    one set); computed here when None.
++    `stage2_params`: LightGBM overrides for Stage 2 (default `STAGE2_PARAMS`).
++    `early_stopping_max_negatives`: Stage 2 early-stops on every positive
++    validation candidate row plus at most this many negatives (None = all
++    candidate rows). A wide net has millions of validation candidates."""
+     report: dict[str, Any] = {
+         "stage1_trees": tree_count(stage1),
+         "candidate_recall": candidate_recall,
+@@ -206,21 +232,24 @@ def fit_second_stage(
+         report["status"] = "candidate recall not reachable on validation"
+         return None, report
+ 
+-    train_stage1_scores = out_of_fold_scores(
+-        fit,
+-        x_train,
+-        y_train,
+-        train_drives,
+-        n_estimators=report["stage1_trees"],
+-        n_folds=n_folds,
+-        seed=seed,
+-    )
++    if train_stage1_scores is None:
++        train_stage1_scores = out_of_fold_scores(
++            fit,
++            x_train,
++            y_train,
++            train_drives,
++            n_estimators=report["stage1_trees"],
++            n_folds=n_folds,
++            seed=seed,
++        )
+     train_rows = np.flatnonzero(train_stage1_scores >= threshold)
+     val_rows = np.flatnonzero(val_stage1_scores >= threshold)
+     report["candidates"] = {
+         "train_rows": len(train_rows),
+         "train_positive_rows": int(y_train[train_rows].sum()),
++        "train_positive_share": float(y_train[train_rows].mean()) if len(train_rows) else 0.0,
+         "validation_rows": len(val_rows),
++        "validation_positive_rows": int(y_val[val_rows].sum()),
+     }
+     if (
+         report["candidates"]["train_positive_rows"] < min_candidate_positives
+@@ -229,12 +258,20 @@ def fit_second_stage(
+         report["status"] = "too few candidate failures to train a second stage"
+         return None, report
+ 
++    eval_rows = val_rows
++    if early_stopping_max_negatives is not None:
++        eval_rows = val_rows[
++            early_stopping_subset(
++                y_val[val_rows], max_negatives=early_stopping_max_negatives, seed=seed
++            )
++        ]
++    report["candidates"]["early_stopping_rows"] = len(eval_rows)
+     stage2 = fit(
+         with_stage1_score(x_train, train_stage1_scores, train_rows),
+         y_train[train_rows],
+-        eval_x=with_stage1_score(x_val, val_stage1_scores, val_rows),
+-        eval_y=y_val[val_rows],
+-        extra_params=STAGE2_PARAMS,
++        eval_x=with_stage1_score(x_val, val_stage1_scores, eval_rows),
++        eval_y=y_val[eval_rows],
++        extra_params=STAGE2_PARAMS if stage2_params is None else stage2_params,
+     )
+     report["stage2_trees"] = tree_count(stage2)
+     report["status"] = "ok"
+diff --git a/src/models/uncertainty.py b/src/models/uncertainty.py
+index 81cbb1b..a4cabca 100644
+--- a/src/models/uncertainty.py
++++ b/src/models/uncertainty.py
+@@ -79,24 +79,53 @@ def paired_difference_ci(
+     rather than comparing two independent intervals."""
+     labels, sa = drive_level_table(drive_ids, y_true, scores_a)
+     _, sb = drive_level_table(drive_ids, y_true, scores_b)
+-    fa = (sa >= threshold_a).astype(np.int64)
+-    fb = (sb >= threshold_b).astype(np.int64)
+-    failing = (labels == 1).astype(np.int64)
+-    n = len(labels)
++    return paired_flag_difference_ci(
++        labels, sa >= threshold_a, sb >= threshold_b, n_boot=n_boot, seed=seed, alpha=alpha
++    )
++
++
++def paired_flag_difference_ci(
++    labels: np.ndarray,
++    flagged_a: np.ndarray,
++    flagged_b: np.ndarray,
++    *,
++    n_boot: int = 1000,
++    seed: int = 0,
++    alpha: float = 0.05,
++) -> dict[str, Any]:
++    """`paired_difference_ci` on drive-level arrays already built (one entry
++    per drive, aligned): precision(B) - precision(A) and recall(B) - recall(A)
++    on the same resampled drives. A caller comparing many thresholds builds
++    the drive tables once instead of once per comparison. The same `seed` and
++    drive count give the same resamples, so comparisons sharing a seed are
++    paired with each other too."""
++    failing = (np.asarray(labels) == 1).astype(np.int64)
++    fa = np.asarray(flagged_a).astype(np.int64)
++    fb = np.asarray(flagged_b).astype(np.int64)
++    n = len(failing)
+     if n == 0 or failing.sum() == 0:
+         raise ValueError("bootstrap needs at least one failing drive")
+ 
+     rng = np.random.default_rng(seed)
+     diffs = np.empty(n_boot)
++    recall_diffs = np.empty(n_boot)
+     for b in range(n_boot):
+         counts = np.bincount(rng.integers(0, n, size=n), minlength=n)
+-        pa = _precision(counts, fa, failing)
+-        pb = _precision(counts, fb, failing)
+-        diffs[b] = pb - pa
++        diffs[b] = _precision(counts, fb, failing) - _precision(counts, fa, failing)
++        failing_total = float((counts * failing).sum())
++        recall_diffs[b] = (
++            float((counts * (fb - fa) * failing).sum()) / failing_total if failing_total else 0.0
++        )
+     low, high = 100 * alpha / 2, 100 * (1 - alpha / 2)
++    failing_count = int(failing.sum())
+     return {
+         "difference": _precision_point(fb, failing) - _precision_point(fa, failing),
+         "difference_ci": [float(np.percentile(diffs, low)), float(np.percentile(diffs, high))],
++        "recall_difference": float(((fb - fa) * failing).sum()) / failing_count,
++        "recall_difference_ci": [
++            float(np.percentile(recall_diffs, low)),
++            float(np.percentile(recall_diffs, high)),
++        ],
+         "n_boot": n_boot,
+         "confidence": 1 - alpha,
+     }
+diff --git a/tests/unit/test_two_stage.py b/tests/unit/test_two_stage.py
+index c2a16eb..e7cdb18 100644
+--- a/tests/unit/test_two_stage.py
++++ b/tests/unit/test_two_stage.py
+@@ -47,13 +47,136 @@ def test_two_stage_experiment_runs_and_reports_both_models(tmp_path):
+         "test_drives": test_drives,
+         "es_idx": early_stopping_subset(y_val),
+     }
+-    report = two_stage_experiment(data, n_folds=3, candidate_recall=0.5)
++    (report,) = two_stage_experiment(data, n_folds=3, candidate_recalls=(0.5,), n_boot=50)
+     assert report["status"] == "ok", report
+     assert report["candidates"]["train_rows"] < len(y_train)  # stage 2 sees a subset
+     assert [r["target_recall"] for r in report["stage1"]] == [0.05, 0.10, 0.20, 0.35]
+     for row in report["two_stage"]:
+         assert row["threshold"] is not None
+         assert 0.0 <= row["test"]["precision"] <= 1.0
++        assert "paired_test" in row
++    assert report["ceiling"]["test_recall"] >= max(r["test"]["recall"] for r in report["two_stage"])
++
++
++def test_two_stage_experiment_compares_several_nets_against_one_stage1(tmp_path):
++    x_train, y_train, train_drives = _split(1, 900, tmp_path, "tr")
++    x_val, y_val, val_drives = _split(2, 500, tmp_path, "va")
++    x_test, y_test, test_drives = _split(3, 500, tmp_path, "te")
++    data = {
++        "x_train": np.asarray(x_train),
++        "y_train": y_train,
++        "train_drives": train_drives,
++        "x_val": x_val,
++        "y_val": y_val,
++        "val_drives": val_drives,
++        "x_test": x_test,
++        "y_test": y_test,
++        "test_drives": test_drives,
++        "es_idx": early_stopping_subset(y_val),
++        # days 0..9 per drive; positives are days 5-9, i.e. 4..0 days before failure
++        "test_days_to_event": np.tile(np.arange(9, -1, -1), 500),
++        "val_days_to_event": np.tile(np.arange(9, -1, -1), 500),
++    }
++    levels = (0.10, 0.50, 0.70, 0.90)
++    reports = two_stage_experiment(
++        data, candidate_recalls=(0.5, 0.9), recall_levels=levels, n_boot=50
++    )
++    assert [r["candidate_recall"] for r in reports] == [0.5, 0.9]
++    assert [row["target_recall"] for row in reports[0]["stage1"]] == [0.10, 0.50]
++    assert [row["target_recall"] for row in reports[1]["stage1"]] == list(levels)
++    # Stage 1 is fitted once: its rows are identical in both nets.
++    assert reports[0]["stage1"] == reports[1]["stage1"][:2]
++    narrow, wide = reports
++    assert wide["candidates"]["train_rows"] > narrow["candidates"]["train_rows"]
++    for report in reports:
++        assert report["status"] == "ok", report
++        for row in report["stage1"] + report["two_stage"]:
++            test = row["test"]
++            assert test["recall_with_lead"] <= test["recall"]
++
++
++def test_drive_view_matches_drive_level_table_and_counts_lead():
++    from pipelines.experiment_model import drive_view, view_metrics
++    from src.models.evaluation import drive_level_table
++
++    drives = np.array(["b", "b", "a", "a", "c", "c"])
++    y = np.array([1, 1, 1, 1, 0, 0])
++    scores = np.array([0.2, 0.9, 0.8, 0.3, 0.6, 0.1])
++    days = np.array([1, 0, 2, 1, 5, 4])  # b peaks on its failure day, a two days before
++    labels, drive_scores, lead = drive_view(drives, y, scores, days, lead_min_days=1)
++    ref_labels, ref_scores = drive_level_table(drives, y, scores)
++    np.testing.assert_array_equal(labels, ref_labels)
++    np.testing.assert_allclose(drive_scores, ref_scores)
++    np.testing.assert_allclose(lead, [0.8, 0.2, 0.6])  # a, b, c
++    m = view_metrics((labels, drive_scores, lead), 0.7, cost_ratio=10)
++    assert (m["caught_drive_count"], m["caught_with_lead_count"]) == (2, 1)
++    assert m["false_alarm_drive_count"] == 0 and m["cost"] == 0
++    m = view_metrics((labels, drive_scores, lead), 0.95, cost_ratio=10)
++    assert m["cost"] == 20  # two misses
++
++
++def test_fit_second_stage_reuses_given_scores_and_caps_early_stopping_rows(tmp_path):
++    from src.models.two_stage import out_of_fold_scores, tree_count
++
++    model, report, stage1, (x_val, val_s1) = _fit_real_two_stage(tmp_path)
++    x_train, y_train, train_drives = _split(1, 900, tmp_path, "tr")
++    from src.models.two_stage import lightgbm_fitter
++
++    fit = lightgbm_fitter(
++        {"n_estimators": 200, "min_child_samples": 20, "learning_rate": 0.1},
++        positive_weight_power=0.5,
++        early_stopping_rounds=20,
++    )
++    oof = out_of_fold_scores(
++        fit, np.asarray(x_train), y_train, train_drives, n_estimators=tree_count(stage1)
++    )
++    again, again_report, _, _ = _fit_real_two_stage(tmp_path, train_stage1_scores=oof)
++    assert again_report["candidates"] == report["candidates"]
++    np.testing.assert_allclose(again.final_scores(x_val, val_s1), model.final_scores(x_val, val_s1))
++    capped, capped_report, _, _ = _fit_real_two_stage(
++        tmp_path, early_stopping_max_negatives=10, stage2_params={"min_child_samples": 30}
++    )
++    c = capped_report["candidates"]
++    assert c["early_stopping_rows"] == c["validation_positive_rows"] + min(
++        10, c["validation_rows"] - c["validation_positive_rows"]
++    )
++
++
++def test_net_summary_groups_reports_by_candidate_recall():
++    from pipelines.experiment_model import summarize_two_stage_nets, two_stage_tables
++
++    def run(net, seed, p2):
++        def row(p):
++            return {"target_recall": 0.1, "threshold": 0.5, "test": {"precision": p, "recall": 0.1}}
++
++        two = row(p2)
++        two["paired_test"] = {"difference": p2 - 0.4, "difference_ci": [p2 - 0.45, p2 - 0.35]}
++        return {
++            "status": "ok",
++            "candidate_recall": net,
++            "seed": seed,
++            "candidates": {"train_rows": 10, "train_positive_share": 0.5},
++            "ceiling": {"test_recall": 0.5},
++            "stage1": [row(0.4)],
++            "two_stage": [two],
++        }
++
++    nets = summarize_two_stage_nets([run(0.5, 0, 0.5), run(0.9, 0, 0.3), run(0.5, 1, 0.5)])
++    assert [n["candidate_recall"] for n in nets] == [0.5, 0.9]
++    narrow, wide = nets
++    assert narrow["seeds_trained"] == 2 and narrow["levels"][0]["ci_above_zero_seeds"] == 2
++    assert wide["levels"][0]["ci_below_zero_seeds"] == 1
++    settings = {
++        "work_dir": "w",
++        "horizon_days": 30,
++        "git_commit": "abc",
++        "seeds": 2,
++        "lead_min_days": 1,
++        "cost_ratio": 20.0,
++        "n_boot": 10,
++    }
++    table = two_stage_tables(nets, settings)
++    assert "## Net 50%" in table and "## Net 90%" in table
+ 
+ 
+ def test_anomaly_stage_experiment_reports_every_comparison(tmp_path):
+diff --git a/tests/unit/test_uncertainty.py b/tests/unit/test_uncertainty.py
+index 8fb77e3..51e0bde 100644
+--- a/tests/unit/test_uncertainty.py
++++ b/tests/unit/test_uncertainty.py
+@@ -1,7 +1,11 @@
+ import numpy as np
+ 
+ from src.models.access_log import count_test_accesses, record_test_access
+-from src.models.uncertainty import drive_level_bootstrap_ci, paired_difference_ci
++from src.models.uncertainty import (
++    drive_level_bootstrap_ci,
++    paired_difference_ci,
++    paired_flag_difference_ci,
++)
+ 
+ 
+ def _drives(seed: int, n_drives: int = 400, days: int = 5):
+@@ -39,6 +43,18 @@ def test_identical_variants_have_zero_difference():
+     assert out["difference_ci"] == [0.0, 0.0]
+ 
+ 
++def test_flag_difference_is_positive_when_b_catches_one_more_drive():
++    labels = np.array([1, 1, 1, 0, 0, 0, 0, 0])
++    a = np.array([1, 0, 0, 1, 0, 0, 0, 0], dtype=bool)
++    b = np.array([1, 1, 0, 1, 0, 0, 0, 0], dtype=bool)
++    out = paired_flag_difference_ci(labels, a, b, n_boot=200)
++    np.testing.assert_allclose(out["difference"], 2 / 3 - 1 / 2)
++    np.testing.assert_allclose(out["recall_difference"], 1 / 3)
++    assert out["recall_difference_ci"][0] >= 0
++    same = paired_flag_difference_ci(labels, a, a, n_boot=50)
++    assert same["difference_ci"] == [0.0, 0.0] and same["recall_difference"] == 0.0
++
++
+ def test_access_log_appends_and_counts(tmp_path):
+     log = tmp_path / "log.jsonl"
+     assert count_test_accesses(log) == 0

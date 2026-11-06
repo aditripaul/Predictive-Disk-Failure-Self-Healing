@@ -1,0 +1,30 @@
+{
+  "tag": "t3",
+  "seed": 0,
+  "hidden_size": 64,
+  "dropout": 0.3,
+  "learning_rate": 0.0005,
+  "best_validation_average_precision": 0.5175706523634435,
+  "history": [
+    {
+      "epoch": 1,
+      "loss": 0.1975091195748647,
+      "validation_average_precision": 0.5175706523634435
+    },
+    {
+      "epoch": 2,
+      "loss": 0.17322888325341543,
+      "validation_average_precision": 0.5132574834814514
+    },
+    {
+      "epoch": 3,
+      "loss": 0.16490627783298492,
+      "validation_average_precision": 0.46537948603271095
+    },
+    {
+      "epoch": 4,
+      "loss": 0.15879745403226217,
+      "validation_average_precision": 0.4537483629895749
+    }
+  ]
+}

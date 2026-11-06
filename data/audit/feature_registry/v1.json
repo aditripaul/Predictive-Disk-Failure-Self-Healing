@@ -1,0 +1,2252 @@
+[
+  {
+    "feature_name": "reallocated_sector_count_7d_mean",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 7,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_7d_median",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 7,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_7d_min",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 7,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_7d_max",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 7,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_7d_std",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 7,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_7d_range",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 7,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_7d_delta",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 7,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_7d_slope",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 7,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_7d_positive_count",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 7,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_14d_mean",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 14,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_14d_median",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 14,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_14d_min",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 14,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_14d_max",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 14,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_14d_std",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 14,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_14d_range",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 14,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_14d_delta",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 14,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_14d_slope",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 14,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_14d_positive_count",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 14,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_30d_mean",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 30,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_30d_median",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 30,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_30d_min",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 30,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_30d_max",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 30,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_30d_std",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 30,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_30d_range",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 30,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_30d_delta",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 30,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_30d_slope",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 30,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_30d_positive_count",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 30,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_acceleration_7d_vs_30d",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": null,
+    "operation": "slope_delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_zero_to_nonzero",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": null,
+    "operation": "zero_to_nonzero_flag",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_7d_spike_count",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 7,
+    "operation": "spike_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "int16"
+  },
+  {
+    "feature_name": "reallocated_sector_count_14d_spike_count",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 14,
+    "operation": "spike_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "int16"
+  },
+  {
+    "feature_name": "reallocated_sector_count_30d_spike_count",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 30,
+    "operation": "spike_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "int16"
+  },
+  {
+    "feature_name": "current_pending_sector_count_7d_mean",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 7,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_7d_median",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 7,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_7d_min",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 7,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_7d_max",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 7,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_7d_std",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 7,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_7d_range",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 7,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_7d_delta",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 7,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_7d_slope",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 7,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_7d_positive_count",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 7,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_14d_mean",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 14,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_14d_median",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 14,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_14d_min",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 14,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_14d_max",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 14,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_14d_std",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 14,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_14d_range",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 14,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_14d_delta",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 14,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_14d_slope",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 14,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_14d_positive_count",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 14,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_30d_mean",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 30,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_30d_median",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 30,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_30d_min",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 30,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_30d_max",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 30,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_30d_std",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 30,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_30d_range",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 30,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_30d_delta",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 30,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_30d_slope",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 30,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_30d_positive_count",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 30,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_acceleration_7d_vs_30d",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": null,
+    "operation": "slope_delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_zero_to_nonzero",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": null,
+    "operation": "zero_to_nonzero_flag",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_7d_spike_count",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 7,
+    "operation": "spike_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "int16"
+  },
+  {
+    "feature_name": "current_pending_sector_count_14d_spike_count",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 14,
+    "operation": "spike_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "int16"
+  },
+  {
+    "feature_name": "current_pending_sector_count_30d_spike_count",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 30,
+    "operation": "spike_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "int16"
+  },
+  {
+    "feature_name": "offline_uncorrectable_7d_mean",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 7,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_7d_median",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 7,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_7d_min",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 7,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_7d_max",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 7,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_7d_std",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 7,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_7d_range",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 7,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_7d_delta",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 7,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_7d_slope",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 7,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_7d_positive_count",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 7,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_14d_mean",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 14,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_14d_median",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 14,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_14d_min",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 14,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_14d_max",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 14,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_14d_std",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 14,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_14d_range",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 14,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_14d_delta",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 14,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_14d_slope",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 14,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_14d_positive_count",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 14,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_30d_mean",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 30,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_30d_median",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 30,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_30d_min",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 30,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_30d_max",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 30,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_30d_std",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 30,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_30d_range",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 30,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_30d_delta",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 30,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_30d_slope",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 30,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_30d_positive_count",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 30,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_acceleration_7d_vs_30d",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": null,
+    "operation": "slope_delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_zero_to_nonzero",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": null,
+    "operation": "zero_to_nonzero_flag",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_7d_mean",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 7,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_7d_median",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 7,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_7d_min",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 7,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_7d_max",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 7,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_7d_std",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 7,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_7d_range",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 7,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_7d_delta",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 7,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_7d_slope",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 7,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_7d_positive_count",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 7,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_14d_mean",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 14,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_14d_median",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 14,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_14d_min",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 14,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_14d_max",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 14,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_14d_std",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 14,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_14d_range",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 14,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_14d_delta",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 14,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_14d_slope",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 14,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_14d_positive_count",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 14,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_30d_mean",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 30,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_30d_median",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 30,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_30d_min",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 30,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_30d_max",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 30,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_30d_std",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 30,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_30d_range",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 30,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_30d_delta",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 30,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_30d_slope",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 30,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_30d_positive_count",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 30,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_acceleration_7d_vs_30d",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": null,
+    "operation": "slope_delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_zero_to_nonzero",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": null,
+    "operation": "zero_to_nonzero_flag",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_7d_mean",
+    "source_attribute": "command_timeout",
+    "window_days": 7,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_7d_median",
+    "source_attribute": "command_timeout",
+    "window_days": 7,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_7d_min",
+    "source_attribute": "command_timeout",
+    "window_days": 7,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_7d_max",
+    "source_attribute": "command_timeout",
+    "window_days": 7,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_7d_std",
+    "source_attribute": "command_timeout",
+    "window_days": 7,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_7d_range",
+    "source_attribute": "command_timeout",
+    "window_days": 7,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_7d_delta",
+    "source_attribute": "command_timeout",
+    "window_days": 7,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_7d_slope",
+    "source_attribute": "command_timeout",
+    "window_days": 7,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_7d_positive_count",
+    "source_attribute": "command_timeout",
+    "window_days": 7,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_14d_mean",
+    "source_attribute": "command_timeout",
+    "window_days": 14,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_14d_median",
+    "source_attribute": "command_timeout",
+    "window_days": 14,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_14d_min",
+    "source_attribute": "command_timeout",
+    "window_days": 14,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_14d_max",
+    "source_attribute": "command_timeout",
+    "window_days": 14,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_14d_std",
+    "source_attribute": "command_timeout",
+    "window_days": 14,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_14d_range",
+    "source_attribute": "command_timeout",
+    "window_days": 14,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_14d_delta",
+    "source_attribute": "command_timeout",
+    "window_days": 14,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_14d_slope",
+    "source_attribute": "command_timeout",
+    "window_days": 14,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_14d_positive_count",
+    "source_attribute": "command_timeout",
+    "window_days": 14,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_30d_mean",
+    "source_attribute": "command_timeout",
+    "window_days": 30,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_30d_median",
+    "source_attribute": "command_timeout",
+    "window_days": 30,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_30d_min",
+    "source_attribute": "command_timeout",
+    "window_days": 30,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_30d_max",
+    "source_attribute": "command_timeout",
+    "window_days": 30,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_30d_std",
+    "source_attribute": "command_timeout",
+    "window_days": 30,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_30d_range",
+    "source_attribute": "command_timeout",
+    "window_days": 30,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_30d_delta",
+    "source_attribute": "command_timeout",
+    "window_days": 30,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_30d_slope",
+    "source_attribute": "command_timeout",
+    "window_days": 30,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_30d_positive_count",
+    "source_attribute": "command_timeout",
+    "window_days": 30,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_acceleration_7d_vs_30d",
+    "source_attribute": "command_timeout",
+    "window_days": null,
+    "operation": "slope_delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_zero_to_nonzero",
+    "source_attribute": "command_timeout",
+    "window_days": null,
+    "operation": "zero_to_nonzero_flag",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_7d_mean",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 7,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_7d_median",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 7,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_7d_min",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 7,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_7d_max",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 7,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_7d_std",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 7,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_7d_range",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 7,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_7d_delta",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 7,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_7d_slope",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 7,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_7d_positive_count",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 7,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_14d_mean",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 14,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_14d_median",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 14,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_14d_min",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 14,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_14d_max",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 14,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_14d_std",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 14,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_14d_range",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 14,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_14d_delta",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 14,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_14d_slope",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 14,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_14d_positive_count",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 14,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_30d_mean",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 30,
+    "operation": "mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_30d_median",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 30,
+    "operation": "median",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_30d_min",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 30,
+    "operation": "min",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_30d_max",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 30,
+    "operation": "max",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_30d_std",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 30,
+    "operation": "std",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_30d_range",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 30,
+    "operation": "range",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_30d_delta",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 30,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_30d_slope",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 30,
+    "operation": "linear_slope_approx",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_30d_positive_count",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 30,
+    "operation": "positive_day_count",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_acceleration_7d_vs_30d",
+    "source_attribute": "reallocation_event_count",
+    "window_days": null,
+    "operation": "slope_delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_zero_to_nonzero",
+    "source_attribute": "reallocation_event_count",
+    "window_days": null,
+    "operation": "zero_to_nonzero_flag",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "pending_to_reallocated_ratio",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": null,
+    "operation": "cross_vendor_ratio",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "uncorrectable_per_power_on_hour",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": null,
+    "operation": "cross_vendor_ratio",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_per_capacity",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": null,
+    "operation": "cross_vendor_ratio",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_7d_model_zscore",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 7,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_14d_model_zscore",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 14,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_30d_model_zscore",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": 30,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_7d_model_zscore",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 7,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_14d_model_zscore",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 14,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "current_pending_sector_count_30d_model_zscore",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": 30,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_7d_model_zscore",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 7,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_14d_model_zscore",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 14,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "offline_uncorrectable_30d_model_zscore",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": 30,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_7d_model_zscore",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 7,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_14d_model_zscore",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 14,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_30d_model_zscore",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": 30,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_7d_model_zscore",
+    "source_attribute": "command_timeout",
+    "window_days": 7,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_14d_model_zscore",
+    "source_attribute": "command_timeout",
+    "window_days": 14,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "command_timeout_30d_model_zscore",
+    "source_attribute": "command_timeout",
+    "window_days": 30,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_7d_model_zscore",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 7,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_14d_model_zscore",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 14,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocation_event_count_30d_model_zscore",
+    "source_attribute": "reallocation_event_count",
+    "window_days": 30,
+    "operation": "model_family_zscore",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "seek_error_rate_7d_delta",
+    "source_attribute": "seek_error_rate",
+    "window_days": 7,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "seek_error_rate_30d_delta",
+    "source_attribute": "seek_error_rate",
+    "window_days": 30,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "power_on_hours_7d_delta",
+    "source_attribute": "power_on_hours",
+    "window_days": 7,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "power_on_hours_30d_delta",
+    "source_attribute": "power_on_hours",
+    "window_days": 30,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "temperature_celsius_7d_delta",
+    "source_attribute": "temperature_celsius",
+    "window_days": 7,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "temperature_celsius_30d_delta",
+    "source_attribute": "temperature_celsius",
+    "window_days": 30,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "udma_crc_error_count_7d_delta",
+    "source_attribute": "udma_crc_error_count",
+    "window_days": 7,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "udma_crc_error_count_30d_delta",
+    "source_attribute": "udma_crc_error_count",
+    "window_days": 30,
+    "operation": "delta",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "active_defect_total",
+    "source_attribute": "active_defect_total",
+    "window_days": null,
+    "operation": "defect_velocity",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "active_defect_velocity_3d",
+    "source_attribute": "active_defect_total",
+    "window_days": null,
+    "operation": "defect_velocity",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "active_defect_velocity_7d",
+    "source_attribute": "active_defect_total",
+    "window_days": null,
+    "operation": "defect_velocity",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "active_defect_velocity_14d",
+    "source_attribute": "active_defect_total",
+    "window_days": null,
+    "operation": "defect_velocity",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "active_defect_velocity_30d",
+    "source_attribute": "active_defect_total",
+    "window_days": null,
+    "operation": "defect_velocity",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "active_defect_acceleration_7d_vs_30d",
+    "source_attribute": "active_defect_total",
+    "window_days": null,
+    "operation": "defect_velocity",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "reallocated_sector_count_days_since_last_increase",
+    "source_attribute": "reallocated_sector_count",
+    "window_days": null,
+    "operation": "days_since_last_increase",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "int16"
+  },
+  {
+    "feature_name": "current_pending_sector_count_days_since_last_increase",
+    "source_attribute": "current_pending_sector_count",
+    "window_days": null,
+    "operation": "days_since_last_increase",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "int16"
+  },
+  {
+    "feature_name": "offline_uncorrectable_days_since_last_increase",
+    "source_attribute": "offline_uncorrectable",
+    "window_days": null,
+    "operation": "days_since_last_increase",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "int16"
+  },
+  {
+    "feature_name": "reported_uncorrectable_errors_days_since_last_increase",
+    "source_attribute": "reported_uncorrectable_errors",
+    "window_days": null,
+    "operation": "days_since_last_increase",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "int16"
+  },
+  {
+    "feature_name": "command_timeout_days_since_last_increase",
+    "source_attribute": "command_timeout",
+    "window_days": null,
+    "operation": "days_since_last_increase",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "int16"
+  },
+  {
+    "feature_name": "reallocation_event_count_days_since_last_increase",
+    "source_attribute": "reallocation_event_count",
+    "window_days": null,
+    "operation": "days_since_last_increase",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "int16"
+  },
+  {
+    "feature_name": "temperature_spike",
+    "source_attribute": "temperature_celsius",
+    "window_days": null,
+    "operation": "short_max_minus_long_mean",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "power_on_days",
+    "source_attribute": "power_on_hours",
+    "window_days": null,
+    "operation": "lifecycle",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "drive_age_days",
+    "source_attribute": "date",
+    "window_days": null,
+    "operation": "lifecycle",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  },
+  {
+    "feature_name": "feature_confidence",
+    "source_attribute": "telemetry_coverage_30d",
+    "window_days": null,
+    "operation": "feature_confidence",
+    "partition_by": "drive_id",
+    "order_by": "date",
+    "version": 1,
+    "dtype": "float32"
+  }
+]

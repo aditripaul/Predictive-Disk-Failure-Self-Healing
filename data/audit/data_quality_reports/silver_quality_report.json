@@ -1,0 +1,22 @@
+[
+  {
+    "check": "no_null_dates",
+    "passed": true,
+    "violation_count": 0
+  },
+  {
+    "check": "no_duplicate_drive_day_attribute",
+    "passed": true,
+    "violation_count": 0
+  },
+  {
+    "check": "capacity_positive",
+    "passed": true,
+    "violation_count": 0
+  },
+  {
+    "check": "failure_date_after_date",
+    "passed": false,
+    "violation_count": 217
+  }
+]

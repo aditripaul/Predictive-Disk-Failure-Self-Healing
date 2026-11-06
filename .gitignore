@@ -20,24 +20,16 @@ data/silver/*
 data/gold/*
 data/tmp/*
 data/synthetic/*
-data/audit/*/*
 !data/raw/*/
-!data/audit/*/
-# Results of the Q1+Q2 -> Q3 2026 runs (docs/q3_horizon_and_cascade_run.md):
-# the experiment JSON/tables/code.patch behind the runbook tables, and the
-# training reports. Small (about 3 MB). The test-access log stays untracked.
-!data/audit/cascade_q3_h*/*
-!data/audit/horizon_q3/*
-!data/audit/data_quality_reports/*_q1q2_q3.json
-!data/audit/deep_dive_q3_h*/*
-!data/audit/cluster_policy_h*/*
-# Stacked Stage 2 runs (runbook 1.1.4a): results, launcher, checksums and logs,
-# and the two launcher scripts the runbook commands point to.
-!data/audit/stack_q3_h*/*
-!data/audit/stack_q3_logs/*
-!data/audit/q3_logs/run_q3.sh
-!data/audit/q3_logs/run_cascade.sh
 !data/**/.gitkeep
+# data/audit/ is the evidence behind the runbook and is tracked in full (no
+# ignore rule for its folders). Only model binaries are kept out, as a guard
+# against committing a large artifact by accident; there are none today.
+data/audit/**/*.npz
+data/audit/**/*.pkl
+data/audit/**/*.pt
+data/audit/**/*.pth
+data/audit/**/*.joblib
 
 # ML experiment tracking artifacts
 mlflow/*
@@ -50,8 +42,8 @@ tests/golden/golden_dataset.parquet
 
 # vscode settings
 .vscode/
-# Audit database and test-access log (local state, never committed)
+# Audit database (local state). The test-access log is tracked; see
+# .gitattributes (merge=union, it is append-only).
 data/audit/*.sqlite*
-data/audit/*.jsonl
 
 delme/

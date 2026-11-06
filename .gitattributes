@@ -1,0 +1,3 @@
+# The test-access log is append-only: when two branches both appended lines,
+# keep both sets rather than reporting a conflict.
+data/audit/test_access_log.jsonl merge=union

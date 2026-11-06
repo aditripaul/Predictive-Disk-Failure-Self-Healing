@@ -1,0 +1,86 @@
+{
+  "tier": "cordon",
+  "threshold": 0.8306311563143379,
+  "horizon_days": 30,
+  "snapshot_dates": [
+    "2026-04-05",
+    "2026-04-12",
+    "2026-04-19",
+    "2026-04-26"
+  ],
+  "flagged_drive_snapshots": 2144,
+  "outcome_counts": {
+    "correct": 616,
+    "early": 227,
+    "later": 66,
+    "removed": 42,
+    "active": 1193
+  },
+  "false_alarms_by_30_day_label": 1528,
+  "early_alerts_failed_days_31_to_60": 227,
+  "early_alert_share_of_false_alarms": 0.14856020942408377,
+  "failed_later_share_of_false_alarms": 0.04319371727748691,
+  "precision_30_day_label": 0.2873134328358209,
+  "precision_with_days_31_to_60_credited": 0.3931902985074627,
+  "early_alert_drives": 137,
+  "by_tier": [
+    {
+      "tier": "warn",
+      "alerts": 5091,
+      "false_alarms": 4138,
+      "precision_label": 0.1871930858377529,
+      "precision_credited": 0.2608524847770575,
+      "failed_later_share": 0.09062348960850652
+    },
+    {
+      "tier": "cordon",
+      "alerts": 2144,
+      "false_alarms": 1528,
+      "precision_label": 0.2873134328358209,
+      "precision_credited": 0.3931902985074627,
+      "failed_later_share": 0.14856020942408377
+    },
+    {
+      "tier": "migrate",
+      "alerts": 491,
+      "false_alarms": 278,
+      "precision_label": 0.43380855397148677,
+      "precision_credited": 0.5845213849287169,
+      "failed_later_share": 0.26618705035971224
+    },
+    {
+      "tier": "drain",
+      "alerts": 53,
+      "false_alarms": 26,
+      "precision_label": 0.5094339622641509,
+      "precision_credited": 0.5849056603773585,
+      "failed_later_share": 0.15384615384615385
+    }
+  ],
+  "background_failed_in_days_31_to_60": 0.001047438867494649,
+  "profile_medians_at_alert": {
+    "correct": {
+      "reallocated_sector_count": 85.0,
+      "current_pending_sector_count": 208.0,
+      "reallocation_event_count": 17.5
+    },
+    "failed_later": {
+      "reallocated_sector_count": 24.0,
+      "current_pending_sector_count": 24.0,
+      "reallocation_event_count": 9.5
+    },
+    "never_failed": {
+      "reallocated_sector_count": 68.0,
+      "current_pending_sector_count": 113.0,
+      "reallocation_event_count": 28.0
+    }
+  },
+  "profile_group_counts": {
+    "correct": 616,
+    "failed_later": 293,
+    "never_failed": 1235
+  },
+  "runbook_method_late_hits": 195,
+  "runbook_method_note": "analyze_false_positives.py counts a late hit only if the drive still has a telemetry row on day 30; the event date used here also counts drives that failed in days 31-60 after they stopped reporting, so it is the larger count",
+  "note": "later = failed after day 60, seen only to the end of the data (a lower bound)"
+}
