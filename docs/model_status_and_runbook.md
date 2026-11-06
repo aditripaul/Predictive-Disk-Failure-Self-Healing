@@ -270,10 +270,44 @@ model against its own labels, so the columns are not a like-for-like comparison)
   validation; it passes 5-6% of drives to Stage 2 (the drift signal recorded in
   `frozen_spec.json`).
 
-Figures (drive precision-recall and confusion matrices, every run and split):
-`frozen_runs/<run id>/figures/`, e.g.
-[30-day test precision-recall](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/test_precision_recall.png)
-and [confusion matrices](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/test_confusion.png).
+**Figures** from the frozen runs (`frozen_runs/<run id>/figures/`; every run
+also has train, in-sample and optimistic, and validation versions). Per drive,
+Q3 2026 test. The precision-recall curve is the drive-level curve (solid) and
+the drive-day curve (dashed), with the primary threshold, the action tiers and
+the top-K points marked; the dotted line is the base rate. The confusion
+matrices show drive counts and the share of failing and of healthy drives in
+each cell at the primary threshold and each tier. Curves are thinned to about
+2,000 points before drawing, which smooths the steep high-precision tip, so a
+marker there (e.g. the primary point on the validation curve below) can sit a
+few points off the line; the marker values, which come from the report, are
+exact.
+
+*30-day model, run `c459046e`*
+
+| Precision-recall (test) | Confusion matrices (test) |
+|---|---|
+| ![30-day model: test precision-recall](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/test_precision_recall.png) | ![30-day model: test confusion matrices](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/test_confusion.png) |
+
+*44-day model, run `a2cd06d5`*
+
+| Precision-recall (test) | Confusion matrices (test) |
+|---|---|
+| ![44-day model: test precision-recall](../frozen_runs/a2cd06d53e624c09b0d12f81076def8a/figures/test_precision_recall.png) | ![44-day model: test confusion matrices](../frozen_runs/a2cd06d53e624c09b0d12f81076def8a/figures/test_confusion.png) |
+
+*60-day model, run `804a20ce`*
+
+| Precision-recall (test) | Confusion matrices (test) |
+|---|---|
+| ![60-day model: test precision-recall](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/test_precision_recall.png) | ![60-day model: test confusion matrices](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/test_confusion.png) |
+
+Validation curves and matrices (the same thresholds on the holdout that chose
+them) sit beside these in each bundle; the gap between the two is the
+optimism of a same-period holdout (15-20 points of precision, above). For
+example, the 30-day model on validation:
+
+| Precision-recall (validation) | Confusion matrices (validation) |
+|---|---|
+| ![30-day model: validation precision-recall](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/validation_precision_recall.png) | ![30-day model: validation confusion matrices](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/validation_confusion.png) |
 
 **Horizon comparison, paired** (`scripts/compare_horizons.py`; every model
 scored on the same 361,012 drives in 2026-07-01 .. 08-01, 1,000 drive
