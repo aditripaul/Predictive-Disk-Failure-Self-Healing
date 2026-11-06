@@ -13,7 +13,7 @@ validation set. A new experiment gets a new run tag and a new folder.
 
 | Run id | Tag | What | Window and horizon | Test result (per drive) | Size |
 |---|---|---|---|---|---|
-| `c459046e4f1645169151e7be25ff064d` | `h30_q1q2_q3` | LightGBM two-stage, 0.8 Stage 1 net. **The current model**: the latest run for the primary horizon, so `score-fleet` and the agent use it | Train / validation holdout (20% of drives) 2026-01-01..05-01, test Q3 2026 (07-01..08-31), 30-day | 59.0% precision at 12.5% recall | 2.6 MB |
+| `c459046e4f1645169151e7be25ff064d` | `h30_q1q2_q3` | LightGBM two-stage with a 0.8 Stage 1 net (details below). **The current model**: the latest run for the primary horizon, so `score-fleet` and the agent use it | Train / validation holdout (20% of drives) 2026-01-01..05-01, test Q3 2026 (07-01..08-31), 30-day | 59.0% precision at 12.5% recall | 2.6 MB |
 | `a2cd06d53e624c09b0d12f81076def8a` | `h44_q1q2_q3` | Same, 44-day label | Same rows, test 07-01..08-17 | 62.6% at 9.9% | 2.7 MB |
 | `804a20cec10048abb1bc3ccf510f96e1` | `h60_q1q2_q3` | Same, 60-day label | Same rows, test 07-01..08-01 | 63.3% at 9.0% | 2.4 MB |
 | `839d92bcd305494a8930d0dfbbb3f2a6` | `h30_seed0` | LightGBM two-stage, 0.5 net | Train to 2026-01-15, validation 02-15..03-31, test 04-01..05-31 (61 days), 30-day | 57.1% at 12.0% | 1.3 MB |
@@ -30,6 +30,45 @@ precision figures are not comparable with each other (runbook 1.7).
 
 No run here has been scored on an untouched period: Q3 2026 was the test set of
 the first three, and the blend of the last has not been read on Q3 at all.
+
+## The current model: `c459046e` (`h30_q1q2_q3`)
+
+It answers one question per drive: will this drive fail within 30 days? A
+drive-day row is positive if the drive fails within 30 days of it. Per drive, a
+failing drive is scored by its highest score inside that window and a healthy
+drive by its highest score over the whole test period, so precision and recall
+count drives, not rows.
+
+| Part | What it is |
+|---|---|
+| Features | The 246 columns listed in `frozen_spec.json` (rolling statistics, deltas, slopes, acceleration, defect velocity, days since last increase, lifetime and ratio features, per-model-family z-scores, feature confidence) |
+| Training rows | 80% of drives, 2026-01-01 to 2026-05-01. Every positive row plus a seeded sample of negatives, capped at 4,997,704 rows: 37,063 positive rows from 1,754 failing drives, among 283,181 drives |
+| Validation | The other 20% of drives over the same dates: 70,977 drives, 418 failing. Used for early stopping, every threshold and the Stage 1 net |
+| Stage 1 | LightGBM, 31 leaves, learning rate 0.05, at least 200 rows per leaf, L2 10, positive rows weighted by (healthy / failing)^0.5, early stopping on validation average precision: **310 trees** |
+| Candidate threshold | **0.235**: the most precise validation cutoff that still catches 80% of failing validation drives. Rows at or above it are Stage 2's candidates; on Q3 about 6.3% of drives pass |
+| Stage 2 | LightGBM on the candidate training rows only (121,612 rows, 20.4% positive), with Stage 1's out-of-fold score (3 folds split by drive) as a 247th feature; 50 rows per leaf; early-stopped on the 176,616 validation candidate rows: **74 trees** |
+| Combined score | Stage 1's score below the candidate threshold; `T1 + (1 - T1) * stage2` above it. So the cascade can re-order the candidates but never catch a failing drive Stage 1 missed |
+| Thresholds (on the combined score, all from validation) | Primary **0.919** (most precise point with at least 10% recall); warn 0.653; cordon 0.836; migrate = drain 0.926 (their separate precision targets are unreachable, so they share one cutoff). A monotone isotonic calibrator is stored beside them |
+
+**Q3 2026 test** (2026-07-01 to 08-31: 1,105 failing and 367,583 healthy drives,
+368,688 in all):
+
+| Operating point | Precision | Recall | Caught | Missed | False alarms |
+|---|---|---|---|---|---|
+| Stage 1 cutoff (the filter) | 3.8% | 79.9% | 883 | 222 | 22,463 |
+| Warn tier | 17.3% | 60.9% | 673 | 432 | 3,208 |
+| Cordon tier | 34.8% | 42.4% | 469 | 636 | 877 |
+| **Primary threshold** | **59.0%** | **12.5%** | 138 | 967 | 96 |
+| Migrate = drain tier | 33.3% | 0.2% | 2 | 1,103 | 4 |
+
+Read it with these in mind (runbook 1.1.4):
+- Stage 2's gain over Stage 1 alone at the primary point is +4.2 precision points
+  (95% interval -0.1 to +8.5): not established. Above 20% recall it adds about a
+  point or less.
+- The same thresholds on the validation holdout gave 75% precision, so
+  validation overstates test precision by about 15 points.
+- The migrate and drain tiers flag only 6 drives, so they are not usable here.
+- The 90%-precision goal is not met.
 
 ## What a LightGBM run folder holds
 
