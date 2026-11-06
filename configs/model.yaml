@@ -70,7 +70,24 @@ model:
     # Every net is compared with the first model alone at each recall level
     # up to the net, paired within each seed.
     experiment:
-      candidate_recalls: [0.5, 0.7, 0.8, 0.9]
+      # [0.5, 0.7, 0.8, 0.9] for the wide-net comparison (runbook 4.12); the
+      # Q1+Q2 -> Q3 run compares the old and the adopted net.
+      candidate_recalls: [0.5, 0.8]
+      # Stage 2 models compared per net (docs/q3_horizon_and_cascade_run.md):
+      # the shipped LightGBM classifier and two survival models on censored
+      # time to failure. The survival kinds run only at survival_nets.
+      stage2_kinds: [lightgbm, cox, aft]
+      survival_nets: [0.8]
+      # Survival Stage 2 overrides of src/models/survival.py's COX_PARAMS /
+      # AFT_PARAMS: shallower trees and smaller leaves for a candidate pool of
+      # ~10^5 rows, from the proposal this was checked against (depth 3-5,
+      # learning rate 0.01-0.05, min_child_weight 5-10).
+      survival_params:
+        max_depth: 4
+        learning_rate: 0.03
+        min_child_weight: 10
+        subsample: 0.8
+        colsample_bytree: 0.7
       recall_levels: [0.05, 0.10, 0.20, 0.35, 0.50, 0.60, 0.70, 0.80]
       seeds: 3
       # A failing drive also counts as caught "with lead" only when a row at

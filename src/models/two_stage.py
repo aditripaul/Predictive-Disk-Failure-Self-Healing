@@ -91,8 +91,17 @@ def lightgbm_fitter(
     return fit
 
 
-def tree_count(model: lgb.LGBMClassifier) -> int:
-    return int(model.best_iteration_ or model.n_estimators)
+def tree_count(model: Any) -> int:
+    """Trees a fitted Stage 1 or Stage 2 uses: LightGBM's best iteration, or
+    the `tree_count` the survival boosters (src/models/survival.py) expose."""
+    if isinstance(model, lgb.LGBMClassifier):
+        return int(model.best_iteration_ or model.n_estimators)
+    return int(model.tree_count)
+
+
+#: Stage 2 model kinds: the LightGBM classifier the pipeline ships, or a
+#: survival model on censored time to failure (src/models/survival.py).
+STAGE2_KINDS = ("lightgbm", "cox", "aft")
 
 
 def drive_folds(drive_ids: np.ndarray, n_folds: int, seed: int = 0) -> np.ndarray:
@@ -228,8 +237,21 @@ def fit_second_stage(
     train_stage1_scores: np.ndarray | None = None,
     stage2_params: dict[str, Any] | None = None,
     early_stopping_max_negatives: int | None = None,
+    stage2_kind: str = "lightgbm",
+    train_survival_bounds: tuple[np.ndarray, np.ndarray] | None = None,
+    horizon_days: int | None = None,
+    survival_params: dict[str, Any] | None = None,
 ) -> tuple[TwoStageModel | None, dict[str, Any]]:
     """Trains Stage 2 for an already-trained `stage1`.
+
+    `stage2_kind` "cox" or "aft" fits a survival Stage 2 instead of the
+    LightGBM classifier: `train_survival_bounds` are the (lower, upper)
+    time-to-failure bounds of every train row
+    (src/models/survival.py::survival_bounds, row-aligned with `x_train`), of
+    which the candidate rows are used; early stopping is on validation average
+    precision against the binary label, as for the classifier. Its risk is in
+    (0, 1), so the combined score keeps the same form. `survival_params`
+    override the survival booster's parameters.
 
     Returns the combined model and a report; the model is None (and
     `report["status"]` says why) when validation cannot reach
@@ -289,13 +311,48 @@ def fit_second_stage(
             )
         ]
     report["candidates"]["early_stopping_rows"] = len(eval_rows)
-    stage2 = fit(
-        with_stage1_score(x_train, train_stage1_scores, train_rows),
-        y_train[train_rows],
-        eval_x=with_stage1_score(x_val, val_stage1_scores, eval_rows),
-        eval_y=y_val[eval_rows],
-        extra_params=STAGE2_PARAMS if stage2_params is None else stage2_params,
-    )
+    report["stage2_kind"] = stage2_kind
+    x_stage2 = with_stage1_score(x_train, train_stage1_scores, train_rows)
+    eval_x = with_stage1_score(x_val, val_stage1_scores, eval_rows)
+    stage2: Any
+    if stage2_kind == "lightgbm":
+        stage2 = fit(
+            x_stage2,
+            y_train[train_rows],
+            eval_x=eval_x,
+            eval_y=y_val[eval_rows],
+            extra_params=STAGE2_PARAMS if stage2_params is None else stage2_params,
+        )
+    elif stage2_kind in ("cox", "aft"):
+        from src.models.survival import train_aft, train_cox
+
+        if train_survival_bounds is None or horizon_days is None:
+            raise ValueError(
+                f"stage2_kind={stage2_kind!r} needs train_survival_bounds and horizon_days"
+            )
+        lower, upper = (np.asarray(b)[train_rows] for b in train_survival_bounds)
+        if stage2_kind == "cox":
+            stage2 = train_cox(
+                x_stage2,
+                lower,
+                upper,
+                eval_x=eval_x,
+                eval_y=y_val[eval_rows],
+                params=survival_params,
+            )
+        else:
+            stage2 = train_aft(
+                x_stage2,
+                lower,
+                upper,
+                eval_x=eval_x,
+                eval_y=y_val[eval_rows],
+                horizon_days=horizon_days,
+                params=survival_params,
+            )
+    else:
+        raise ValueError(f"stage2_kind must be one of {STAGE2_KINDS}, got {stage2_kind!r}")
+    del x_stage2, eval_x
     report["stage2_trees"] = tree_count(stage2)
     report["status"] = "ok"
     return TwoStageModel(stage1, stage2, threshold), report
@@ -309,7 +366,11 @@ TWO_STAGE_ARTIFACT = "two_stage.json"
 def log_two_stage(model: TwoStageModel, report: dict[str, Any]) -> None:
     """Logs Stage 2 and the candidate threshold to the active MLflow run.
     Stage 1 is logged by the caller as the run's ordinary "model", so a run
-    without these two artifacts is simply a single-stage run."""
+    without these two artifacts is simply a single-stage run. Only a LightGBM
+    Stage 2 is logged (the shipped kind); the survival kinds are compared by
+    `make experiment-model`, not deployed."""
+    if not isinstance(model.stage2, lgb.LGBMClassifier):
+        raise TypeError("only a LightGBM Stage 2 can be logged and loaded for scoring")
     mlflow.lightgbm.log_model(model.stage2, name=STAGE2_MODEL_NAME)
     mlflow.log_dict(
         {**report, "candidate_threshold": model.candidate_threshold}, TWO_STAGE_ARTIFACT

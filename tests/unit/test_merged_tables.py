@@ -171,3 +171,12 @@ def test_cascade_table_lists_only_nets_that_reach_each_level() -> None:
     assert lines[5] == "| Stage 1 alone (= 50% net) | 60% | 20.0% | 60.0% | 100 | 40.0% | 50 |"
     assert lines[6].startswith("| Cascade, 80% net | 60% | 25.0%")
     assert len(lines) == 7
+
+    # Survival Stage 2 kinds of the same net follow the LightGBM one, named.
+    results["summary"].insert(
+        0,
+        {"candidate_recall": 0.8, "stage2_kind": "cox", "levels": [entry(0.6, 0.2, 0.3)]},
+    )
+    lines = cascade_table(results, production_net=0.8, levels=(0.6,)).splitlines()
+    assert lines[3].startswith("| Cascade, 80% net (production setting) | 60% | 25.0%")
+    assert lines[4].startswith("| Cascade, 80% net, Cox Stage 2 | 60% | 30.0%")

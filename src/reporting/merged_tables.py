@@ -170,15 +170,23 @@ def cascade_table(
 
     A net narrower than the level cannot change it (its cascade equals Stage 1
     there), so those nets are named on the Stage 1 row instead."""
-    nets = sorted(results["summary"], key=lambda n: n["candidate_recall"])
+    kind_order = {"lightgbm": 0, "cox": 1, "aft": 2}
+    nets = sorted(
+        results["summary"],
+        key=lambda n: (n["candidate_recall"], kind_order.get(n.get("stage2_kind", "lightgbm"), 9)),
+    )
     lines = [
         "| Model | Recall level | Precision | Recall | Caught | Missed % | False alarms |",
         "|---|---|---|---|---|---|---|",
     ]
 
-    def net_name(net: float) -> str:
+    def net_name(net: float, kind: str) -> str:
         name = f"{net * 100:.0f}% net"
-        return f"{name} (production setting)" if production_net == net else name
+        if kind != "lightgbm":
+            name += f", {kind.upper() if kind == 'aft' else kind.capitalize()} Stage 2"
+        return (
+            f"{name} (production setting)" if production_net == net and kind == "lightgbm" else name
+        )
 
     def row(label: str, level: float, entry: dict[str, Any], side: str) -> str:
         recall = entry[f"{side}_recall"]
@@ -190,7 +198,7 @@ def cascade_table(
 
     for level in levels:
         reaching = [
-            (net["candidate_recall"], entry)
+            (net["candidate_recall"], net.get("stage2_kind", "lightgbm"), entry)
             for net in nets
             if net["candidate_recall"] > level + 1e-9
             for entry in net["levels"]
@@ -198,11 +206,13 @@ def cascade_table(
         ]
         if not reaching:
             continue
-        narrower = [n["candidate_recall"] for n in nets if n["candidate_recall"] <= level + 1e-9]
+        narrower = sorted(
+            {n["candidate_recall"] for n in nets if n["candidate_recall"] <= level + 1e-9}
+        )
         stage1_label = "Stage 1 alone"
         if narrower:
             stage1_label += f" (= {', '.join(f'{n * 100:.0f}% net' for n in narrower)})"
-        lines.append(row(stage1_label, level, reaching[0][1], "stage1"))
-        for net, entry in reaching:
-            lines.append(row(f"Cascade, {net_name(net)}", level, entry, "two_stage"))
+        lines.append(row(stage1_label, level, reaching[0][2], "stage1"))
+        for net, kind, entry in reaching:
+            lines.append(row(f"Cascade, {net_name(net, kind)}", level, entry, "two_stage"))
     return "\n".join(lines)
