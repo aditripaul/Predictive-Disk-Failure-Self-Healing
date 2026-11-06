@@ -36,6 +36,15 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--status", action="store_true", help="add runbook 1.1.3 tables")
     parser.add_argument("--recall-policy", type=Path, help="run_recall_policy summary.json")
     parser.add_argument("--cascade", type=Path, help="experiment_two_stage.json")
+    parser.add_argument(
+        "--cascade-levels",
+        type=float,
+        nargs="+",
+        default=[0.10, 0.60],
+        metavar="R",
+        help="With --cascade: recall levels to tabulate (default 0.10 0.60; the Q3 runbook "
+        "tables use 0.10 0.35 0.60).",
+    )
     parser.add_argument("--out", type=Path)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
@@ -68,7 +77,11 @@ def main(argv: list[str] | None = None) -> None:
         net = production.get("two_stage", {}).get("candidate_recall")
         parts += [
             "\n\n## Cascade, wide Stage 1 nets (test, means over seeds)\n",
-            cascade_table(json.loads(args.cascade.read_text()), production_net=net),
+            cascade_table(
+                json.loads(args.cascade.read_text()),
+                levels=tuple(args.cascade_levels),
+                production_net=net,
+            ),
         ]
     text = "\n".join(parts) + "\n"
     print(text)

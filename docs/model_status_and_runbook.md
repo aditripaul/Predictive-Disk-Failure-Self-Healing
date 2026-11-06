@@ -479,8 +479,73 @@ recall on test). The confusion matrices give the counts behind each marker.
 
 ![Cascade confusion matrices, 60-day](figures/q3_2026/cascade_h60_confusion.png)
 
-Looks at test: `data/audit/test_access_log.jsonl` lines 114-126 (3 training
-runs, 1 horizon comparison, 9 cascade seeds).
+**Commands that produced Section 1.1.4** (all from the repository root, 2026-11-06;
+times are IST, the access-log and log-file times are UTC; `ARGS`-style options are
+passed through `make` as shown). Each step names the code commit it ran at.
+
+*Data refresh to include Q3 2026.* Bronze, silver and gold from before the ingest
+were first copied to `data/tmp/backup_pre_q3_20261106/` (local, not committed).
+
+| # | Command | Code | What it did |
+|---|---|---|---|
+| 1 | `make download-backblaze ARGS="--quarters Q3_2026"` | `e226bdb` | Downloaded the Q3 2026 archive |
+| 2 | `make ingest-backblaze ARGS="--start-date 2026-07-01 --end-date 2026-09-30"` | `e226bdb` | Bronze for July to September (92 days) |
+| 3 | `make build-silver` | `5a93d86` | Silver; `build_drive_metadata` in 8 hash partitions (`resource_limits.drive_metadata_partitions`) to stay under the 20 GB cap |
+| 4 | `make build-features` | `f8bab86` | Gold features, rebuilt after the fix that computes the model-family z-score statistics and each model's expected attributes on rows before `sealed_start` only (the first build, before the fix, was replaced; the code was committed after the rebuild started) |
+| 5 | `make build-labels` | `edeb1b3` | Labels for horizons 30, 44, 60 with a 20% drive holdout, at 14:49 |
+
+*Training* (`data/audit/q3_logs/run_q3.sh` in this order; code `edeb1b3`, the two
+later runs also saw the docs-only commits `b81a0ff` and `9dbadd8`, which is why
+access-log lines 115 and 116 show `9dbadd8`):
+
+```bash
+make train TRAIN_TAG=h30_q1q2_q3 TRAIN_ARGS="--horizon-days 30 --keep-work-dir --save-scores"   # line 114, run c459046e
+make train TRAIN_TAG=h44_q1q2_q3 TRAIN_ARGS="--horizon-days 44 --keep-work-dir --save-scores"   # line 115, run a2cd06d5
+make train TRAIN_TAG=h60_q1q2_q3 TRAIN_ARGS="--horizon-days 60 --keep-work-dir --save-scores"   # line 116, run 804a20ce
+```
+
+Kept work directories (`data/tmp/`, local): `train_model_frame_fag3o60h` is the 30-day
+run, `train_model_frame_ff5ejt7a` the 44-day, `train_model_frame_xjxdieoe` the 60-day.
+Score tables: `data/tmp/lightgbm_scores_h<H>_h<H>_q1q2_q3.parquet`.
+
+*Horizon comparison* (code `6c61e35`, line 117):
+
+```bash
+uv run python scripts/compare_horizons.py \
+    --scores 30=data/tmp/lightgbm_scores_h30_h30_q1q2_q3.parquet \
+             44=data/tmp/lightgbm_scores_h44_h44_q1q2_q3.parquet \
+             60=data/tmp/lightgbm_scores_h60_h60_q1q2_q3.parquet
+```
+
+*Cascade and survival Stage 2* (`data/audit/q3_logs/run_cascade.sh`, 3 seeds each, lines
+118-126; code `6c61e35` for the 30-day seeds 0-1 and `3bfe609` after, which changed only
+config comments, docs and a docstring; nets, Stage 2 kinds, survival parameters and
+seeds come from `configs/model.yaml` `model.two_stage.experiment`):
+
+```bash
+make experiment-model EXPERIMENT_ARGS="--work-dir data/tmp/train_model_frame_fag3o60h --variants --skip-baseline --two-stage --two-stage-out data/audit/cascade_q3_h30"
+make experiment-model EXPERIMENT_ARGS="--work-dir data/tmp/train_model_frame_ff5ejt7a --variants --skip-baseline --two-stage --two-stage-out data/audit/cascade_q3_h44"
+make experiment-model EXPERIMENT_ARGS="--work-dir data/tmp/train_model_frame_xjxdieoe --variants --skip-baseline --two-stage --two-stage-out data/audit/cascade_q3_h60"
+```
+
+*Tables and figures in this section:*
+
+```bash
+# generated cascade tables (10%, 35% and 60% levels), one per horizon
+make merged-tables REPORT=frozen_runs/fb58d9576c6146ba94c13389005fa15b/merged_evaluation_report.json \
+    TABLES_ARGS="--cascade data/audit/cascade_q3_h30/experiment_two_stage.json --cascade-levels 0.10 0.35 0.60"
+# (repeat with cascade_q3_h44 and cascade_q3_h60)
+# figures embedded above: copies of the seed-0 cascade and horizon-comparison figures
+cp data/audit/cascade_q3_h<H>/figures/cascade_{precision_recall,confusion}_seed0.png docs/figures/q3_2026/   # renamed cascade_h<H>_*.png
+cp data/audit/horizon_q3/figures/labels_<H>d_{precision_recall,confusion}.png docs/figures/q3_2026/horizon_labels_<H>d_*.png
+```
+
+*Frozen bundles.* `frozen_runs/<run id>/` were assembled by following the steps in
+`frozen_runs/README.md` ("Adding a run") with an inline script that is not kept in the
+repository; every file is checked by `cd frozen_runs/<run id> && sha256sum -c SHA256SUMS`.
+
+*Test looks:* `data/audit/test_access_log.jsonl` lines 114-126 (3 training runs, 1
+horizon comparison, 9 cascade seeds).
 
 ### 1.1.5 Deep dive into the 30-day Q3 run (2026-11-06)
 
@@ -493,6 +558,17 @@ on Q3 2026 (1,105 failing and 367,583 healthy drives). Script
 holds every table, including the full week-by-week one). Test looks: lines
 127 and 129 of the access log; line 128 is a run stopped before it computed
 anything (it used the unfixed age column).
+
+Commands (code `f2e1805`; line 129 also had the power-on-hours age fix that commit
+`42c2a89` contains):
+
+```bash
+uv run python scripts/deep_dive_q3.py --run-dir frozen_runs/c459046e4f1645169151e7be25ff064d \
+    --scores data/tmp/lightgbm_scores_h30_h30_q1q2_q3.parquet \
+    --test-ids data/tmp/train_model_frame_fag3o60h/test_ids.parquet           # line 127 (age column unfixed)
+# the same with --overwrite after the age fix                                 # line 129 (line 128: stopped early)
+uv run python scripts/deep_dive_q3.py --run-dir x --scores x --test-ids x --figures-only   # redraw figures from the JSON, no test look
+```
 
 **Missed failures.** Each failing drive placed at the strictest point that
 catches it. "Core counter" = the six priority SMART counters; "warned before
@@ -734,6 +810,8 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
 
 ### 1.7 Three conventions these numbers depend on
 
+(How the action tiers are derived from the score, step by step: Section 1.9.)
+
 - **Action tiers are set in lift, not precision.**
   `threshold.action_tier_lift` (56.6 / 94.3 / 151.0 / 226.4) replaces the
   earlier per-tier precision targets, because precision moves with the base
@@ -798,6 +876,69 @@ What git tracks under `data/audit/` and what stays local is listed in its
 README; the Q1+Q2 -> Q3 results are all tracked.
 
 ## 2. How to run the pipeline
+### 1.9 How the tiers are set
+
+The agent's four action tiers (warn, cordon, migrate, drain) are four thresholds on
+one score. Stage 2 does not create them; it produces the score, and the thresholds
+are chosen on the validation holdout to meet a precision target each. For the
+current 30-day model (frozen run `c459046e`):
+
+1. **The score.** Stage 1 scores every drive-day; at or above the candidate
+   threshold (0.235, `frozen_runs/c459046e.../two_stage.json` `candidate_threshold`)
+   Stage 2 re-scores it and the combined score is `0.235 + 0.765 x stage2`;
+   below, the Stage 1 score stands (`src/models/two_stage.py::TwoStageModel.final_scores`).
+   Per drive, the highest score in its window: a failing drive over the 30 days
+   before failure, a healthy drive over the whole period
+   (`src/models/evaluation.py::drive_level_table`).
+2. **Lift to precision target.** `configs/model.yaml` `threshold.action_tier_lift`
+   gives a lift per tier; times the validation drive failure rate (0.589%, 418 of
+   70,977 drives) it is the precision the tier must earn
+   (`src/models/threshold.py::precision_targets_from_lift`). Lift is used so a target
+   keeps its meaning when the failure rate changes between windows (Section 1.7).
+3. **Threshold per tier.** On the validation drive-level precision-recall curve,
+   each tier takes the cutoff with the most recall whose precision still meets its
+   target (`tune_action_tiers`). A target no cutoff meets falls back to the curve's
+   most precise point:
+
+| Tier | Lift | Target on validation | Threshold | Validation precision / recall | Q3 test precision / recall |
+|---|---|---|---|---|---|
+| warn | 56.6 | 33.3% | 0.653 | 33.3% / 63.6% | 17.3% / 60.9% |
+| cordon | 94.3 | 55.5% | 0.836 | 55.7% / 44.7% | 34.8% / 42.4% |
+| migrate | 151.0 | 88.9% | 0.926 | 100% / 0.5% (2 drives) | 33.3% / 0.2% |
+| drain | 226.4 | 133% (stored capped at 100%), unreachable | 0.926 | same cutoff | same |
+
+   Source: `data/audit/data_quality_reports/model_evaluation_report_h30_q1q2_q3.json`
+   (`action_tiers`: `threshold`, `target_lift`, `target_precision`, `validation`,
+   `test`) and `action_tiers_h30_q1q2_q3.json`. Migrate's target is met only at the
+   very top of the curve and drain's is impossible, so both share 0.926 and flag 6
+   drives on Q3: on this model they are not usable tiers.
+4. **The primary threshold is separate** (`tune_drive_level_threshold`): it aims at
+   90% precision with at least 10% recall, cannot reach it, and takes the most
+   precise cutoff with 10% recall: 0.919, giving 75.0% on validation and 59.0% on Q3
+   (`model_evaluation_report_h30_q1q2_q3.json` `threshold`).
+5. **Run-time gates** (`src/models/action_tiers.py::determine_action_tier`): migrate
+   and drain need feature confidence >= 0.80 (`configs/agent.yaml`
+   `feature_confidence.min_confidence_for_destructive_action`), a mature drive and
+   fresh telemetry, otherwise they become cordon. Then `src/agent/nodes.py::make_plan_node`
+   applies hysteresis (2 consecutive cycles before escalating) and a cooldown after
+   an action (3,600 s), both in `configs/agent.yaml` `loop`.
+6. **Where the cluster policy enters** (`docs/cluster_action_policy.md`): between 3
+   and 5, the drive's (cluster, tier) cell can move it one band up or down, by how
+   often that cell failed on validation compared with each band. The clustering never
+   sees the score, so Stage 2's precision shapes which drives sit in each tier, not
+   the clusters.
+
+**The same thresholds give lower precision on Q3** because fewer drives fail there
+(0.300% against 0.589%); recall holds (Section 1.1.5). Lift times each base rate
+gives the precision each tier would be expected to reach:
+
+| How the tiers are set (validation curve, lift-derived targets) | Lift x base rate = target |
+|---|---|
+| ![Validation drive curve with tier thresholds and targets](../data/audit/cluster_policy_h30/figures/tier_thresholds_validation.png) | ![Lift times base rate, validation and Q3](../data/audit/cluster_policy_h30/figures/tier_lift_targets.png) |
+
+The per-run curves are in `frozen_runs/c459046e.../figures/`
+(`validation_precision_recall.png`, `test_precision_recall.png`).
+
 
 ### 2.1 Setup
 
