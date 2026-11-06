@@ -1,0 +1,117 @@
+{
+  "class_distribution": [
+    {
+      "horizon_days": 30,
+      "split": "sealed",
+      "total_rows": 33318960,
+      "positive_count": 22540,
+      "negative_count": 22214942,
+      "censored_count": 11081478,
+      "failure_rate": 0.0010136039682910143
+    },
+    {
+      "horizon_days": 30,
+      "split": "test",
+      "total_rows": 21186526,
+      "positive_count": 20475,
+      "negative_count": 21162338,
+      "censored_count": 3713,
+      "failure_rate": 0.0009665855049563059
+    },
+    {
+      "horizon_days": 30,
+      "split": "train",
+      "total_rows": 57863435,
+      "positive_count": 55323,
+      "negative_count": 57697351,
+      "censored_count": 110761,
+      "failure_rate": 0.0009579296709274448
+    },
+    {
+      "horizon_days": 30,
+      "split": "validation",
+      "total_rows": 14457234,
+      "positive_count": 13108,
+      "negative_count": 14416694,
+      "censored_count": 27432,
+      "failure_rate": 0.0009083977728869737
+    },
+    {
+      "horizon_days": 44,
+      "split": "sealed",
+      "total_rows": 33318960,
+      "positive_count": 30565,
+      "negative_count": 17129557,
+      "censored_count": 16158838,
+      "failure_rate": 0.0017811644928864725
+    },
+    {
+      "horizon_days": 44,
+      "split": "test",
+      "total_rows": 21186526,
+      "positive_count": 30343,
+      "negative_count": 21149365,
+      "censored_count": 6818,
+      "failure_rate": 0.0014326448693249218
+    },
+    {
+      "horizon_days": 44,
+      "split": "train",
+      "total_rows": 57863435,
+      "positive_count": 82064,
+      "negative_count": 57619956,
+      "censored_count": 161415,
+      "failure_rate": 0.0014222032434913023
+    },
+    {
+      "horizon_days": 44,
+      "split": "validation",
+      "total_rows": 14457234,
+      "positive_count": 19520,
+      "negative_count": 14397706,
+      "censored_count": 40008,
+      "failure_rate": 0.0013539359097235488
+    },
+    {
+      "horizon_days": 60,
+      "split": "sealed",
+      "total_rows": 33318960,
+      "positive_count": 37587,
+      "negative_count": 11370721,
+      "censored_count": 21910652,
+      "failure_rate": 0.0032947041752379056
+    },
+    {
+      "horizon_days": 60,
+      "split": "test",
+      "total_rows": 21186526,
+      "positive_count": 41958,
+      "negative_count": 21131610,
+      "censored_count": 12958,
+      "failure_rate": 0.0019816216142692624
+    },
+    {
+      "horizon_days": 60,
+      "split": "train",
+      "total_rows": 57863435,
+      "positive_count": 113115,
+      "negative_count": 57530995,
+      "censored_count": 219325,
+      "failure_rate": 0.001962299357210997
+    },
+    {
+      "horizon_days": 60,
+      "split": "validation",
+      "total_rows": 14457234,
+      "positive_count": 26927,
+      "negative_count": 14375947,
+      "censored_count": 54360,
+      "failure_rate": 0.0018695574230532044
+    }
+  ],
+  "scale_pos_weight_by_horizon": {
+    "30": 1042.9179726334437,
+    "44": 702.1343829206473,
+    "60": 508.60624143570703
+  }
+}

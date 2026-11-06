@@ -1,0 +1,1467 @@
+{
+  "settings": {
+    "run_dir": "frozen_runs/c459046e4f1645169151e7be25ff064d",
+    "scores": "data/tmp/lightgbm_scores_h30_h30_q1q2_q3.parquet",
+    "thresholds": {
+      "stage1": 0.23504314173543617,
+      "warn": 0.653317505969975,
+      "cordon": 0.836076309958187,
+      "primary": 0.9190186791560645
+    },
+    "git_commit": "f2e18057a68879f35955ebed1b503320faef2771"
+  },
+  "missed": {
+    "failing_drives": 1105,
+    "groups": [
+      {
+        "group": "caught at primary",
+        "drives": 138,
+        "share": 0.1248868778280543,
+        "any_core_counter_nonzero": 0.9202898550724637,
+        "core_counter_increased_in_window": 0.7536231884057971,
+        "active_defects_median": 4324.5,
+        "telemetry_coverage_mean": 0.8327758636068733,
+        "age_years_median": 5.457107067108154,
+        "alerted_at_warn_before_window": 0.427536231884058,
+        "median_lead_days_at_own_point": 14.5,
+        "top_families": [
+          {
+            "name": "Seagate HDD",
+            "share": 0.717391304347826
+          },
+          {
+            "name": "Toshiba HDD",
+            "share": 0.18840579710144928
+          },
+          {
+            "name": "HGST HDD",
+            "share": 0.07971014492753623
+          },
+          {
+            "name": "Western Digital HDD",
+            "share": 0.014492753623188406
+          }
+        ]
+      },
+      {
+        "group": "caught at cordon only",
+        "drives": 331,
+        "share": 0.2995475113122172,
+        "any_core_counter_nonzero": 0.9667673716012085,
+        "core_counter_increased_in_window": 0.7220543806646526,
+        "active_defects_median": 1866.0,
+        "telemetry_coverage_mean": 0.8106343662925415,
+        "age_years_median": 5.517453670501709,
+        "alerted_at_warn_before_window": 0.4259818731117825,
+        "median_lead_days_at_own_point": 16.0,
+        "top_families": [
+          {
+            "name": "Seagate HDD",
+            "share": 0.5226586102719033
+          },
+          {
+            "name": "Toshiba HDD",
+            "share": 0.19939577039274925
+          },
+          {
+            "name": "HGST HDD",
+            "share": 0.18429003021148035
+          },
+          {
+            "name": "Western Digital HDD",
+            "share": 0.09365558912386707
+          }
+        ]
+      },
+      {
+        "group": "caught at warn only",
+        "drives": 204,
+        "share": 0.18461538461538463,
+        "any_core_counter_nonzero": 0.9950980392156863,
+        "core_counter_increased_in_window": 0.6666666666666666,
+        "active_defects_median": 703.0,
+        "telemetry_coverage_mean": 0.9452578339042145,
+        "age_years_median": 5.180811882019043,
+        "alerted_at_warn_before_window": 0.43137254901960786,
+        "median_lead_days_at_own_point": 21.0,
+        "top_families": [
+          {
+            "name": "Seagate HDD",
+            "share": 0.3431372549019608
+          },
+          {
+            "name": "HGST HDD",
+            "share": 0.2647058823529412
+          },
+          {
+            "name": "Toshiba HDD",
+            "share": 0.2107843137254902
+          },
+          {
+            "name": "Western Digital HDD",
+            "share": 0.18137254901960784
+          }
+        ]
+      },
+      {
+        "group": "passed Stage 1, below warn",
+        "drives": 210,
+        "share": 0.19004524886877827,
+        "any_core_counter_nonzero": 0.8238095238095238,
+        "core_counter_increased_in_window": 0.38571428571428573,
+        "active_defects_median": 40.0,
+        "telemetry_coverage_mean": 0.9863875073652465,
+        "age_years_median": 3.593029737472534,
+        "alerted_at_warn_before_window": 0.12857142857142856,
+        "median_lead_days_at_own_point": 26.0,
+        "top_families": [
+          {
+            "name": "Seagate HDD",
+            "share": 0.4380952380952381
+          },
+          {
+            "name": "Western Digital HDD",
+            "share": 0.28095238095238095
+          },
+          {
+            "name": "Toshiba HDD",
+            "share": 0.2
+          },
+          {
+            "name": "HGST HDD",
+            "share": 0.07142857142857142
+          }
+        ]
+      },
+      {
+        "group": "never passed Stage 1",
+        "drives": 222,
+        "share": 0.20090497737556562,
+        "any_core_counter_nonzero": 0.21621621621621623,
+        "core_counter_increased_in_window": 0.013513513513513514,
+        "active_defects_median": 0.0,
+        "telemetry_coverage_mean": 0.9643499513470778,
+        "age_years_median": 2.9449007511138916,
+        "alerted_at_warn_before_window": 0.0,
+        "median_lead_days_at_own_point": null,
+        "top_families": [
+          {
+            "name": "Seagate HDD",
+            "share": 0.46396396396396394
+          },
+          {
+            "name": "Toshiba HDD",
+            "share": 0.3153153153153153
+          },
+          {
+            "name": "Western Digital HDD",
+            "share": 0.16216216216216217
+          },
+          {
+            "name": "HGST HDD",
+            "share": 0.05405405405405406
+          }
+        ]
+      }
+    ],
+    "no_core_signal": {
+      "drives": 234,
+      "share_of_failing": 0.21176470588235294,
+      "stage1_recall_among_them": 0.2564102564102564,
+      "stage1_recall_among_the_rest": 0.9448909299655568
+    },
+    "by_family": [
+      {
+        "model_family": "Seagate HDD",
+        "failing": 537,
+        "stage1_recall": 0.8081936685288641,
+        "warn_recall": 0.6368715083798883,
+        "primary_recall": 0.18435754189944134,
+        "no_core_signal_share": 0.23649906890130354
+      },
+      {
+        "model_family": "Toshiba HDD",
+        "failing": 247,
+        "stage1_recall": 0.7165991902834008,
+        "warn_recall": 0.5465587044534413,
+        "primary_recall": 0.10526315789473684,
+        "no_core_signal_share": 0.26720647773279355
+      },
+      {
+        "model_family": "Western Digital HDD",
+        "failing": 165,
+        "stage1_recall": 0.7818181818181819,
+        "warn_recall": 0.42424242424242425,
+        "primary_recall": 0.012121212121212121,
+        "no_core_signal_share": 0.17575757575757575
+      },
+      {
+        "model_family": "HGST HDD",
+        "failing": 153,
+        "stage1_recall": 0.9215686274509803,
+        "warn_recall": 0.8235294117647058,
+        "primary_recall": 0.0718954248366013,
+        "no_core_signal_share": 0.058823529411764705
+      },
+      {
+        "model_family": "WUH721816ALE6L4",
+        "failing": 3,
+        "stage1_recall": 0.6666666666666666,
+        "warn_recall": 0.0,
+        "primary_recall": 0.0,
+        "no_core_signal_share": 1.0
+      }
+    ]
+  },
+  "false_alarms": {
+    "healthy_drives": 367583,
+    "points": {
+      "stage1": {
+        "flagged_healthy": 22463,
+        "outcomes": {
+          "still_active": 21931,
+          "removed_without_failure": 509,
+          "confirmed_failure": 23
+        },
+        "failed_later": 23,
+        "failed_later_days_after_first_alert_median": 83.0,
+        "any_core_counter_nonzero": 0.59791657392156,
+        "core_counter_increased": 0.3960735431598629,
+        "fleet_any_core_counter_nonzero": 0.08918802012062582,
+        "age_years_median": 3.916438341140747,
+        "fleet_age_years_median": 3.4663472175598145,
+        "families": [
+          {
+            "model_family": "Seagate HDD",
+            "flagged": 11426,
+            "fleet": 111429,
+            "share": 0.5086586831678761,
+            "fleet_share": 0.30313969906116445,
+            "lift": 1.6779678964622977
+          },
+          {
+            "model_family": "Toshiba HDD",
+            "flagged": 6203,
+            "fleet": 132760,
+            "share": 0.2761429906958109,
+            "fleet_share": 0.3611701302835006,
+            "lift": 0.7645787055509058
+          },
+          {
+            "model_family": "Western Digital HDD",
+            "flagged": 2741,
+            "fleet": 94339,
+            "share": 0.12202288207274185,
+            "fleet_share": 0.2566467981381076,
+            "lift": 0.4754506308201769
+          },
+          {
+            "model_family": "HGST HDD",
+            "flagged": 1971,
+            "fleet": 25232,
+            "share": 0.08774429061122736,
+            "fleet_share": 0.0686430003563821,
+            "lift": 1.278270037085716
+          },
+          {
+            "model_family": "WUH721816ALE6L4",
+            "flagged": 121,
+            "fleet": 571,
+            "share": 0.0053866358010951345,
+            "fleet_share": 0.0015533906627890844,
+            "lift": 3.467663305908849
+          },
+          {
+            "model_family": "CT250MX500SSD1",
+            "flagged": 1,
+            "fleet": 689,
+            "share": 4.451765124872012e-05,
+            "fleet_share": 0.0018744065966053926,
+            "lift": 0.023750263859155716
+          }
+        ]
+      },
+      "warn": {
+        "flagged_healthy": 3208,
+        "outcomes": {
+          "still_active": 2900,
+          "removed_without_failure": 288,
+          "confirmed_failure": 20
+        },
+        "failed_later": 20,
+        "failed_later_days_after_first_alert_median": 71.5,
+        "any_core_counter_nonzero": 0.9978179551122195,
+        "core_counter_increased": 0.8753117206982544,
+        "fleet_any_core_counter_nonzero": 0.08918802012062582,
+        "age_years_median": 5.4009809494018555,
+        "fleet_age_years_median": 3.4663472175598145,
+        "families": [
+          {
+            "model_family": "HGST HDD",
+            "flagged": 925,
+            "fleet": 25232,
+            "share": 0.28834164588528677,
+            "fleet_share": 0.0686430003563821,
+            "lift": 4.200597939895821
+          },
+          {
+            "model_family": "Seagate HDD",
+            "flagged": 884,
+            "fleet": 111429,
+            "share": 0.27556109725685785,
+            "fleet_share": 0.30313969906116445,
+            "lift": 0.9090234572056428
+          },
+          {
+            "model_family": "Toshiba HDD",
+            "flagged": 793,
+            "fleet": 132760,
+            "share": 0.24719451371571072,
+            "fleet_share": 0.3611701302835006,
+            "lift": 0.6844267922202628
+          },
+          {
+            "model_family": "Western Digital HDD",
+            "flagged": 604,
+            "fleet": 94339,
+            "share": 0.1882793017456359,
+            "fleet_share": 0.2566467981381076,
+            "lift": 0.7336125099223659
+          },
+          {
+            "model_family": "WUH721816ALE6L4",
+            "flagged": 2,
+            "fleet": 571,
+            "share": 0.0006234413965087282,
+            "fleet_share": 0.0015533906627890844,
+            "lift": 0.4013423097248123
+          }
+        ]
+      },
+      "cordon": {
+        "flagged_healthy": 877,
+        "outcomes": {
+          "still_active": 698,
+          "removed_without_failure": 162,
+          "confirmed_failure": 17
+        },
+        "failed_later": 17,
+        "failed_later_days_after_first_alert_median": 65.0,
+        "any_core_counter_nonzero": 0.9931584948688712,
+        "core_counter_increased": 0.8665906499429875,
+        "fleet_any_core_counter_nonzero": 0.08918802012062582,
+        "age_years_median": 5.699634552001953,
+        "fleet_age_years_median": 3.4663472175598145,
+        "families": [
+          {
+            "model_family": "Seagate HDD",
+            "flagged": 325,
+            "fleet": 111429,
+            "share": 0.37058152793614596,
+            "fleet_share": 0.30313969906116445,
+            "lift": 1.2224777192952672
+          },
+          {
+            "model_family": "Toshiba HDD",
+            "flagged": 255,
+            "fleet": 132760,
+            "share": 0.29076396807297605,
+            "fleet_share": 0.3611701302835006,
+            "lift": 0.8050609496547813
+          },
+          {
+            "model_family": "HGST HDD",
+            "flagged": 239,
+            "fleet": 25232,
+            "share": 0.2725199543899658,
+            "fleet_share": 0.0686430003563821,
+            "lift": 3.970105516587143
+          },
+          {
+            "model_family": "Western Digital HDD",
+            "flagged": 58,
+            "fleet": 94339,
+            "share": 0.0661345496009122,
+            "fleet_share": 0.2566467981381076,
+            "lift": 0.25768702388144993
+          }
+        ]
+      },
+      "primary": {
+        "flagged_healthy": 96,
+        "outcomes": {
+          "still_active": 58,
+          "removed_without_failure": 34,
+          "confirmed_failure": 4
+        },
+        "failed_later": 4,
+        "failed_later_days_after_first_alert_median": 64.0,
+        "any_core_counter_nonzero": 0.9791666666666666,
+        "core_counter_increased": 0.8125,
+        "fleet_any_core_counter_nonzero": 0.08918802012062582,
+        "age_years_median": 5.476842403411865,
+        "fleet_age_years_median": 3.4663472175598145,
+        "families": [
+          {
+            "model_family": "Seagate HDD",
+            "flagged": 64,
+            "fleet": 111429,
+            "share": 0.6666666666666666,
+            "fleet_share": 0.30313969906116445,
+            "lift": 2.1992060714296393
+          },
+          {
+            "model_family": "Toshiba HDD",
+            "flagged": 24,
+            "fleet": 132760,
+            "share": 0.25,
+            "fleet_share": 0.3611701302835006,
+            "lift": 0.6921945616149443
+          },
+          {
+            "model_family": "HGST HDD",
+            "flagged": 8,
+            "fleet": 25232,
+            "share": 0.08333333333333333,
+            "fleet_share": 0.0686430003563821,
+            "lift": 1.214010647854576
+          }
+        ]
+      }
+    }
+  },
+  "weekly": {
+    "test": [
+      {
+        "week": 0,
+        "start": "2026-07-01",
+        "drives": 355740,
+        "failing": 461,
+        "base_rate": 0.001295890256929218,
+        "stage1_pass_share": 0.03379996626749873,
+        "warn": {
+          "precision": 0.14537712895377128,
+          "recall": 0.5184381778741866,
+          "caught": 239,
+          "false_alarms": 1405
+        },
+        "cordon": {
+          "precision": 0.2857142857142857,
+          "recall": 0.33405639913232105,
+          "caught": 154,
+          "false_alarms": 385
+        },
+        "primary": {
+          "precision": 0.4175824175824176,
+          "recall": 0.0824295010845987,
+          "caught": 38,
+          "false_alarms": 53
+        }
+      },
+      {
+        "week": 1,
+        "start": "2026-07-08",
+        "drives": 357868,
+        "failing": 456,
+        "base_rate": 0.0012742128382532106,
+        "stage1_pass_share": 0.03488157644718164,
+        "warn": {
+          "precision": 0.13119533527696792,
+          "recall": 0.4934210526315789,
+          "caught": 225,
+          "false_alarms": 1490
+        },
+        "cordon": {
+          "precision": 0.2702702702702703,
+          "recall": 0.32894736842105265,
+          "caught": 150,
+          "false_alarms": 405
+        },
+        "primary": {
+          "precision": 0.3707865168539326,
+          "recall": 0.07236842105263158,
+          "caught": 33,
+          "false_alarms": 56
+        }
+      },
+      {
+        "week": 2,
+        "start": "2026-07-15",
+        "drives": 360131,
+        "failing": 415,
+        "base_rate": 0.0011523584473427724,
+        "stage1_pass_share": 0.03387933835187751,
+        "warn": {
+          "precision": 0.11833626244874049,
+          "recall": 0.4867469879518072,
+          "caught": 202,
+          "false_alarms": 1505
+        },
+        "cordon": {
+          "precision": 0.24448529411764705,
+          "recall": 0.3204819277108434,
+          "caught": 133,
+          "false_alarms": 411
+        },
+        "primary": {
+          "precision": 0.3695652173913043,
+          "recall": 0.0819277108433735,
+          "caught": 34,
+          "false_alarms": 58
+        }
+      },
+      {
+        "week": 3,
+        "start": "2026-07-22",
+        "drives": 360076,
+        "failing": 410,
+        "base_rate": 0.0011386485075372977,
+        "stage1_pass_share": 0.0358257701151979,
+        "warn": {
+          "precision": 0.10757663389242336,
+          "recall": 0.45365853658536587,
+          "caught": 186,
+          "false_alarms": 1543
+        },
+        "cordon": {
+          "precision": 0.22141560798548093,
+          "recall": 0.2975609756097561,
+          "caught": 122,
+          "false_alarms": 429
+        },
+        "primary": {
+          "precision": 0.35714285714285715,
+          "recall": 0.07317073170731707,
+          "caught": 30,
+          "false_alarms": 54
+        }
+      },
+      {
+        "week": 4,
+        "start": "2026-07-29",
+        "drives": 360142,
+        "failing": 425,
+        "base_rate": 0.0011800900755812986,
+        "stage1_pass_share": 0.0363328909152501,
+        "warn": {
+          "precision": 0.11046847888953153,
+          "recall": 0.44941176470588234,
+          "caught": 191,
+          "false_alarms": 1538
+        },
+        "cordon": {
+          "precision": 0.2342857142857143,
+          "recall": 0.28941176470588237,
+          "caught": 123,
+          "false_alarms": 402
+        },
+        "primary": {
+          "precision": 0.42857142857142855,
+          "recall": 0.07764705882352942,
+          "caught": 33,
+          "false_alarms": 44
+        }
+      },
+      {
+        "week": 5,
+        "start": "2026-08-05",
+        "drives": 361622,
+        "failing": 410,
+        "base_rate": 0.0011337805775091117,
+        "stage1_pass_share": 0.03738987119146512,
+        "warn": {
+          "precision": 0.11441914769410391,
+          "recall": 0.47804878048780486,
+          "caught": 196,
+          "false_alarms": 1517
+        },
+        "cordon": {
+          "precision": 0.23789473684210527,
+          "recall": 0.275609756097561,
+          "caught": 113,
+          "false_alarms": 362
+        },
+        "primary": {
+          "precision": 0.3611111111111111,
+          "recall": 0.06341463414634146,
+          "caught": 26,
+          "false_alarms": 46
+        }
+      },
+      {
+        "week": 6,
+        "start": "2026-08-12",
+        "drives": 362037,
+        "failing": 376,
+        "base_rate": 0.0010385678811834149,
+        "stage1_pass_share": 0.03844358449550737,
+        "warn": {
+          "precision": 0.10707911957168352,
+          "recall": 0.4787234042553192,
+          "caught": 180,
+          "false_alarms": 1501
+        },
+        "cordon": {
+          "precision": 0.2251655629139073,
+          "recall": 0.2712765957446808,
+          "caught": 102,
+          "false_alarms": 351
+        },
+        "primary": {
+          "precision": 0.42592592592592593,
+          "recall": 0.061170212765957445,
+          "caught": 23,
+          "false_alarms": 31
+        }
+      },
+      {
+        "week": 7,
+        "start": "2026-08-19",
+        "drives": 362312,
+        "failing": 363,
+        "base_rate": 0.0010018989158515313,
+        "stage1_pass_share": 0.038444765837179005,
+        "warn": {
+          "precision": 0.1178343949044586,
+          "recall": 0.509641873278237,
+          "caught": 185,
+          "false_alarms": 1385
+        },
+        "cordon": {
+          "precision": 0.2794871794871795,
+          "recall": 0.3002754820936639,
+          "caught": 109,
+          "false_alarms": 281
+        },
+        "primary": {
+          "precision": 0.5681818181818182,
+          "recall": 0.06887052341597796,
+          "caught": 25,
+          "false_alarms": 19
+        }
+      },
+      {
+        "week": 8,
+        "start": "2026-08-26",
+        "drives": 364071,
+        "failing": 352,
+        "base_rate": 0.0009668443792556947,
+        "stage1_pass_share": 0.03755311463972687,
+        "warn": {
+          "precision": 0.1298342541436464,
+          "recall": 0.5340909090909091,
+          "caught": 188,
+          "false_alarms": 1260
+        },
+        "cordon": {
+          "precision": 0.3020833333333333,
+          "recall": 0.32954545454545453,
+          "caught": 116,
+          "false_alarms": 268
+        },
+        "primary": {
+          "precision": 0.5777777777777777,
+          "recall": 0.07386363636363637,
+          "caught": 26,
+          "false_alarms": 19
+        }
+      }
+    ],
+    "validation": [
+      {
+        "week": 0,
+        "start": "2026-01-01",
+        "drives": 67397,
+        "failing": 57,
+        "base_rate": 0.0008457349733667671,
+        "stage1_pass_share": 0.026811282401293827,
+        "warn": {
+          "precision": 0.13178294573643412,
+          "recall": 0.2982456140350877,
+          "caught": 17,
+          "false_alarms": 112
+        },
+        "cordon": {
+          "precision": 0.3333333333333333,
+          "recall": 0.17543859649122806,
+          "caught": 10,
+          "false_alarms": 20
+        },
+        "primary": {
+          "precision": 0.5714285714285714,
+          "recall": 0.07017543859649122,
+          "caught": 4,
+          "false_alarms": 3
+        }
+      },
+      {
+        "week": 1,
+        "start": "2026-01-08",
+        "drives": 67408,
+        "failing": 72,
+        "base_rate": 0.001068122478044149,
+        "stage1_pass_share": 0.027964039876572512,
+        "warn": {
+          "precision": 0.15714285714285714,
+          "recall": 0.3055555555555556,
+          "caught": 22,
+          "false_alarms": 118
+        },
+        "cordon": {
+          "precision": 0.3125,
+          "recall": 0.1388888888888889,
+          "caught": 10,
+          "false_alarms": 22
+        },
+        "primary": {
+          "precision": 0.5,
+          "recall": 0.027777777777777776,
+          "caught": 2,
+          "false_alarms": 2
+        }
+      },
+      {
+        "week": 2,
+        "start": "2026-01-15",
+        "drives": 67374,
+        "failing": 74,
+        "base_rate": 0.0010983465431768933,
+        "stage1_pass_share": 0.02763677382966723,
+        "warn": {
+          "precision": 0.17037037037037037,
+          "recall": 0.3108108108108108,
+          "caught": 23,
+          "false_alarms": 112
+        },
+        "cordon": {
+          "precision": 0.3333333333333333,
+          "recall": 0.14864864864864866,
+          "caught": 11,
+          "false_alarms": 22
+        },
+        "primary": {
+          "precision": 0.6666666666666666,
+          "recall": 0.05405405405405406,
+          "caught": 4,
+          "false_alarms": 2
+        }
+      },
+      {
+        "week": 3,
+        "start": "2026-01-22",
+        "drives": 67622,
+        "failing": 77,
+        "base_rate": 0.0011386826772352193,
+        "stage1_pass_share": 0.026618556091212917,
+        "warn": {
+          "precision": 0.18493150684931506,
+          "recall": 0.35064935064935066,
+          "caught": 27,
+          "false_alarms": 119
+        },
+        "cordon": {
+          "precision": 0.3181818181818182,
+          "recall": 0.18181818181818182,
+          "caught": 14,
+          "false_alarms": 30
+        },
+        "primary": {
+          "precision": 0.8333333333333334,
+          "recall": 0.06493506493506493,
+          "caught": 5,
+          "false_alarms": 1
+        }
+      },
+      {
+        "week": 4,
+        "start": "2026-01-29",
+        "drives": 67599,
+        "failing": 78,
+        "base_rate": 0.00115386322282874,
+        "stage1_pass_share": 0.023521058003816625,
+        "warn": {
+          "precision": 0.20134228187919462,
+          "recall": 0.38461538461538464,
+          "caught": 30,
+          "false_alarms": 119
+        },
+        "cordon": {
+          "precision": 0.3170731707317073,
+          "recall": 0.16666666666666666,
+          "caught": 13,
+          "false_alarms": 28
+        },
+        "primary": {
+          "precision": 0.6363636363636364,
+          "recall": 0.08974358974358974,
+          "caught": 7,
+          "false_alarms": 4
+        }
+      },
+      {
+        "week": 5,
+        "start": "2026-02-05",
+        "drives": 67571,
+        "failing": 83,
+        "base_rate": 0.0012283376004498972,
+        "stage1_pass_share": 0.020008583563954952,
+        "warn": {
+          "precision": 0.19298245614035087,
+          "recall": 0.39759036144578314,
+          "caught": 33,
+          "false_alarms": 138
+        },
+        "cordon": {
+          "precision": 0.3023255813953488,
+          "recall": 0.1566265060240964,
+          "caught": 13,
+          "false_alarms": 30
+        },
+        "primary": {
+          "precision": 0.4444444444444444,
+          "recall": 0.04819277108433735,
+          "caught": 4,
+          "false_alarms": 5
+        }
+      },
+      {
+        "week": 6,
+        "start": "2026-02-12",
+        "drives": 67957,
+        "failing": 84,
+        "base_rate": 0.001236075753785482,
+        "stage1_pass_share": 0.02242594581867946,
+        "warn": {
+          "precision": 0.20297029702970298,
+          "recall": 0.4880952380952381,
+          "caught": 41,
+          "false_alarms": 161
+        },
+        "cordon": {
+          "precision": 0.35384615384615387,
+          "recall": 0.27380952380952384,
+          "caught": 23,
+          "false_alarms": 42
+        },
+        "primary": {
+          "precision": 0.5,
+          "recall": 0.047619047619047616,
+          "caught": 4,
+          "false_alarms": 4
+        }
+      },
+      {
+        "week": 7,
+        "start": "2026-02-19",
+        "drives": 68010,
+        "failing": 70,
+        "base_rate": 0.0010292604028819291,
+        "stage1_pass_share": 0.022423173062784886,
+        "warn": {
+          "precision": 0.16990291262135923,
+          "recall": 0.5,
+          "caught": 35,
+          "false_alarms": 171
+        },
+        "cordon": {
+          "precision": 0.3620689655172414,
+          "recall": 0.3,
+          "caught": 21,
+          "false_alarms": 37
+        },
+        "primary": {
+          "precision": 0.5714285714285714,
+          "recall": 0.05714285714285714,
+          "caught": 4,
+          "false_alarms": 3
+        }
+      },
+      {
+        "week": 8,
+        "start": "2026-02-26",
+        "drives": 68244,
+        "failing": 66,
+        "base_rate": 0.0009671179883945841,
+        "stage1_pass_share": 0.021935994373131703,
+        "warn": {
+          "precision": 0.14754098360655737,
+          "recall": 0.4090909090909091,
+          "caught": 27,
+          "false_alarms": 156
+        },
+        "cordon": {
+          "precision": 0.36363636363636365,
+          "recall": 0.30303030303030304,
+          "caught": 20,
+          "false_alarms": 35
+        },
+        "primary": {
+          "precision": 0.625,
+          "recall": 0.07575757575757576,
+          "caught": 5,
+          "false_alarms": 3
+        }
+      },
+      {
+        "week": 9,
+        "start": "2026-03-05",
+        "drives": 68481,
+        "failing": 81,
+        "base_rate": 0.0011828098304639244,
+        "stage1_pass_share": 0.02440092872475577,
+        "warn": {
+          "precision": 0.17289719626168223,
+          "recall": 0.4567901234567901,
+          "caught": 37,
+          "false_alarms": 177
+        },
+        "cordon": {
+          "precision": 0.3548387096774194,
+          "recall": 0.2716049382716049,
+          "caught": 22,
+          "false_alarms": 40
+        },
+        "primary": {
+          "precision": 0.6,
+          "recall": 0.07407407407407407,
+          "caught": 6,
+          "false_alarms": 4
+        }
+      },
+      {
+        "week": 10,
+        "start": "2026-03-12",
+        "drives": 68788,
+        "failing": 98,
+        "base_rate": 0.0014246670930976332,
+        "stage1_pass_share": 0.025774844449613303,
+        "warn": {
+          "precision": 0.21011673151750973,
+          "recall": 0.5510204081632653,
+          "caught": 54,
+          "false_alarms": 203
+        },
+        "cordon": {
+          "precision": 0.3516483516483517,
+          "recall": 0.32653061224489793,
+          "caught": 32,
+          "false_alarms": 59
+        },
+        "primary": {
+          "precision": 0.4444444444444444,
+          "recall": 0.04081632653061224,
+          "caught": 4,
+          "false_alarms": 5
+        }
+      },
+      {
+        "week": 11,
+        "start": "2026-03-19",
+        "drives": 68719,
+        "failing": 103,
+        "base_rate": 0.0014988576667297254,
+        "stage1_pass_share": 0.027459654535135842,
+        "warn": {
+          "precision": 0.18359375,
+          "recall": 0.4563106796116505,
+          "caught": 47,
+          "false_alarms": 209
+        },
+        "cordon": {
+          "precision": 0.35365853658536583,
+          "recall": 0.2815533980582524,
+          "caught": 29,
+          "false_alarms": 53
+        },
+        "primary": {
+          "precision": 0.4444444444444444,
+          "recall": 0.038834951456310676,
+          "caught": 4,
+          "false_alarms": 5
+        }
+      },
+      {
+        "week": 12,
+        "start": "2026-03-26",
+        "drives": 69085,
+        "failing": 139,
+        "base_rate": 0.0020120141854237535,
+        "stage1_pass_share": 0.030252587392342767,
+        "warn": {
+          "precision": 0.26625386996904027,
+          "recall": 0.6187050359712231,
+          "caught": 86,
+          "false_alarms": 237
+        },
+        "cordon": {
+          "precision": 0.425,
+          "recall": 0.3669064748201439,
+          "caught": 51,
+          "false_alarms": 69
+        },
+        "primary": {
+          "precision": 0.42857142857142855,
+          "recall": 0.02158273381294964,
+          "caught": 3,
+          "false_alarms": 4
+        }
+      },
+      {
+        "week": 13,
+        "start": "2026-04-02",
+        "drives": 69223,
+        "failing": 157,
+        "base_rate": 0.002268032301402713,
+        "stage1_pass_share": 0.03194025107262037,
+        "warn": {
+          "precision": 0.2808988764044944,
+          "recall": 0.6369426751592356,
+          "caught": 100,
+          "false_alarms": 256
+        },
+        "cordon": {
+          "precision": 0.47368421052631576,
+          "recall": 0.4012738853503185,
+          "caught": 63,
+          "false_alarms": 70
+        },
+        "primary": {
+          "precision": 0.6,
+          "recall": 0.03821656050955414,
+          "caught": 6,
+          "false_alarms": 4
+        }
+      },
+      {
+        "week": 14,
+        "start": "2026-04-09",
+        "drives": 69499,
+        "failing": 140,
+        "base_rate": 0.0020144174736327143,
+        "stage1_pass_share": 0.03318033352997885,
+        "warn": {
+          "precision": 0.2594752186588921,
+          "recall": 0.6357142857142857,
+          "caught": 89,
+          "false_alarms": 254
+        },
+        "cordon": {
+          "precision": 0.4666666666666667,
+          "recall": 0.4,
+          "caught": 56,
+          "false_alarms": 64
+        },
+        "primary": {
+          "precision": 0.5,
+          "recall": 0.05714285714285714,
+          "caught": 8,
+          "false_alarms": 8
+        }
+      },
+      {
+        "week": 15,
+        "start": "2026-04-16",
+        "drives": 69953,
+        "failing": 138,
+        "base_rate": 0.0019727531342472802,
+        "stage1_pass_share": 0.032936400154389374,
+        "warn": {
+          "precision": 0.24464831804281345,
+          "recall": 0.5797101449275363,
+          "caught": 80,
+          "false_alarms": 247
+        },
+        "cordon": {
+          "precision": 0.4298245614035088,
+          "recall": 0.35507246376811596,
+          "caught": 49,
+          "false_alarms": 65
+        },
+        "primary": {
+          "precision": 0.625,
+          "recall": 0.07246376811594203,
+          "caught": 10,
+          "false_alarms": 6
+        }
+      },
+      {
+        "week": 16,
+        "start": "2026-04-23",
+        "drives": 70201,
+        "failing": 126,
+        "base_rate": 0.00179484622726172,
+        "stage1_pass_share": 0.03378869246876825,
+        "warn": {
+          "precision": 0.2246153846153846,
+          "recall": 0.5793650793650794,
+          "caught": 73,
+          "false_alarms": 252
+        },
+        "cordon": {
+          "precision": 0.36607142857142855,
+          "recall": 0.3253968253968254,
+          "caught": 41,
+          "false_alarms": 71
+        },
+        "primary": {
+          "precision": 0.5882352941176471,
+          "recall": 0.07936507936507936,
+          "caught": 10,
+          "false_alarms": 7
+        }
+      },
+      {
+        "week": 17,
+        "start": "2026-04-30",
+        "drives": 70130,
+        "failing": 87,
+        "base_rate": 0.001240553258234707,
+        "stage1_pass_share": 0.03031512904605732,
+        "warn": {
+          "precision": 0.19369369369369369,
+          "recall": 0.4942528735632184,
+          "caught": 43,
+          "false_alarms": 179
+        },
+        "cordon": {
+          "precision": 0.30303030303030304,
+          "recall": 0.22988505747126436,
+          "caught": 20,
+          "false_alarms": 46
+        },
+        "primary": {
+          "precision": 0.375,
+          "recall": 0.034482758620689655,
+          "caught": 3,
+          "false_alarms": 5
+        }
+      }
+    ]
+  },
+  "validation_vs_test": {
+    "validation": {
+      "split": "validation",
+      "window_days": 121,
+      "drives": 70977,
+      "failing": 418,
+      "base_rate": 0.005889231722952506,
+      "auroc": 0.9223413999929883,
+      "points": {
+        "stage1": {
+          "precision": 0.07083950095157539,
+          "recall": 0.8014354066985646,
+          "false_alarm_rate": 0.062274125200187075,
+          "caught": 335,
+          "false_alarms": 4394,
+          "failing": 418,
+          "healthy": 70559
+        },
+        "warn": {
+          "precision": 0.3333333333333333,
+          "recall": 0.6363636363636364,
+          "false_alarm_rate": 0.007539789396108222,
+          "caught": 266,
+          "false_alarms": 532,
+          "failing": 418,
+          "healthy": 70559
+        },
+        "cordon": {
+          "precision": 0.5565476190476191,
+          "recall": 0.4473684210526316,
+          "false_alarm_rate": 0.0021117079323686562,
+          "caught": 187,
+          "false_alarms": 149,
+          "failing": 418,
+          "healthy": 70559
+        },
+        "primary": {
+          "precision": 0.75,
+          "recall": 0.10047846889952153,
+          "false_alarm_rate": 0.00019841551042390056,
+          "caught": 42,
+          "false_alarms": 14,
+          "failing": 418,
+          "healthy": 70559
+        }
+      },
+      "recall_at_far": {
+        "0.0001": {
+          "false_alarm_rate_budget": 0.0001,
+          "reachable": true,
+          "threshold": 0.9246789632611822,
+          "recall": 0.03827751196172249,
+          "false_alarm_rate": 9.920775521195028e-05
+        },
+        "0.001": {
+          "false_alarm_rate_budget": 0.001,
+          "reachable": true,
+          "threshold": 0.8904040303708024,
+          "recall": 0.3062200956937799,
+          "false_alarm_rate": 0.0009353874062841027
+        }
+      },
+      "families": [
+        {
+          "name": "Toshiba HDD",
+          "share": 0.3447595700015498
+        },
+        {
+          "name": "Seagate HDD",
+          "share": 0.3177367316172845
+        },
+        {
+          "name": "Western Digital HDD",
+          "share": 0.24948927117235162
+        },
+        {
+          "name": "HGST HDD",
+          "share": 0.0771094861715767
+        },
+        {
+          "name": "Seagate BarraCuda 120 SSD ZA250CM10003",
+          "share": 0.003029150288121504
+        },
+        {
+          "name": "CT250MX500SSD1",
+          "share": 0.0023106076616368682
+        }
+      ]
+    },
+    "validation_last_62_days": {
+      "split": "validation, last 62 days",
+      "window_days": 62,
+      "drives": 70638,
+      "failing": 295,
+      "base_rate": 0.00417622242985362,
+      "auroc": 0.9470406870740153,
+      "points": {
+        "stage1": {
+          "precision": 0.06334022750775595,
+          "recall": 0.8305084745762712,
+          "false_alarm_rate": 0.05150476948665823,
+          "caught": 245,
+          "false_alarms": 3623,
+          "failing": 295,
+          "healthy": 70343
+        },
+        "warn": {
+          "precision": 0.3008849557522124,
+          "recall": 0.6915254237288135,
+          "false_alarm_rate": 0.006738410360661331,
+          "caught": 204,
+          "false_alarms": 474,
+          "failing": 295,
+          "healthy": 70343
+        },
+        "cordon": {
+          "precision": 0.5157894736842106,
+          "recall": 0.49830508474576274,
+          "false_alarm_rate": 0.001961815674622919,
+          "caught": 147,
+          "false_alarms": 138,
+          "failing": 295,
+          "healthy": 70343
+        },
+        "primary": {
+          "precision": 0.6829268292682927,
+          "recall": 0.09491525423728814,
+          "false_alarm_rate": 0.00018480872297172427,
+          "caught": 28,
+          "false_alarms": 13,
+          "failing": 295,
+          "healthy": 70343
+        }
+      },
+      "recall_at_far": {
+        "0.0001": {
+          "false_alarm_rate_budget": 0.0001,
+          "reachable": true,
+          "threshold": 0.9244314489495719,
+          "recall": 0.04067796610169491,
+          "false_alarm_rate": 9.95123892924669e-05
+        },
+        "0.001": {
+          "false_alarm_rate_budget": 0.001,
+          "reachable": true,
+          "threshold": 0.884501267924546,
+          "recall": 0.36610169491525424,
+          "false_alarm_rate": 0.0009951238929246692
+        }
+      },
+      "families": [
+        {
+          "name": "Toshiba HDD",
+          "share": 0.34593278405390865
+        },
+        {
+          "name": "Seagate HDD",
+          "share": 0.3182989325858603
+        },
+        {
+          "name": "Western Digital HDD",
+          "share": 0.25044593561539114
+        },
+        {
+          "name": "HGST HDD",
+          "share": 0.07449248279962627
+        },
+        {
+          "name": "Seagate BarraCuda 120 SSD ZA250CM10003",
+          "share": 0.0030436875336221298
+        },
+        {
+          "name": "CT250MX500SSD1",
+          "share": 0.002279226478665874
+        }
+      ]
+    },
+    "test": {
+      "split": "test",
+      "window_days": 62,
+      "drives": 368688,
+      "failing": 1105,
+      "base_rate": 0.0029971140910471728,
+      "auroc": 0.9255726330063443,
+      "points": {
+        "stage1": {
+          "precision": 0.03782232502355864,
+          "recall": 0.7990950226244344,
+          "false_alarm_rate": 0.06111000780776042,
+          "caught": 883,
+          "false_alarms": 22463,
+          "failing": 1105,
+          "healthy": 367583
+        },
+        "warn": {
+          "precision": 0.173408915228034,
+          "recall": 0.609049773755656,
+          "false_alarm_rate": 0.008727280641378954,
+          "caught": 673,
+          "false_alarms": 3208,
+          "failing": 1105,
+          "healthy": 367583
+        },
+        "cordon": {
+          "precision": 0.34843982169390786,
+          "recall": 0.4244343891402715,
+          "false_alarm_rate": 0.0023858557114991717,
+          "caught": 469,
+          "false_alarms": 877,
+          "failing": 1105,
+          "healthy": 367583
+        },
+        "primary": {
+          "precision": 0.5897435897435898,
+          "recall": 0.1248868778280543,
+          "false_alarm_rate": 0.0002611655054776744,
+          "caught": 138,
+          "false_alarms": 96,
+          "failing": 1105,
+          "healthy": 367583
+        }
+      },
+      "recall_at_far": {
+        "0.0001": {
+          "false_alarm_rate_budget": 0.0001,
+          "reachable": true,
+          "threshold": 0.9239865656002763,
+          "recall": 0.0416289592760181,
+          "false_alarm_rate": 9.79370645541279e-05
+        },
+        "0.001": {
+          "false_alarm_rate_budget": 0.001,
+          "reachable": true,
+          "threshold": 0.8911955583649789,
+          "recall": 0.3040723981900452,
+          "false_alarm_rate": 0.0009956934896336337
+        }
+      },
+      "families": [
+        {
+          "name": "Toshiba HDD",
+          "share": 0.36075760534652607
+        },
+        {
+          "name": "Seagate HDD",
+          "share": 0.303687670876188
+        },
+        {
+          "name": "Western Digital HDD",
+          "share": 0.2563251312763095
+        },
+        {
+          "name": "HGST HDD",
+          "share": 0.06885225448075337
+        },
+        {
+          "name": "Seagate BarraCuda 120 SSD ZA250CM10003",
+          "share": 0.0029320184003818945
+        },
+        {
+          "name": "CT250MX500SSD1",
+          "share": 0.0018687887861823548
+        }
+      ]
+    },
+    "restated_precision": {
+      "warn": {
+        "test_precision": 0.173408915228034,
+        "test_restated_at_validation_base_rate": 0.2924991818085906,
+        "validation_precision": 0.3333333333333333,
+        "validation_restated_at_test_base_rate": 0.20237310281709167
+      },
+      "cordon": {
+        "test_precision": 0.34843982169390786,
+        "test_restated_at_validation_base_rate": 0.5131161149463025,
+        "validation_precision": 0.5565476190476191,
+        "validation_restated_at_test_base_rate": 0.3890711167878874
+      },
+      "primary": {
+        "test_precision": 0.5897435897435898,
+        "test_restated_at_validation_base_rate": 0.7390981061704093,
+        "validation_precision": 0.75,
+        "validation_restated_at_test_base_rate": 0.6035386602143292
+      }
+    },
+    "new_drives_in_test": {
+      "drives": 18698,
+      "failing": 33,
+      "primary": {
+        "precision": 0.6,
+        "recall": 0.09090909090909091,
+        "false_alarm_rate": 0.00010715242432360032,
+        "caught": 3,
+        "false_alarms": 2,
+        "failing": 33,
+        "healthy": 18665
+      },
+      "warn": {
+        "precision": 0.32075471698113206,
+        "recall": 0.5151515151515151,
+        "false_alarm_rate": 0.0019287436378248057,
+        "caught": 17,
+        "false_alarms": 36,
+        "failing": 33,
+        "healthy": 18665
+      },
+      "older_drives_primary": {
+        "precision": 0.5895196506550219,
+        "recall": 0.1259328358208955,
+        "false_alarm_rate": 0.0002694042726371239,
+        "caught": 135,
+        "false_alarms": 94,
+        "failing": 1072,
+        "healthy": 348918
+      },
+      "older_drives_warn": {
+        "precision": 0.17136886102403343,
+        "recall": 0.6119402985074627,
+        "false_alarm_rate": 0.009090961200052735,
+        "caught": 656,
+        "false_alarms": 3172,
+        "failing": 1072,
+        "healthy": 348918
+      }
+    }
+  }
+}

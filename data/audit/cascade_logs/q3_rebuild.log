@@ -1,0 +1,112 @@
+Friday 06 November 2026 03:33:49 AM UTC
+uv run python pipelines/ingest_backblaze.py --start-date 2026-07-01 --end-date 2026-09-30
+[2m2026-11-06T03:33:49.623838Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+[2m2026-11-06T03:33:51.979756Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-01.csv[0m
+[2m2026-11-06T03:33:54.234960Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-02.csv[0m
+[2m2026-11-06T03:33:56.450114Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-03.csv[0m
+[2m2026-11-06T03:33:58.701001Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-04.csv[0m
+[2m2026-11-06T03:34:00.938360Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-05.csv[0m
+[2m2026-11-06T03:34:03.202401Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-06.csv[0m
+[2m2026-11-06T03:34:06.705008Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-07.csv[0m
+[2m2026-11-06T03:34:21.361043Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-08.csv[0m
+[2m2026-11-06T03:34:32.431930Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-09.csv[0m
+[2m2026-11-06T03:34:45.501015Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-10.csv[0m
+[2m2026-11-06T03:35:00.225233Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-11.csv[0m
+[2m2026-11-06T03:35:12.681529Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-12.csv[0m
+[2m2026-11-06T03:35:24.854538Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-13.csv[0m
+[2m2026-11-06T03:35:36.287651Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-14.csv[0m
+[2m2026-11-06T03:35:50.523765Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-15.csv[0m
+[2m2026-11-06T03:35:59.112704Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-16.csv[0m
+[2m2026-11-06T03:36:13.523402Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-17.csv[0m
+[2m2026-11-06T03:36:26.719404Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-18.csv[0m
+[2m2026-11-06T03:36:37.378857Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-19.csv[0m
+[2m2026-11-06T03:36:53.029007Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-20.csv[0m
+[2m2026-11-06T03:37:09.771364Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-21.csv[0m
+[2m2026-11-06T03:37:20.404145Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-22.csv[0m
+[2m2026-11-06T03:37:34.621043Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-23.csv[0m
+[2m2026-11-06T03:37:50.211293Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-24.csv[0m
+[2m2026-11-06T03:38:07.593949Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-25.csv[0m
+[2m2026-11-06T03:38:21.861335Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-26.csv[0m
+[2m2026-11-06T03:38:33.477039Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-27.csv[0m
+[2m2026-11-06T03:38:47.726756Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-28.csv[0m
+[2m2026-11-06T03:39:04.961971Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-29.csv[0m
+[2m2026-11-06T03:39:20.851046Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-30.csv[0m
+[2m2026-11-06T03:39:34.937725Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-07-31.csv[0m
+[2m2026-11-06T03:39:37.806198Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-01.csv[0m
+[2m2026-11-06T03:39:42.314082Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-02.csv[0m
+[2m2026-11-06T03:39:46.800027Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-03.csv[0m
+[2m2026-11-06T03:39:50.456217Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-04.csv[0m
+[2m2026-11-06T03:39:55.137925Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-05.csv[0m
+[2m2026-11-06T03:40:01.498456Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-06.csv[0m
+[2m2026-11-06T03:40:07.488850Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-07.csv[0m
+[2m2026-11-06T03:40:13.067574Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-08.csv[0m
+[2m2026-11-06T03:40:19.720202Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-09.csv[0m
+[2m2026-11-06T03:40:27.910054Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-10.csv[0m
+[2m2026-11-06T03:40:34.168181Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-11.csv[0m
+[2m2026-11-06T03:40:42.816381Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-12.csv[0m
+[2m2026-11-06T03:40:51.366943Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-13.csv[0m
+[2m2026-11-06T03:41:00.104129Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-14.csv[0m
+[2m2026-11-06T03:41:10.018672Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-15.csv[0m
+[2m2026-11-06T03:41:20.129380Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-16.csv[0m
+[2m2026-11-06T03:41:27.202514Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-17.csv[0m
+[2m2026-11-06T03:41:29.221187Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-18.csv[0m
+[2m2026-11-06T03:41:31.300350Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-19.csv[0m
+[2m2026-11-06T03:41:33.389623Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-20.csv[0m
+[2m2026-11-06T03:41:35.554797Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-21.csv[0m
+[2m2026-11-06T03:41:37.800425Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-22.csv[0m
+[2m2026-11-06T03:41:40.296103Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-23.csv[0m
+[2m2026-11-06T03:41:42.771142Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-24.csv[0m
+[2m2026-11-06T03:41:45.241522Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-25.csv[0m
+[2m2026-11-06T03:41:47.805565Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-26.csv[0m
+[2m2026-11-06T03:41:50.485564Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-27.csv[0m
+[2m2026-11-06T03:41:53.237880Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-28.csv[0m
+[2m2026-11-06T03:41:56.060138Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-29.csv[0m
+[2m2026-11-06T03:41:59.158610Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-30.csv[0m
+[2m2026-11-06T03:42:02.289861Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-08-31.csv[0m
+[2m2026-11-06T03:42:02.848227Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-01.csv[0m
+[2m2026-11-06T03:42:03.544765Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-02.csv[0m
+[2m2026-11-06T03:42:04.322356Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-03.csv[0m
+[2m2026-11-06T03:42:05.158917Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-04.csv[0m
+[2m2026-11-06T03:42:06.082478Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-05.csv[0m
+[2m2026-11-06T03:42:07.105007Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-06.csv[0m
+[2m2026-11-06T03:42:08.195393Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-07.csv[0m
+[2m2026-11-06T03:42:09.330777Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-08.csv[0m
+[2m2026-11-06T03:42:10.568362Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-09.csv[0m
+[2m2026-11-06T03:42:11.866782Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-10.csv[0m
+[2m2026-11-06T03:42:13.269856Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-11.csv[0m
+[2m2026-11-06T03:42:14.718024Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-12.csv[0m
+[2m2026-11-06T03:42:16.268824Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-13.csv[0m
+[2m2026-11-06T03:42:17.883474Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-14.csv[0m
+[2m2026-11-06T03:42:19.548861Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-15.csv[0m
+[2m2026-11-06T03:42:21.388867Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-16.csv[0m
+[2m2026-11-06T03:42:23.325684Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-17.csv[0m
+[2m2026-11-06T03:42:25.325071Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-18.csv[0m
+[2m2026-11-06T03:42:27.343141Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-19.csv[0m
+[2m2026-11-06T03:42:29.415600Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-20.csv[0m
+[2m2026-11-06T03:42:31.546332Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-21.csv[0m
+[2m2026-11-06T03:42:33.780974Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-22.csv[0m
+[2m2026-11-06T03:42:36.165333Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-23.csv[0m
+[2m2026-11-06T03:42:38.616451Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-24.csv[0m
+[2m2026-11-06T03:42:41.243487Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-25.csv[0m
+[2m2026-11-06T03:42:43.957570Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-26.csv[0m
+[2m2026-11-06T03:42:46.716096Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-27.csv[0m
+[2m2026-11-06T03:42:49.573740Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-28.csv[0m
+[2m2026-11-06T03:42:52.509431Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-29.csv[0m
+[2m2026-11-06T03:42:55.474850Z[0m [[32m[1minfo     [0m] [1mbackblaze_file_ingested       [0m [36mpartition_count[0m=[35m1[0m [36msource[0m=[35mdata/raw/backblaze/2026-09-30.csv[0m
+[2m2026-11-06T03:42:55.475031Z[0m [[32m[1minfo     [0m] [1mbackblaze_ingest_complete     [0m [36mbronze_root[0m=[35mdata/bronze/backblaze[0m [36mfile_count[0m=[35m92[0m
+[2m2026-11-06T03:42:57.915182Z[0m [[32m[1minfo     [0m] [1mprofiling_report_written      [0m [36mpath[0m=[35mdata/audit/data_quality_reports/backblaze_profile.json[0m
+=== ingest done Friday 06 November 2026 03:42:58 AM UTC
+uv run python pipelines/build_silver.py
+[2m2026-11-06T03:42:58.559495Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+[2m2026-11-06T03:42:58.562754Z[0m [[32m[1minfo     [0m] [1mbuild_silver_bronze_files_found[0m [36mfile_count[0m=[35m12[0m
+[2m2026-11-06T03:42:58.590595Z[0m [[32m[1minfo     [0m] [1mbuild_silver_bronze_row_count_determined[0m [36melapsed_seconds[0m=[35m0.03[0m [36mrow_count[0m=[35m126826155[0m
+[2m2026-11-06T03:42:58.758858Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+[2m2026-11-06T03:43:02.643891Z[0m [[32m[1minfo     [0m] [1mbuild_silver_drive_day_batch_written[0m [36mbatch_count[0m=[35m64[0m [36mbatch_index[0m=[35m0[0m [36melapsed_seconds[0m=[35m3.86[0m [36mrow_count[0m=[35m1964868[0m
+[2m2026-11-06T03:43:03.197533Z[0m [[32m[1minfo     [0m] [1mbuild_silver_canonical_batch_written[0m [36mbatch_count[0m=[35m64[0m [36mbatch_index[0m=[35m0[0m [36melapsed_seconds[0m=[35m0.55[0m [36mrow_count[0m=[35m19648680[0m
+[2m2026-11-06T03:43:03.330187Z[0m [[32m[1minfo     [0m] [1mbuild_silver_batch_done       [0m [36mbatch_count[0m=[35m64[0m [36mbatch_index[0m=[35m0[0m
+[2m2026-11-06T03:43:03.460644Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+[2m2026-11-06T03:43:07.151132Z[0m [[32m[1minfo     [0m] [1mbuild_silver_drive_day_batch_written[0m [36mbatch_count[0m=[35m64[0m [36mbatch_index[0m=[35m1[0m [36melapsed_seconds[0m=[35m3.67[0m [36mrow_count[0m=[35m1979088[0m
+[2m2026-11-06T03:43:07.730054Z[0m [[32m[1minfo     [0m] [1mbuild_silver_canonical_batch_written[0m [36mbatch_count[0m=[35m64[0m [36mbatch_index[0m=[35m1[0m [36melapsed_seconds[0m=[35m0.58[0m [36mrow_count[0m=[35m19790880[0m
+[2m2026-11-06T03:43:07.854676Z[0m [[32m[1minfo     [0m] [1mbuild_silver_batch_done       [0m [36mbatch_count[0m=[35m64[0m [36mbatch_index[0m=[35m1[0m
+[2m2026-11-06T03:43:07.989190Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+make: *** [Makefile:127: build-silver] Error 143

@@ -1,0 +1,387 @@
+{
+  "bronze_root": "data/bronze/backblaze",
+  "profiled_at": "2026-11-06T03:42:55.596513+00:00",
+  "row_count": 126826155,
+  "columns": [
+    "date",
+    "drive_id",
+    "drive_model",
+    "capacity_bytes",
+    "failure",
+    "smart_5_raw",
+    "smart_187_raw",
+    "smart_188_raw",
+    "smart_197_raw",
+    "smart_198_raw",
+    "smart_7_raw",
+    "smart_9_raw",
+    "smart_194_raw",
+    "smart_199_raw",
+    "smart_196_raw",
+    "source_dataset",
+    "source_file",
+    "ingested_at",
+    "schema_version"
+  ],
+  "null_percentage_by_column": {
+    "date": 0.0,
+    "drive_id": 0.0,
+    "drive_model": 0.0,
+    "capacity_bytes": 0.0,
+    "failure": 0.0,
+    "smart_5_raw": 0.0066,
+    "smart_187_raw": 0.6761,
+    "smart_188_raw": 0.6769,
+    "smart_197_raw": 0.0244,
+    "smart_198_raw": 0.0075,
+    "smart_7_raw": 0.0098,
+    "smart_9_raw": 0.0013,
+    "smart_194_raw": 0.0013,
+    "smart_199_raw": 0.0066,
+    "smart_196_raw": 0.3511,
+    "source_dataset": 0.0,
+    "source_file": 0.0,
+    "ingested_at": 0.0,
+    "schema_version": 0.0
+  },
+  "partition_count": 12,
+  "drive_model_distribution": [
+    {
+      "drive_model": "WDC WUH722222ALE6L4",
+      "count": 16536688
+    },
+    {
+      "drive_model": "TOSHIBA MG08ACA16TA",
+      "count": 14419240
+    },
+    {
+      "drive_model": "TOSHIBA MG07ACA14TA",
+      "count": 13527728
+    },
+    {
+      "drive_model": "ST16000NM001G",
+      "count": 12653396
+    },
+    {
+      "drive_model": "WDC WUH721816ALE6L4",
+      "count": 9581426
+    },
+    {
+      "drive_model": "TOSHIBA MG10ACA20TE",
+      "count": 7948173
+    },
+    {
+      "drive_model": "ST12000NM0008",
+      "count": 6719134
+    },
+    {
+      "drive_model": "ST12000NM001G",
+      "count": 4796057
+    },
+    {
+      "drive_model": "HGST HUH721212ALE604",
+      "count": 4787611
+    },
+    {
+      "drive_model": "ST8000NM0055",
+      "count": 4748127
+    },
+    {
+      "drive_model": "ST14000NM001G",
+      "count": 3819657
+    },
+    {
+      "drive_model": "HGST HUH721212ALN604",
+      "count": 3495147
+    },
+    {
+      "drive_model": "ST24000NM002H",
+      "count": 3226243
+    },
+    {
+      "drive_model": "WDC WUH721414ALE6L4",
+      "count": 3143805
+    },
+    {
+      "drive_model": "TOSHIBA MG11ACA24TE",
+      "count": 2828594
+    },
+    {
+      "drive_model": "ST8000DM002",
+      "count": 2565551
+    },
+    {
+      "drive_model": "TOSHIBA MG08ACA16TE",
+      "count": 2262972
+    },
+    {
+      "drive_model": "TOSHIBA MG08ACA16TEY",
+      "count": 1758968
+    },
+    {
+      "drive_model": "WDC WUH722626ALE6L4",
+      "count": 1384529
+    },
+    {
+      "drive_model": "WDC WUH721816ALE6L0",
+      "count": 1079393
+    },
+    {
+      "drive_model": "HGST HUH721212ALE600",
+      "count": 948327
+    },
+    {
+      "drive_model": "ST14000NM0138",
+      "count": 447770
+    },
+    {
+      "drive_model": "Seagate BarraCuda 120 SSD ZA250CM10003",
+      "count": 391350
+    },
+    {
+      "drive_model": "ST12000NM000J",
+      "count": 389026
+    },
+    {
+      "drive_model": "TOSHIBA MG07ACA14TEY",
+      "count": 357594
+    },
+    {
+      "drive_model": "ST12000NM0007",
+      "count": 350379
+    },
+    {
+      "drive_model": "ST10000NM0086",
+      "count": 349554
+    },
+    {
+      "drive_model": "CT250MX500SSD1",
+      "count": 255122
+    },
+    {
+      "drive_model": "TOSHIBA MG09ACA16TE",
+      "count": 220314
+    },
+    {
+      "drive_model": "HGST HUH728080ALE600",
+      "count": 201553
+    },
+    {
+      "drive_model": "Seagate BarraCuda SSD ZA250CM10002",
+      "count": 172421
+    },
+    {
+      "drive_model": "ST16000NM002J",
+      "count": 169383
+    },
+    {
+      "drive_model": "ST14000NM000J",
+      "count": 162921
+    },
+    {
+      "drive_model": "WUH721816ALE6L4",
+      "count": 157795
+    },
+    {
+      "drive_model": "DELLBOSS VD",
+      "count": 156863
+    },
+    {
+      "drive_model": "ST8000NM000A",
+      "count": 87380
+    },
+    {
+      "drive_model": "Seagate IronWolf ZA250NM10002",
+      "count": 68076
+    },
+    {
+      "drive_model": "WDC WDS250G2B0A",
+      "count": 61676
+    },
+    {
+      "drive_model": "ST500LM030",
+      "count": 56823
+    },
+    {
+      "drive_model": "WD Blue SA510 2.5 250GB",
+      "count": 52086
+    },
+    {
+      "drive_model": "ST16000NM000J",
+      "count": 50072
+    },
+    {
+      "drive_model": "TOSHIBA MQ01ABF050",
+      "count": 40707
+    },
+    {
+      "drive_model": "Seagate SSD",
+      "count": 35568
+    },
+    {
+      "drive_model": "TOSHIBA MQ01ABF050M",
+      "count": 34519
+    },
+    {
+      "drive_model": "HGST HMS5C4040BLE640",
+      "count": 33009
+    },
+    {
+      "drive_model": "MTFDDAV240TCB",
+      "count": 31274
+    },
+    {
+      "drive_model": "HGST HUH728080ALE604",
+      "count": 26182
+    },
+    {
+      "drive_model": "ST18000NM000J",
+      "count": 23500
+    },
+    {
+      "drive_model": "ST14000NM0018",
+      "count": 22326
+    },
+    {
+      "drive_model": "ST500LM012 HN",
+      "count": 20687
+    },
+    {
+      "drive_model": "TOSHIBA HDWF180",
+      "count": 18572
+    },
+    {
+      "drive_model": "WDC WD5000LPCX",
+      "count": 14556
+    },
+    {
+      "drive_model": "WDC WD5000LPVX",
+      "count": 13838
+    },
+    {
+      "drive_model": "TOSHIBA MG11ACA16TE",
+      "count": 12576
+    },
+    {
+      "drive_model": "ST12000NM003G",
+      "count": 10198
+    },
+    {
+      "drive_model": "ST10000NM001G",
+      "count": 10183
+    },
+    {
+      "drive_model": "ST16000NM005G",
+      "count": 9125
+    },
+    {
+      "drive_model": "WDC WUH722016CLE6L4",
+      "count": 8991
+    },
+    {
+      "drive_model": "ST14000NM002J",
+      "count": 8859
+    },
+    {
+      "drive_model": "ST500LM021",
+      "count": 8419
+    },
+    {
+      "drive_model": "HGST HUH721010ALE600",
+      "count": 7281
+    },
+    {
+      "drive_model": "ST8000DM005",
+      "count": 7131
+    },
+    {
+      "drive_model": "HGST HUS728T8TALE6L4",
+      "count": 6663
+    },
+    {
+      "drive_model": "ST16000NM000G",
+      "count": 5548
+    },
+    {
+      "drive_model": "ST16000NM002H",
+      "count": 5217
+    },
+    {
+      "drive_model": "Seagate BarraCuda SSD ZA500CM10002",
+      "count": 3836
+    },
+    {
+      "drive_model": "WDC WD5000BPKT",
+      "count": 2549
+    },
+    {
+      "drive_model": "ST12000NM0117",
+      "count": 2087
+    },
+    {
+      "drive_model": "Seagate FireCuda 120 SSD ZA500GM10001",
+      "count": 2045
+    },
+    {
+      "drive_model": "HGST HMS5C4040ALE640",
+      "count": 1956
+    },
+    {
+      "drive_model": "Micron 5300 MTFDDAK480TDS",
+      "count": 1229
+    },
+    {
+      "drive_model": "SAMSUNG MZ7L3480HCHQ",
+      "count": 1132
+    },
+    {
+      "drive_model": "Seagate BarraCuda 120 SSD ZA500CM10003",
+      "count": 1094
+    },
+    {
+      "drive_model": "Micron 5400 MTFDDAK480TGA",
+      "count": 993
+    },
+    {
+      "drive_model": "Samsung SSD 860 PRO 2TB",
+      "count": 904
+    },
+    {
+      "drive_model": "MTFDDAV480TCB",
+      "count": 730
+    },
+    {
+      "drive_model": "Samsung SSD 850 EVO 1TB",
+      "count": 730
+    },
+    {
+      "drive_model": "Seagate BarraCuda SSD ZA2000CM10002",
+      "count": 730
+    },
+    {
+      "drive_model": "ST12000NM002H",
+      "count": 595
+    },
+    {
+      "drive_model": "SSDSCKKB240GZR",
+      "count": 365
+    },
+    {
+      "drive_model": "SSDSCKKB480G8R",
+      "count": 365
+    },
+    {
+      "drive_model": "Samsung SSD 850 PRO 1TB",
+      "count": 365
+    },
+    {
+      "drive_model": "Samsung SSD 870 EVO 2TB",
+      "count": 365
+    },
+    {
+      "drive_model": "ST1000LM024 HN",
+      "count": 232
+    }
+  ],
+  "failure_rate": 3.7e-05
+}

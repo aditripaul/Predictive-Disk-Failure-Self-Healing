@@ -206,7 +206,7 @@ Settings come from `model.two_stage` and `model.two_stage.experiment` in
 - Applying `code.patch` to `f4772f3` rebuilds the code that ran.
 - The commit that later records these changes is noted in Section 9.
 
-**Outputs** (`data/audit/` is local and not committed):
+**Outputs** (`data/audit/`, tracked):
 - `data/audit/cascade_wide_net_h30/experiment_two_stage.json`: settings, every
   per-seed and per-net report, and the summary.
 - `data/audit/cascade_wide_net_h30/tables.md`: the tables of Section 9.

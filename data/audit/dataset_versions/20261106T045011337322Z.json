@@ -1,0 +1,37 @@
+{
+  "version_id": "20261106T045011337322Z",
+  "created_at": "2026-11-06T04:50:11.337357+00:00",
+  "feature_registry_version": 1,
+  "model_config_version": 1,
+  "gold_features": {
+    "path": "data/gold/features/part.parquet",
+    "content_hash": "0243f931b8541f3b"
+  },
+  "gold_labels": {
+    "path": "data/gold/labels/part.parquet",
+    "row_count": 380478465,
+    "content_hash": "f14427fdc6bd31e2",
+    "date_range": [
+      "2025-10-01",
+      "2026-09-30"
+    ],
+    "split_counts": [
+      {
+        "split": "sealed",
+        "len": 99956880
+      },
+      {
+        "split": "test",
+        "len": 95904009
+      },
+      {
+        "split": "train",
+        "len": 124547841
+      },
+      {
+        "split": "validation",
+        "len": 60069735
+      }
+    ]
+  }
+}

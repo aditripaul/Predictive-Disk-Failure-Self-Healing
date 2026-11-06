@@ -1,0 +1,323 @@
+diff --git a/docs/model_status_and_runbook.md b/docs/model_status_and_runbook.md
+index 72f9dd0..9192c6c 100644
+--- a/docs/model_status_and_runbook.md
++++ b/docs/model_status_and_runbook.md
+@@ -867,6 +867,7 @@ Where each section's numbers come from:
+ | Section | Source |
+ |---|---|
+ | 1.1.4 (Q1+Q2 -> Q3 runs) | Training reports `data/audit/data_quality_reports/model_evaluation_report_h<H>_q1q2_q3.json` and `action_tiers_h<H>_q1q2_q3.json`; cascade and survival Stage 2 `data/audit/cascade_q3_h30/`, `_h44/`, `_h60/`; horizon comparison `data/audit/horizon_q3/`; runs `frozen_runs/c459046e.../`, `a2cd06d5.../`, `804a20ce.../` |
++| 4.13 (stacked Stage 2, pending) | `data/audit/stack_q3_h30/`, `_h44/`, `_h60/`; launcher and logs `data/audit/stack_q3_logs/` (local until committed) |
+ | 1.1.5 (deep dive) | `data/audit/deep_dive_q3_h30/` |
+ | 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` (local, not committed) |
+ | 4.7 - 4.10 (point-in-time policy, family calibration) | `data/audit/agent_point_in_time*`, `agent_pit_validation*`, `family_calibration.json` |
+@@ -875,7 +876,6 @@ Where each section's numbers come from:
+ What git tracks under `data/audit/` and what stays local is listed in its
+ README; the Q1+Q2 -> Q3 results are all tracked.
+ 
+-## 2. How to run the pipeline
+ ### 1.9 How the tiers are set
+ 
+ The agent's four action tiers (warn, cordon, migrate, drain) are four thresholds on
+@@ -939,6 +939,7 @@ gives the precision each tier would be expected to reach:
+ The per-run curves are in `frozen_runs/c459046e.../figures/`
+ (`validation_precision_recall.png`, `test_precision_recall.png`).
+ 
++## 2. How to run the pipeline
+ 
+ ### 2.1 Setup
+ 
+@@ -2295,6 +2296,63 @@ to validity are in `docs/cascade_wide_net.md`; results are in its Section 9.
+   weaker (1 of 3 seeds) and it is not confirmed.
+ - Goal still unmet.
+ 
++### 4.13 A stacked Stage 2: LightGBM + Cox (run 2026-11-06, results pending)
++
++Question: does a blend of the LightGBM and Cox Stage 2 re-rank the Stage 1
++candidates better than either alone? Section 1.1.4 found Cox matches LightGBM
++within about 1 point at every level, so any gain would sit at the strict end.
++
++**Method.** A new Stage 2 kind, `stack` (`src/models/stacking.py`), blends the
++two Stage 2 models already fitted for the same net; nothing is retrained. Each
++member's score becomes its rank against that member's validation candidate
++scores (`src/models/ensemble.py::validation_rank`, so test is not used), and
++the weights are searched on a 0.1 simplex grid for drive-level average
++precision on the validation candidates. The members early-stopped on the same
++validation rows, so the blend's validation score is optimistic; only the paired
++test comparison counts. A stack is compared, not deployed (`log_two_stage`
++accepts a LightGBM Stage 2 only). Same settings as Section 1.1.4: nets 0.5 and
++0.8, survival nets 0.8, 3 seeds, paired drive bootstrap against Stage 1 alone
++and against the LightGBM Stage 2 (`paired_vs_lightgbm`).
++
++**Commands.** The Q3 runs below read the kept work directories of the three
++Q1+Q2 -> Q3 training runs (`data/tmp/train_model_frame_fag3o60h` for 30 days,
++`ff5ejt7a` for 44, `xjxdieoe` for 60). Run from the repository root:
++
++```bash
++# 1. The runs this one repeats (Section 1.1.4); scripts as run on 2026-11-06:
++bash data/audit/q3_logs/run_q3.sh        # build-labels, then make train per horizon
++                                         #   TRAIN_ARGS="--horizon-days H --keep-work-dir --save-scores"
++bash data/audit/q3_logs/run_cascade.sh   # make experiment-model ... --two-stage, kinds from config
++
++# 2. The stacked run: lightgbm + cox + stack, per horizon
++bash data/audit/stack_q3_logs/run_stack.sh "$PWD"
++#   which runs, for H in 30 (fag3o60h), 44 (ff5ejt7a), 60 (xjxdieoe):
++make experiment-model EXPERIMENT_ARGS="--work-dir data/tmp/train_model_frame_<dir> \
++  --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack \
++  --two-stage-out data/audit/stack_q3_h<H>"
++
++# 3. Tests of the new code
++uv run pytest tests/unit/test_two_stage.py
++```
++
++Each run appends a line to `data/audit/test_access_log.jsonl` and writes
++`experiment_results.json` into the work directory, as the Section 1.1.4 run
++did. Outputs: `data/audit/stack_q3_h30/`, `_h44/`, `_h60/` (`tables.md`,
++`experiment_two_stage.json`, `figures/`, `code.patch` = the uncommitted diff at
++launch) and `data/audit/stack_q3_logs/` (the launcher and one log per horizon).
++The table headed "Survival Stage 2 against the LightGBM Stage 2" also lists the
++stack; the numbers are right, the heading predates the stack kind.
++
++**Results.** Pending; this section is filled in when the three horizons finish.
++One seed of the 30-day run (seed 0) has been seen and is not a result.
++
++**Overlap check, not yet reproducible.** A drive-level comparison of the
++`cox` and `lightgbm` columns of `data/tmp/merged/merged_scores_h30_h30_seed0.parquet`
++(April-May test window, Cox as a standalone model, not as a Stage 2) found
++Spearman 0.90 and, at a false-alarm rate of 1e-4, 22 failing drives shared of
++54 (LightGBM) and 92 (Cox); at 1e-3, 322 shared of 397 and 415. That script
++was a one-off in a scratch directory and is not in the repository.
++
+ ## 5. What we learned
+ 
+ ### 5.1 Evaluation is per drive, not per drive-day
+@@ -2566,6 +2624,9 @@ make experiment-model EXPERIMENT_ARGS="--variants reg_spw xgboost --skip-baselin
+ - `--per-model N`: one model per drive family, for the N families with the most
+   failing validation drives, each compared with the pooled model on the same
+   test drives. Ran on real data for the first time on 2026-10-06 (Section 4.1).
++- `--two-stage --stage2-kinds lightgbm cox aft stack`: Stage 2 models compared
++  per net; `stack` blends the fitted LightGBM and Cox Stage 2 by
++  validation-fitted rank weights and needs both (Section 4.13).
+ - Results go to `experiment_results.json`, `experiment_deep_dive.json` and
+   `experiment_per_model.json` in the kept work directory.
+ 
+diff --git a/pipelines/experiment_model.py b/pipelines/experiment_model.py
+index 526e110..6a354b0 100644
+--- a/pipelines/experiment_model.py
++++ b/pipelines/experiment_model.py
+@@ -42,6 +42,7 @@ from src.models.evaluation import (
+     top_k_from_drive_table,
+ )
+ from src.models.logistic_regression_baseline import train_logistic_regression_baseline
++from src.models.stacking import STACK_KIND, fit_stack
+ from src.models.survival import AftModel, drive_concordance, survival_bounds, train_aft
+ from src.models.threshold import tune_drive_level_threshold
+ from src.models.training import (
+@@ -72,6 +73,9 @@ from src.resource_limits import apply_memory_limit_from_config
+ 
+ logger = get_logger(__name__)
+ 
++#: Every kind the experiment compares: the Stage 2 models plus the stack of them.
++EXPERIMENT_KINDS = (*STAGE2_KINDS, STACK_KIND)
++
+ DATA_CONFIG_PATH = Path("configs/data.yaml")
+ MODEL_CONFIG_PATH = Path("configs/model.yaml")
+ 
+@@ -792,33 +796,71 @@ def two_stage_experiment(
+     jobs = [
+         (net, kind)
+         for net in candidate_recalls
+-        for kind in stage2_kinds
++        for kind in sorted(stage2_kinds, key=lambda k: k == STACK_KIND)
+         if kind == "lightgbm" or survival_nets is None or net in survival_nets
+     ]
++    fitted_stage2: dict[tuple[float, str], Any] = {}
++    net_reports: dict[tuple[float, str], dict[str, Any]] = {}
+     for net, kind in jobs:
+         t1 = time.perf_counter()
+         levels = [r for r in recall_levels if r <= net + 1e-9]
+-        model, report = fit_second_stage(
+-            fit,
+-            stage1,
+-            x_train=data["x_train"],
+-            y_train=data["y_train"],
+-            train_drives=data["train_drives"],
+-            x_val=data["x_val"],
+-            y_val=data["y_val"],
+-            val_drives=data["val_drives"],
+-            val_stage1_scores=val_s1,
+-            candidate_recall=net,
+-            n_folds=n_folds,
+-            seed=seed,
+-            train_stage1_scores=train_oof,
+-            stage2_params=stage2_params,
+-            early_stopping_max_negatives=early_stopping_max_negatives,
+-            stage2_kind=kind,
+-            train_survival_bounds=survival_bounds_train,
+-            horizon_days=data.get("horizon_days"),
+-            survival_params=survival_params,
+-        )
++        if kind == STACK_KIND:
++            members = {
++                k: fitted_stage2[(net, k)] for k in STAGE2_KINDS if (net, k) in fitted_stage2
++            }
++            model, report = fit_stack(
++                stage1,
++                members,
++                x_val=data["x_val"],
++                y_val=data["y_val"],
++                val_drives=data["val_drives"],
++                val_stage1_scores=val_s1,
++                candidate_threshold=next(
++                    (net_reports[(net, k)]["candidate_threshold"] for k in members), 0.0
++                ),
++            )
++            # The stack shares the candidates and Stage 1 of its members.
++            if members:
++                first = net_reports[(net, next(iter(members)))]
++                report = {
++                    **{
++                        key: first[key]
++                        for key in (
++                            "stage1_trees",
++                            "candidate_recall",
++                            "n_folds",
++                            "seed",
++                            "candidates",
++                        )
++                        if key in first
++                    },
++                    **report,
++                }
++        else:
++            model, report = fit_second_stage(
++                fit,
++                stage1,
++                x_train=data["x_train"],
++                y_train=data["y_train"],
++                train_drives=data["train_drives"],
++                x_val=data["x_val"],
++                y_val=data["y_val"],
++                val_drives=data["val_drives"],
++                val_stage1_scores=val_s1,
++                candidate_recall=net,
++                n_folds=n_folds,
++                seed=seed,
++                train_stage1_scores=train_oof,
++                stage2_params=stage2_params,
++                early_stopping_max_negatives=early_stopping_max_negatives,
++                stage2_kind=kind,
++                train_survival_bounds=survival_bounds_train,
++                horizon_days=data.get("horizon_days"),
++                survival_params=survival_params,
++            )
++        if model is not None and kind != STACK_KIND:
++            fitted_stage2[(net, kind)] = model.stage2
++            net_reports[(net, kind)] = report
+         report["stage2_kind"] = kind
+         report["stage1"] = [stage1_rows[r] for r in levels]
+         if model is None:
+@@ -1024,7 +1066,9 @@ def summarize_two_stage_seeds(reports: list[dict[str, Any]]) -> list[dict[str, A
+ def summarize_two_stage_nets(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+     """`summarize_two_stage_seeds` per net, plus each net's mean candidate
+     pool and ceiling over the seeds that trained it."""
+-    keys = sorted({_net_key(r) for r in reports}, key=lambda k: (k[0], STAGE2_KINDS.index(k[1])))
++    keys = sorted(
++        {_net_key(r) for r in reports}, key=lambda k: (k[0], EXPERIMENT_KINDS.index(k[1]))
++    )
+     out = []
+     for net, kind in keys:
+         group = [r for r in reports if _net_key(r) == (net, kind)]
+@@ -1729,7 +1773,7 @@ def main() -> None:
+         "--stage2-kinds",
+         nargs="+",
+         default=None,
+-        choices=list(STAGE2_KINDS),
++        choices=list(EXPERIMENT_KINDS),
+         help="With --two-stage: Stage 2 models to compare per net. Survival kinds (cox, aft) "
+         "are paired against the LightGBM Stage 2 of the same net. Default "
+         "model.two_stage.experiment.stage2_kinds (lightgbm).",
+diff --git a/src/models/failure_clusters.py b/src/models/failure_clusters.py
+index 6373365..53d76af 100644
+--- a/src/models/failure_clusters.py
++++ b/src/models/failure_clusters.py
+@@ -446,7 +446,16 @@ def name_clusters(
+     names, kinds = [], []
+     for c in centroids:
+         order = np.argsort(-c)
+-        picked = [columns[i] for i in order[:top] if c[i] > 0.5]
++        picked: list[str] = []
++        labels_seen: set[str] = set()
++        for i in order:
++            if c[i] <= 0.5 or len(picked) == top:
++                break
++            label = _readable(columns[i])
++            if label in labels_seen:  # a counter's change and its slope read the same
++                continue
++            labels_seen.add(label)
++            picked.append(columns[i])
+         if not picked:
+             names.append("no clear damage")
+             kinds.append("watch")
+diff --git a/tests/unit/test_two_stage.py b/tests/unit/test_two_stage.py
+index bbca3be..2c25603 100644
+--- a/tests/unit/test_two_stage.py
++++ b/tests/unit/test_two_stage.py
+@@ -640,3 +640,58 @@ def test_two_stage_experiment_compares_stage2_kinds(tmp_path):
+     names = {name for name, _, _ in two_stage_mlflow_metrics({"runs": reports, "summary": nets})}
+     assert "net80_cox_c_index_cascade" in names and "net80_c_index_cascade" in names
+     assert any(name.startswith("net80_aft_r60_mean_vs_lightgbm") for name in names)
++
++
++def test_stack_blends_fitted_stage2_models(tmp_path):
++    """A stack of the LightGBM and Cox Stage 2 of one net: same candidates,
++    weights on the simplex, scores on the cascade's one scale."""
++    x_train, y_train, train_drives = _split(1, 900, tmp_path, "tr")
++    x_val, y_val, val_drives = _split(2, 500, tmp_path, "va")
++    x_test, y_test, test_drives = _split(3, 500, tmp_path, "te")
++    data = {
++        "horizon_days": 30,
++        "x_train": np.asarray(x_train),
++        "y_train": y_train,
++        "train_drives": train_drives,
++        "train_ids": _ids(train_drives, y_train),
++        "x_val": x_val,
++        "y_val": y_val,
++        "val_drives": val_drives,
++        "x_test": x_test,
++        "y_test": y_test,
++        "test_drives": test_drives,
++        "test_ids": _ids(test_drives, y_test, start="2026-07-01"),
++        "es_idx": early_stopping_subset(y_val),
++    }
++    reports = two_stage_experiment(
++        data,
++        candidate_recalls=(0.8,),
++        recall_levels=(0.10, 0.50),
++        stage2_kinds=("stack", "lightgbm", "cox"),  # order is not the caller's burden
++        n_boot=30,
++    )
++    assert [r["stage2_kind"] for r in reports] == ["lightgbm", "cox", "stack"]
++    stack = reports[-1]
++    assert stack["status"] == "ok", stack
++    weights = stack["stack"]["weights"]
++    assert set(weights) == {"lightgbm", "cox"} and abs(sum(weights.values()) - 1) < 1e-9
++    ap = stack["stack"]["validation_drive_ap"]
++    assert ap["stack"] >= max(ap["lightgbm"], ap["cox"], ap["equal_weights"]) - 1e-12
++    assert stack["candidates"] == reports[0]["candidates"]
++    assert any("paired_vs_lightgbm" in row for row in stack["two_stage"])
++    assert stack["stage2_trees"] == reports[0]["stage2_trees"] + reports[1]["stage2_trees"]
++
++
++def test_stack_needs_two_members():
++    from src.models.stacking import fit_stack
++
++    model, report = fit_stack(
++        None,
++        {"lightgbm": object()},
++        x_val=np.zeros((2, 1)),
++        y_val=np.zeros(2),
++        val_drives=np.array([0, 1]),
++        val_stage1_scores=np.zeros(2),
++        candidate_threshold=0.5,
++    )
++    assert model is None and "at least two" in report["status"]

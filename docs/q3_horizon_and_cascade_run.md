@@ -225,8 +225,12 @@ and the runs' MLflow metrics. The 30-day model's 59.0% at 12.5% recall on a
 quarter it never saw sits beside the 57.1% at 12.0% of run `839d92bc` on the
 2026-04/05 window (runbook 1.1.1); the two are not paired, so this is "held
 up", not "improved". The goal of 90% precision at >= 10% recall is not met.
-Validation overstates test precision by 15-20 points in every run (section 2's
-same-period caveat, realised).
+Validation shows 15-20 points more precision than test in every run. The
+deep dive (runbook 1.1.5) shows that is the base rate: validation's 121 days
+have 0.59% failing drives against test's 0.30%, the ranking is the same on
+both (AUROC 0.922 and 0.926), and test precision restated at the validation
+base rate is 73.9% against 75.0%. Section 2's same-period caveat did not
+materialise as overfitting.
 
 ### 7.2 Horizon (question 2)
 
@@ -329,6 +333,27 @@ information in SMART (about 20% of failing drives show no change before they
 fail), not the Stage 2 learner: three learners rank the same suspects the same
 way.
 
+### 7.6 Deep dive (30-day run)
+
+Runbook section 1.1.5 (`scripts/deep_dive_q3.py`, `data/audit/deep_dive_q3_h30/`)
+breaks the 30-day Q3 result down per drive:
+
+- **Missed failures:** the 20% of failing drives Stage 1 never passes show no
+  SMART change before failing (98.6% without a rise in any core counter, with
+  complete telemetry) and are young (median 2.9 years of power-on time against
+  5.5 for drives caught at primary): the recall ceiling is early-life failures
+  SMART does not see.
+- **False alarms** are damaged drives (98-99.8% with a non-zero core counter at
+  warn and above, against 8.9% of the fleet), and the stricter the point the
+  more of them were removed from service anyway (35.4% at primary). HGST is
+  4.2 times over-represented among warn false alarms.
+- **Stable over Q3:** recall is flat week to week; the share of drives passing
+  Stage 1 drifts up from 3.4% to 3.8%.
+- **Validation against test:** the 15-20 point precision gap is the base rate
+  (0.59% against 0.30%); AUROC and recall at matched false-alarm rate are the
+  same on both, and test precision at the validation base rate is 73.9%
+  against 75.0%.
+
 ## 8. Provenance
 
 | Item | Value |
@@ -340,9 +365,9 @@ way.
 | Cascade experiments (MLflow, `run_kind=experiment`) | `f760b06de7e3405ab1ee6723109090ef` (30), `a4f74561227b46e483863bb1d7baf892` (44), `cabc3023e9944a31b6633f59ec3f39bc` (60) |
 | Figures (committed copies) | `docs/figures/q3_2026/` (README lists the source of each) |
 | Saved outputs (committed) | `data/audit/cascade_q3_h<H>/` (experiment JSON, `tables.md`, `code.patch`, MLflow run id, seed-0 figures), `data/audit/horizon_q3/`, and the training reports `data/audit/data_quality_reports/model_evaluation_report_h<H>_q1q2_q3.json` and `action_tiers_h<H>_q1q2_q3.json` |
-| Saved outputs (local, not committed) | the test-access log `data/audit/test_access_log.jsonl`, the per-run plots `data/audit/plots/train/h<H>_q1q2_q3/` (identical to `frozen_runs/<run id>/figures/`), and the score tables `data/tmp/lightgbm_scores_h<H>_h<H>_q1q2_q3.parquet` (SHA-256 in each bundle's README) |
+| Saved outputs (tracked, except the score tables under `data/tmp/`) | the test-access log `data/audit/test_access_log.jsonl`, the per-run plots `data/audit/plots/train/h<H>_q1q2_q3/` (identical to `frozen_runs/<run id>/figures/`), and the score tables `data/tmp/lightgbm_scores_h<H>_h<H>_q1q2_q3.parquet` (SHA-256 in each bundle's README) |
 | Label table | `data/audit/dataset_versions/20261106T091944670108Z.json` |
-| Test accesses | `data/audit/test_access_log.jsonl` lines 114-116 (training), 117 (horizon comparison), 118-126 (cascade, 3 seeds x 3 horizons) |
+| Test accesses | `data/audit/test_access_log.jsonl` lines 114-116 (training), 117 (horizon comparison), 118-126 (cascade, 3 seeds x 3 horizons), 127 and 129 (deep dive; 128 is a deep-dive run stopped before it computed anything) |
 | Wall times | labels 20 min; each training run about 25-30 min; horizon comparison 3 min; each cascade experiment about 25 min (Stage 1 and out-of-fold scores about 4 min per seed, each net 1-2 min) |
 
 ## 9. Threats to validity
@@ -350,9 +375,11 @@ way.
 - **One test quarter.** Q3 2026 only; a gain or loss of a point or two could
   belong to this period. The seeds vary the training randomness, not the test
   drives.
-- **Same-period validation.** The holdout shares the training dates and
-  overstated test precision by 15-20 points; every threshold, the Stage 1 net
-  and Stage 2's early stopping come from it.
+- **Same-period validation.** The holdout shares the training dates, and every
+  threshold, the Stage 1 net and Stage 2's early stopping come from it. Its
+  precision runs 15-20 points above test, but the deep dive attributes that to
+  the base rate (0.59% against 0.30%), not to overfitting: AUROC and recall at
+  a matched false-alarm rate are the same on both (runbook 1.1.5).
 - **Post-hoc choices.** The 0.8 net, the survival kinds and the longer horizons
   were chosen on earlier results; their Q3 numbers are descriptive (section 3),
   and the fixed rules of section 6 remain untested on untouched data.

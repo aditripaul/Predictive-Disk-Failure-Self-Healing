@@ -1,0 +1,205 @@
+uv run python pipelines/experiment_model.py --work-dir data/tmp/train_model_frame_xjxdieoe --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack --two-stage-out data/audit/stack_q3_h60
+[2m2026-11-06T15:44:14.728572Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+[2m2026-11-06T15:44:14.728687Z[0m [[32m[1minfo     [0m] [1mexperiment_work_dir           [0m [36mpath[0m=[35mdata/tmp/train_model_frame_xjxdieoe[0m
+[2m2026-11-06T15:44:14.736826Z[0m [[32m[1minfo     [0m] [1mexperiment_horizon            [0m [36mhorizon_days[0m=[35m60[0m
+[2m2026-11-06T15:44:14.744394Z[0m [[32m[1minfo     [0m] [1mtwo_stage_settings            [0m [36mcandidate_recalls[0m=[35m[0.5, 0.8][0m [36mcost_ratio[0m=[35m20.0[0m [36mearly_stopping_max_negatives[0m=[35m1500000[0m [36mgit_commit[0m=[35m7e1cb64adcfd7d7b06a6d076bbc027bcd5897591[0m [36mgit_dirty[0m=[35mTrue[0m [36mhorizon_days[0m=[35m60[0m [36mlead_min_days[0m=[35m1[0m [36mn_boot[0m=[35m1000[0m [36mn_folds[0m=[35m3[0m [36mobservation_end[0m=[35m2026-09-30[0m [36mrecall_levels[0m=[35m[0.05, 0.1, 0.2, 0.35, 0.5, 0.6, 0.7, 0.8][0m [36mseeds[0m=[35m3[0m [36mstage2_kinds[0m=[35m['lightgbm', 'cox', 'stack'][0m [36mstage2_params[0m=[35m{'min_child_samples': 50}[0m [36msurvival_nets[0m=[35m[0.8][0m [36msurvival_params[0m=[35m{'max_depth': 4, 'learning_rate': 0.03, 'min_child_weight': 10, 'subsample': 0.8, 'colsample_bytree': 0.7}[0m [36mtest_end[0m=[35m2026-08-01[0m [36mtest_split[0m=[35msealed[0m [36mtop_k[0m=[35m[100, 250, 500, 1000, 2500, 5000][0m [36mwork_dir[0m=[35mtrain_model_frame_xjxdieoe[0m
+[2m2026-11-06T15:47:38.251119Z[0m [[32m[1minfo     [0m] [1mtwo_stage_stage1_done         [0m [36mseconds[0m=[35m198[0m [36mseed[0m=[35m0[0m
+[2m2026-11-06T15:48:08.948769Z[0m [[32m[1minfo     [0m] [1mtwo_stage_net_done            [0m [36mkind[0m=[35mlightgbm[0m [36mnet[0m=[35m0.5[0m [36mseconds[0m=[35m29[0m [36mseed[0m=[35m0[0m
+[2m2026-11-06T15:48:56.340598Z[0m [[32m[1minfo     [0m] [1mtwo_stage_net_done            [0m [36mkind[0m=[35mlightgbm[0m [36mnet[0m=[35m0.8[0m [36mseconds[0m=[35m47[0m [36mseed[0m=[35m0[0m
+[2m2026-11-06T15:51:15.464634Z[0m [[32m[1minfo     [0m] [1mtwo_stage_net_done            [0m [36mkind[0m=[35mcox[0m [36mnet[0m=[35m0.8[0m [36mseconds[0m=[35m139[0m [36mseed[0m=[35m0[0m
+[2m2026-11-06T15:52:41.576005Z[0m [[32m[1minfo     [0m] [1mtwo_stage_net_done            [0m [36mkind[0m=[35mstack[0m [36mnet[0m=[35m0.8[0m [36mseconds[0m=[35m86[0m [36mseed[0m=[35m0[0m
+
+#### TWO STAGE (net 50%) - TEST, drive level - seed 0
+  stage 1 trees=355  candidates={'train_rows': 16322, 'train_positive_rows': 13844, 'train_positive_share': 0.8481803700526896, 'validation_rows': 8696, 'validation_positive_rows': 3963, 'early_stopping_rows': 8696, 'test_rows': 14249, 'test_positive_rows': 4973}
+  stage 2 trees=133  ceiling={'test_recall': 0.40913160250671443, 'test_recall_with_lead': 0.40913160250671443, 'validation_drive_share': 0.006242162070763291, 'test_drive_share': 0.0033821590418047047}
+  recall>=5%: stage 1 alone P=0.762 R=0.055 (61/1117, FA=19)  |  two stage P=0.667 R=0.039 (44/1117, FA=22)  gap -0.096 [-0.207, +0.018]
+  recall>=10%: stage 1 alone P=0.711 R=0.077 (86/1117, FA=35)  |  two stage P=0.676 R=0.082 (92/1117, FA=44)  gap -0.034 [-0.106, +0.042]
+  recall>=20%: stage 1 alone P=0.623 R=0.172 (192/1117, FA=116)  |  two stage P=0.637 R=0.177 (198/1117, FA=113)  gap +0.013 [-0.031, +0.061]
+  recall>=35%: stage 1 alone P=0.511 R=0.270 (302/1117, FA=289)  |  two stage P=0.481 R=0.294 (328/1117, FA=354)  gap -0.030 [-0.058, -0.004]
+  recall>=50%: stage 1 alone P=0.374 R=0.409 (457/1117, FA=764)  |  two stage P=0.379 R=0.405 (452/1117, FA=740)  gap +0.005 [+0.001, +0.009]
+
+#### TWO STAGE (net 80%) - TEST, drive level - seed 0
+  stage 1 trees=355  candidates={'train_rows': 176461, 'train_positive_rows': 49645, 'train_positive_share': 0.2813369526410935, 'validation_rows': 234275, 'validation_positive_rows': 12787, 'early_stopping_rows': 234275, 'test_rows': 348995, 'test_positive_rows': 14261}
+  stage 2 trees=43  ceiling={'test_recall': 0.7851387645478961, 'test_recall_with_lead': 0.7851387645478961, 'validation_drive_share': 0.06903013992024687, 'test_drive_share': 0.05335556712796251}
+  recall>=5%: stage 1 alone P=0.762 R=0.055 (61/1117, FA=19)  |  two stage P=0.636 R=0.063 (70/1117, FA=40)  gap -0.126 [-0.212, -0.029]
+  recall>=10%: stage 1 alone P=0.711 R=0.077 (86/1117, FA=35)  |  two stage P=0.626 R=0.111 (124/1117, FA=74)  gap -0.084 [-0.151, -0.018]
+  recall>=20%: stage 1 alone P=0.623 R=0.172 (192/1117, FA=116)  |  two stage P=0.573 R=0.185 (207/1117, FA=154)  gap -0.050 [-0.094, -0.010]
+  recall>=35%: stage 1 alone P=0.511 R=0.270 (302/1117, FA=289)  |  two stage P=0.520 R=0.260 (290/1117, FA=268)  gap +0.009 [-0.010, +0.027]
+  recall>=50%: stage 1 alone P=0.374 R=0.409 (457/1117, FA=764)  |  two stage P=0.364 R=0.402 (449/1117, FA=783)  gap -0.010 [-0.020, +0.001]
+  recall>=60%: stage 1 alone P=0.267 R=0.508 (567/1117, FA=1555)  |  two stage P=0.278 R=0.488 (545/1117, FA=1418)  gap +0.010 [+0.005, +0.016]
+  recall>=70%: stage 1 alone P=0.143 R=0.625 (698/1117, FA=4188)  |  two stage P=0.141 R=0.627 (700/1117, FA=4265)  gap -0.002 [-0.004, +0.000]
+  recall>=80%: stage 1 alone P=0.046 R=0.785 (877/1117, FA=18385)  |  two stage P=0.046 R=0.785 (877/1117, FA=18302)  gap +0.000 [+0.000, +0.000]
+
+#### TWO STAGE (net 80% cox) - TEST, drive level - seed 0
+  stage 1 trees=355  candidates={'train_rows': 176461, 'train_positive_rows': 49645, 'train_positive_share': 0.2813369526410935, 'validation_rows': 234275, 'validation_positive_rows': 12787, 'early_stopping_rows': 234275, 'test_rows': 348995, 'test_positive_rows': 14261}
+  stage 2 trees=176  ceiling={'test_recall': 0.7851387645478961, 'test_recall_with_lead': 0.7851387645478961, 'validation_drive_share': 0.06903013992024687, 'test_drive_share': 0.05335556712796251}
+  recall>=5%: stage 1 alone P=0.762 R=0.055 (61/1117, FA=19)  |  two stage P=0.782 R=0.055 (61/1117, FA=17)  gap +0.020 [-0.061, +0.103]
+  recall>=10%: stage 1 alone P=0.711 R=0.077 (86/1117, FA=35)  |  two stage P=0.690 R=0.179 (200/1117, FA=90)  gap -0.021 [-0.084, +0.046]
+  recall>=20%: stage 1 alone P=0.623 R=0.172 (192/1117, FA=116)  |  two stage P=0.631 R=0.229 (256/1117, FA=150)  gap +0.007 [-0.035, +0.047]
+  recall>=35%: stage 1 alone P=0.511 R=0.270 (302/1117, FA=289)  |  two stage P=0.513 R=0.303 (338/1117, FA=321)  gap +0.002 [-0.023, +0.026]
+  recall>=50%: stage 1 alone P=0.374 R=0.409 (457/1117, FA=764)  |  two stage P=0.371 R=0.407 (455/1117, FA=773)  gap -0.004 [-0.015, +0.008]
+  recall>=60%: stage 1 alone P=0.267 R=0.508 (567/1117, FA=1555)  |  two stage P=0.261 R=0.521 (582/1117, FA=1652)  gap -0.007 [-0.012, -0.001]
+  recall>=70%: stage 1 alone P=0.143 R=0.625 (698/1117, FA=4188)  |  two stage P=0.139 R=0.629 (703/1117, FA=4359)  gap -0.004 [-0.006, -0.002]
+  recall>=80%: stage 1 alone P=0.046 R=0.785 (877/1117, FA=18385)  |  two stage P=0.046 R=0.785 (877/1117, FA=18384)  gap +0.000 [+0.000, +0.000]
+
+#### TWO STAGE (net 80% stack) - TEST, drive level - seed 0
+  stage 1 trees=355  candidates={'train_rows': 176461, 'train_positive_rows': 49645, 'train_positive_share': 0.2813369526410935, 'validation_rows': 234275, 'validation_positive_rows': 12787, 'early_stopping_rows': 234275, 'test_rows': 348995, 'test_positive_rows': 14261}
+  stage 2 trees=219  ceiling={'test_recall': 0.7851387645478961, 'test_recall_with_lead': 0.7851387645478961, 'validation_drive_share': 0.06903013992024687, 'test_drive_share': 0.05335556712796251}
+  recall>=5%: stage 1 alone P=0.762 R=0.055 (61/1117, FA=19)  |  two stage P=0.720 R=0.048 (54/1117, FA=21)  gap -0.042 [-0.129, +0.044]
+  recall>=10%: stage 1 alone P=0.711 R=0.077 (86/1117, FA=35)  |  two stage P=0.661 R=0.149 (166/1117, FA=85)  gap -0.049 [-0.115, +0.015]
+  recall>=20%: stage 1 alone P=0.623 R=0.172 (192/1117, FA=116)  |  two stage P=0.641 R=0.179 (200/1117, FA=112)  gap +0.018 [-0.022, +0.057]
+  recall>=35%: stage 1 alone P=0.511 R=0.270 (302/1117, FA=289)  |  two stage P=0.522 R=0.282 (315/1117, FA=289)  gap +0.011 [-0.010, +0.029]
+  recall>=50%: stage 1 alone P=0.374 R=0.409 (457/1117, FA=764)  |  two stage P=0.378 R=0.400 (447/1117, FA=736)  gap +0.004 [-0.007, +0.015]
+  recall>=60%: stage 1 alone P=0.267 R=0.508 (567/1117, FA=1555)  |  two stage P=0.267 R=0.503 (562/1117, FA=1545)  gap -0.000 [-0.005, +0.005]
+  recall>=70%: stage 1 alone P=0.143 R=0.625 (698/1117, FA=4188)  |  two stage P=0.138 R=0.634 (708/1117, FA=4438)  gap -0.005 [-0.007, -0.003]
+  recall>=80%: stage 1 alone P=0.046 R=0.785 (877/1117, FA=18385)  |  two stage P=0.046 R=0.785 (877/1117, FA=18382)  gap +0.000 [+0.000, +0.000]
+[2m2026-11-06T15:55:37.509991Z[0m [[32m[1minfo     [0m] [1mtwo_stage_stage1_done         [0m [36mseconds[0m=[35m175[0m [36mseed[0m=[35m1[0m
+[2m2026-11-06T15:56:07.983730Z[0m [[32m[1minfo     [0m] [1mtwo_stage_net_done            [0m [36mkind[0m=[35mlightgbm[0m [36mnet[0m=[35m0.5[0m [36mseconds[0m=[35m29[0m [36mseed[0m=[35m1[0m
+[2m2026-11-06T15:56:55.778466Z[0m [[32m[1minfo     [0m] [1mtwo_stage_net_done            [0m [36mkind[0m=[35mlightgbm[0m [36mnet[0m=[35m0.8[0m [36mseconds[0m=[35m48[0m [36mseed[0m=[35m1[0m
+[2m2026-11-06T15:59:02.100469Z[0m [[32m[1minfo     [0m] [1mtwo_stage_net_done            [0m [36mkind[0m=[35mcox[0m [36mnet[0m=[35m0.8[0m [36mseconds[0m=[35m126[0m [36mseed[0m=[35m1[0m
+[2m2026-11-06T16:00:21.137834Z[0m [[32m[1minfo     [0m] [1mtwo_stage_net_done            [0m [36mkind[0m=[35mstack[0m [36mnet[0m=[35m0.8[0m [36mseconds[0m=[35m79[0m [36mseed[0m=[35m1[0m
+
+#### TWO STAGE (net 50%) - TEST, drive level - seed 1
+  stage 1 trees=268  candidates={'train_rows': 16975, 'train_positive_rows': 14215, 'train_positive_share': 0.8374079528718704, 'validation_rows': 9428, 'validation_positive_rows': 4101, 'early_stopping_rows': 9428, 'test_rows': 15128, 'test_positive_rows': 5103}
+  stage 2 trees=111  ceiling={'test_recall': 0.41987466427931963, 'test_recall_with_lead': 0.41987466427931963, 'validation_drive_share': 0.006383068663782778, 'test_drive_share': 0.0034901886917886385}
+  recall>=5%: stage 1 alone P=0.760 R=0.051 (57/1117, FA=18)  |  two stage P=0.706 R=0.054 (60/1117, FA=25)  gap -0.054 [-0.153, +0.039]
+  recall>=10%: stage 1 alone P=0.680 R=0.090 (100/1117, FA=47)  |  two stage P=0.693 R=0.109 (122/1117, FA=54)  gap +0.013 [-0.055, +0.079]
+  recall>=20%: stage 1 alone P=0.615 R=0.173 (193/1117, FA=121)  |  two stage P=0.614 R=0.188 (210/1117, FA=132)  gap -0.001 [-0.047, +0.044]
+  recall>=35%: stage 1 alone P=0.473 R=0.318 (355/1117, FA=395)  |  two stage P=0.481 R=0.294 (328/1117, FA=354)  gap +0.008 [-0.014, +0.032]
+  recall>=50%: stage 1 alone P=0.372 R=0.420 (469/1117, FA=791)  |  two stage P=0.383 R=0.411 (459/1117, FA=738)  gap +0.011 [+0.006, +0.017]
+
+#### TWO STAGE (net 80%) - TEST, drive level - seed 1
+  stage 1 trees=268  candidates={'train_rows': 182304, 'train_positive_rows': 50343, 'train_positive_share': 0.2761486308583465, 'validation_rows': 251522, 'validation_positive_rows': 12865, 'early_stopping_rows': 251522, 'test_rows': 425329, 'test_positive_rows': 14750}
+  stage 2 trees=113  ceiling={'test_recall': 0.7976723366159355, 'test_recall_with_lead': 0.7976723366159355, 'validation_drive_share': 0.07151009595738984, 'test_drive_share': 0.058521600390014736}
+  recall>=5%: stage 1 alone P=0.760 R=0.051 (57/1117, FA=18)  |  two stage P=0.711 R=0.090 (101/1117, FA=41)  gap -0.049 [-0.126, +0.028]
+  recall>=10%: stage 1 alone P=0.680 R=0.090 (100/1117, FA=47)  |  two stage P=0.703 R=0.110 (123/1117, FA=52)  gap +0.023 [-0.035, +0.079]
+  recall>=20%: stage 1 alone P=0.615 R=0.173 (193/1117, FA=121)  |  two stage P=0.628 R=0.178 (199/1117, FA=118)  gap +0.013 [-0.018, +0.048]
+  recall>=35%: stage 1 alone P=0.473 R=0.318 (355/1117, FA=395)  |  two stage P=0.495 R=0.302 (337/1117, FA=344)  gap +0.022 [+0.005, +0.039]
+  recall>=50%: stage 1 alone P=0.372 R=0.420 (469/1117, FA=791)  |  two stage P=0.386 R=0.406 (453/1117, FA=720)  gap +0.014 [+0.003, +0.026]
+  recall>=60%: stage 1 alone P=0.265 R=0.509 (569/1117, FA=1580)  |  two stage P=0.279 R=0.502 (561/1117, FA=1450)  gap +0.014 [+0.008, +0.021]
+  recall>=70%: stage 1 alone P=0.144 R=0.619 (691/1117, FA=4117)  |  two stage P=0.139 R=0.623 (696/1117, FA=4319)  gap -0.005 [-0.007, -0.003]
+  recall>=80%: stage 1 alone P=0.042 R=0.798 (891/1117, FA=20236)  |  two stage P=0.043 R=0.796 (889/1117, FA=19810)  gap +0.001 [+0.001, +0.001]
+
+#### TWO STAGE (net 80% cox) - TEST, drive level - seed 1
+  stage 1 trees=268  candidates={'train_rows': 182304, 'train_positive_rows': 50343, 'train_positive_share': 0.2761486308583465, 'validation_rows': 251522, 'validation_positive_rows': 12865, 'early_stopping_rows': 251522, 'test_rows': 425329, 'test_positive_rows': 14750}
+  stage 2 trees=258  ceiling={'test_recall': 0.7976723366159355, 'test_recall_with_lead': 0.7976723366159355, 'validation_drive_share': 0.07151009595738984, 'test_drive_share': 0.058521600390014736}
+  recall>=5%: stage 1 alone P=0.760 R=0.051 (57/1117, FA=18)  |  two stage P=0.741 R=0.090 (100/1117, FA=35)  gap -0.019 [-0.098, +0.059]
+  recall>=10%: stage 1 alone P=0.680 R=0.090 (100/1117, FA=47)  |  two stage P=0.711 R=0.110 (123/1117, FA=50)  gap +0.031 [-0.040, +0.103]
+  recall>=20%: stage 1 alone P=0.615 R=0.173 (193/1117, FA=121)  |  two stage P=0.649 R=0.207 (231/1117, FA=125)  gap +0.034 [-0.010, +0.079]
+  recall>=35%: stage 1 alone P=0.473 R=0.318 (355/1117, FA=395)  |  two stage P=0.516 R=0.310 (346/1117, FA=325)  gap +0.042 [+0.018, +0.065]
+  recall>=50%: stage 1 alone P=0.372 R=0.420 (469/1117, FA=791)  |  two stage P=0.363 R=0.418 (467/1117, FA=821)  gap -0.010 [-0.022, +0.004]
+  recall>=60%: stage 1 alone P=0.265 R=0.509 (569/1117, FA=1580)  |  two stage P=0.264 R=0.519 (580/1117, FA=1621)  gap -0.001 [-0.008, +0.005]
+  recall>=70%: stage 1 alone P=0.144 R=0.619 (691/1117, FA=4117)  |  two stage P=0.144 R=0.627 (700/1117, FA=4171)  gap -0.000 [-0.002, +0.002]
+  recall>=80%: stage 1 alone P=0.042 R=0.798 (891/1117, FA=20236)  |  two stage P=0.043 R=0.794 (887/1117, FA=19697)  gap +0.001 [+0.001, +0.001]
+
+#### TWO STAGE (net 80% stack) - TEST, drive level - seed 1
+  stage 1 trees=268  candidates={'train_rows': 182304, 'train_positive_rows': 50343, 'train_positive_share': 0.2761486308583465, 'validation_rows': 251522, 'validation_positive_rows': 12865, 'early_stopping_rows': 251522, 'test_rows': 425329, 'test_positive_rows': 14750}
+  stage 2 trees=371  ceiling={'test_recall': 0.7976723366159355, 'test_recall_with_lead': 0.7976723366159355, 'validation_drive_share': 0.07151009595738984, 'test_drive_share': 0.058521600390014736}
+  recall>=5%: stage 1 alone P=0.760 R=0.051 (57/1117, FA=18)  |  two stage P=0.772 R=0.064 (71/1117, FA=21)  gap +0.012 [-0.044, +0.070]
+  recall>=10%: stage 1 alone P=0.680 R=0.090 (100/1117, FA=47)  |  two stage P=0.683 R=0.174 (194/1117, FA=90)  gap +0.003 [-0.059, +0.067]
+  recall>=20%: stage 1 alone P=0.615 R=0.173 (193/1117, FA=121)  |  two stage P=0.623 R=0.243 (271/1117, FA=164)  gap +0.008 [-0.030, +0.049]
+  recall>=35%: stage 1 alone P=0.473 R=0.318 (355/1117, FA=395)  |  two stage P=0.515 R=0.311 (347/1117, FA=327)  gap +0.042 [+0.021, +0.062]
+  recall>=50%: stage 1 alone P=0.372 R=0.420 (469/1117, FA=791)  |  two stage P=0.371 R=0.408 (456/1117, FA=772)  gap -0.001 [-0.013, +0.012]
+  recall>=60%: stage 1 alone P=0.265 R=0.509 (569/1117, FA=1580)  |  two stage P=0.272 R=0.508 (567/1117, FA=1517)  gap +0.007 [+0.001, +0.014]
+  recall>=70%: stage 1 alone P=0.144 R=0.619 (691/1117, FA=4117)  |  two stage P=0.145 R=0.624 (697/1117, FA=4107)  gap +0.001 [-0.001, +0.004]
+  recall>=80%: stage 1 alone P=0.042 R=0.798 (891/1117, FA=20236)  |  two stage P=0.043 R=0.795 (888/1117, FA=19829)  gap +0.001 [+0.000, +0.001]
+[2m2026-11-06T16:03:21.310101Z[0m [[32m[1minfo     [0m] [1mtwo_stage_stage1_done         [0m [36mseconds[0m=[35m180[0m [36mseed[0m=[35m2[0m
+[2m2026-11-06T16:03:48.630582Z[0m [[32m[1minfo     [0m] [1mtwo_stage_net_done            [0m [36mkind[0m=[35mlightgbm[0m [36mnet[0m=[35m0.5[0m [36mseconds[0m=[35m26[0m [36mseed[0m=[35m2[0m
+[2m2026-11-06T16:04:37.913110Z[0m [[32m[1minfo     [0m] [1mtwo_stage_net_done            [0m [36mkind[0m=[35mlightgbm[0m [36mnet[0m=[35m0.8[0m [36mseconds[0m=[35m49[0m [36mseed[0m=[35m2[0m
+[2m2026-11-06T16:06:18.920428Z[0m [[32m[1minfo     [0m] [1mtwo_stage_net_done            [0m [36mkind[0m=[35mcox[0m [36mnet[0m=[35m0.8[0m [36mseconds[0m=[35m101[0m [36mseed[0m=[35m2[0m
+[2m2026-11-06T16:07:42.038875Z[0m [[32m[1minfo     [0m] [1mtwo_stage_net_done            [0m [36mkind[0m=[35mstack[0m [36mnet[0m=[35m0.8[0m [36mseconds[0m=[35m83[0m [36mseed[0m=[35m2[0m
+
+#### TWO STAGE (net 50%) - TEST, drive level - seed 2
+  stage 1 trees=283  candidates={'train_rows': 15358, 'train_positive_rows': 13048, 'train_positive_share': 0.8495897903372835, 'validation_rows': 8075, 'validation_positive_rows': 3725, 'early_stopping_rows': 8075, 'test_rows': 12860, 'test_positive_rows': 4661}
+  stage 2 trees=103  ceiling={'test_recall': 0.39480752014324083, 'test_recall_with_lead': 0.39480752014324083, 'validation_drive_share': 0.0060448928405360085, 'test_drive_share': 0.003121779885433171}
+  recall>=5%: stage 1 alone P=0.762 R=0.043 (48/1117, FA=15)  |  two stage P=0.686 R=0.114 (127/1117, FA=58)  gap -0.075 [-0.171, +0.014]
+  recall>=10%: stage 1 alone P=0.698 R=0.087 (97/1117, FA=42)  |  two stage P=0.686 R=0.114 (127/1117, FA=58)  gap -0.011 [-0.082, +0.054]
+  recall>=20%: stage 1 alone P=0.584 R=0.181 (202/1117, FA=144)  |  two stage P=0.596 R=0.208 (232/1117, FA=157)  gap +0.013 [-0.025, +0.050]
+  recall>=35%: stage 1 alone P=0.505 R=0.272 (304/1117, FA=298)  |  two stage P=0.513 R=0.271 (303/1117, FA=288)  gap +0.008 [-0.018, +0.033]
+  recall>=50%: stage 1 alone P=0.391 R=0.395 (441/1117, FA=686)  |  two stage P=0.400 R=0.387 (432/1117, FA=648)  gap +0.009 [+0.003, +0.014]
+
+#### TWO STAGE (net 80%) - TEST, drive level - seed 2
+  stage 1 trees=283  candidates={'train_rows': 182582, 'train_positive_rows': 50171, 'train_positive_share': 0.27478612349519665, 'validation_rows': 248841, 'validation_positive_rows': 12982, 'early_stopping_rows': 248841, 'test_rows': 398117, 'test_positive_rows': 14561}
+  stage 2 trees=152  ceiling={'test_recall': 0.7923008057296329, 'test_recall_with_lead': 0.7923008057296329, 'validation_drive_share': 0.07025602727951641, 'test_drive_share': 0.05672941619669152}
+  recall>=5%: stage 1 alone P=0.762 R=0.043 (48/1117, FA=15)  |  two stage P=0.782 R=0.038 (43/1117, FA=12)  gap +0.020 [-0.064, +0.106]
+  recall>=10%: stage 1 alone P=0.698 R=0.087 (97/1117, FA=42)  |  two stage P=0.722 R=0.121 (135/1117, FA=52)  gap +0.024 [-0.034, +0.081]
+  recall>=20%: stage 1 alone P=0.584 R=0.181 (202/1117, FA=144)  |  two stage P=0.634 R=0.175 (196/1117, FA=113)  gap +0.050 [+0.026, +0.076]
+  recall>=35%: stage 1 alone P=0.505 R=0.272 (304/1117, FA=298)  |  two stage P=0.529 R=0.278 (310/1117, FA=276)  gap +0.024 [+0.002, +0.047]
+  recall>=50%: stage 1 alone P=0.391 R=0.395 (441/1117, FA=686)  |  two stage P=0.407 R=0.382 (427/1117, FA=621)  gap +0.016 [+0.002, +0.031]
+  recall>=60%: stage 1 alone P=0.265 R=0.509 (569/1117, FA=1575)  |  two stage P=0.281 R=0.498 (556/1117, FA=1424)  gap +0.015 [+0.009, +0.022]
+  recall>=70%: stage 1 alone P=0.148 R=0.620 (693/1117, FA=4004)  |  two stage P=0.129 R=0.633 (707/1117, FA=4766)  gap -0.018 [-0.021, -0.016]
+  recall>=80%: stage 1 alone P=0.043 R=0.792 (885/1117, FA=19595)  |  two stage P=0.044 R=0.791 (883/1117, FA=19350)  gap +0.000 [+0.000, +0.001]
+
+#### TWO STAGE (net 80% cox) - TEST, drive level - seed 2
+  stage 1 trees=283  candidates={'train_rows': 182582, 'train_positive_rows': 50171, 'train_positive_share': 0.27478612349519665, 'validation_rows': 248841, 'validation_positive_rows': 12982, 'early_stopping_rows': 248841, 'test_rows': 398117, 'test_positive_rows': 14561}
+  stage 2 trees=88  ceiling={'test_recall': 0.7923008057296329, 'test_recall_with_lead': 0.7923008057296329, 'validation_drive_share': 0.07025602727951641, 'test_drive_share': 0.05672941619669152}
+  recall>=5%: stage 1 alone P=0.762 R=0.043 (48/1117, FA=15)  |  two stage P=0.783 R=0.064 (72/1117, FA=20)  gap +0.021 [-0.063, +0.097]
+  recall>=10%: stage 1 alone P=0.698 R=0.087 (97/1117, FA=42)  |  two stage P=0.716 R=0.113 (126/1117, FA=50)  gap +0.018 [-0.043, +0.090]
+  recall>=20%: stage 1 alone P=0.584 R=0.181 (202/1117, FA=144)  |  two stage P=0.632 R=0.201 (225/1117, FA=131)  gap +0.048 [+0.009, +0.094]
+  recall>=35%: stage 1 alone P=0.505 R=0.272 (304/1117, FA=298)  |  two stage P=0.479 R=0.324 (362/1117, FA=393)  gap -0.026 [-0.049, -0.003]
+  recall>=50%: stage 1 alone P=0.391 R=0.395 (441/1117, FA=686)  |  two stage P=0.365 R=0.397 (444/1117, FA=774)  gap -0.027 [-0.040, -0.014]
+  recall>=60%: stage 1 alone P=0.265 R=0.509 (569/1117, FA=1575)  |  two stage P=0.270 R=0.505 (564/1117, FA=1527)  gap +0.004 [-0.001, +0.009]
+  recall>=70%: stage 1 alone P=0.148 R=0.620 (693/1117, FA=4004)  |  two stage P=0.143 R=0.625 (698/1117, FA=4199)  gap -0.005 [-0.007, -0.003]
+  recall>=80%: stage 1 alone P=0.043 R=0.792 (885/1117, FA=19595)  |  two stage P=0.044 R=0.791 (884/1117, FA=19419)  gap +0.000 [+0.000, +0.000]
+
+#### TWO STAGE (net 80% stack) - TEST, drive level - seed 2
+  stage 1 trees=283  candidates={'train_rows': 182582, 'train_positive_rows': 50171, 'train_positive_share': 0.27478612349519665, 'validation_rows': 248841, 'validation_positive_rows': 12982, 'early_stopping_rows': 248841, 'test_rows': 398117, 'test_positive_rows': 14561}
+  stage 2 trees=240  ceiling={'test_recall': 0.7923008057296329, 'test_recall_with_lead': 0.7923008057296329, 'validation_drive_share': 0.07025602727951641, 'test_drive_share': 0.05672941619669152}
+  recall>=5%: stage 1 alone P=0.762 R=0.043 (48/1117, FA=15)  |  two stage P=0.808 R=0.053 (59/1117, FA=14)  gap +0.046 [-0.034, +0.124]
+  recall>=10%: stage 1 alone P=0.698 R=0.087 (97/1117, FA=42)  |  two stage P=0.694 R=0.142 (159/1117, FA=70)  gap -0.004 [-0.059, +0.056]
+  recall>=20%: stage 1 alone P=0.584 R=0.181 (202/1117, FA=144)  |  two stage P=0.656 R=0.181 (202/1117, FA=106)  gap +0.072 [+0.042, +0.103]
+  recall>=35%: stage 1 alone P=0.505 R=0.272 (304/1117, FA=298)  |  two stage P=0.525 R=0.303 (338/1117, FA=306)  gap +0.020 [-0.001, +0.042]
+  recall>=50%: stage 1 alone P=0.391 R=0.395 (441/1117, FA=686)  |  two stage P=0.383 R=0.389 (434/1117, FA=698)  gap -0.008 [-0.021, +0.006]
+  recall>=60%: stage 1 alone P=0.265 R=0.509 (569/1117, FA=1575)  |  two stage P=0.272 R=0.503 (562/1117, FA=1501)  gap +0.007 [+0.002, +0.012]
+  recall>=70%: stage 1 alone P=0.148 R=0.620 (693/1117, FA=4004)  |  two stage P=0.137 R=0.630 (704/1117, FA=4441)  gap -0.011 [-0.013, -0.009]
+  recall>=80%: stage 1 alone P=0.043 R=0.792 (885/1117, FA=19595)  |  two stage P=0.043 R=0.792 (885/1117, FA=19591)  gap +0.000 [+0.000, +0.000]
+
+== net 50%
+
+#### TWO STAGE ACROSS SEEDS - TEST, drive level (means)
+  recall>=5% (3 seeds): stage 1 alone P=0.761 R=0.050  |  two stage P=0.686 R=0.069  |  precision gain -0.096 to -0.054; two stage better on precision and recall in 0/3; bootstrap gap -0.075, interval above 0 in 0/3
+  recall>=10% (3 seeds): stage 1 alone P=0.696 R=0.084  |  two stage P=0.685 R=0.102  |  precision gain -0.034 to +0.013; two stage better on precision and recall in 1/3; bootstrap gap -0.011, interval above 0 in 0/3
+  recall>=20% (3 seeds): stage 1 alone P=0.607 R=0.175  |  two stage P=0.616 R=0.191  |  precision gain -0.001 to +0.013; two stage better on precision and recall in 2/3; bootstrap gap +0.008, interval above 0 in 0/3
+  recall>=35% (3 seeds): stage 1 alone P=0.496 R=0.287  |  two stage P=0.492 R=0.286  |  precision gain -0.030 to +0.008; two stage better on precision and recall in 0/3; bootstrap gap -0.005, interval above 0 in 0/3
+  recall>=50% (3 seeds): stage 1 alone P=0.379 R=0.408  |  two stage P=0.388 R=0.401  |  precision gain +0.005 to +0.011; two stage better on precision and recall in 0/3; bootstrap gap +0.008, interval above 0 in 3/3
+
+== net 80%
+
+#### TWO STAGE ACROSS SEEDS - TEST, drive level (means)
+  recall>=5% (3 seeds): stage 1 alone P=0.761 R=0.050  |  two stage P=0.710 R=0.064  |  precision gain -0.126 to +0.020; two stage better on precision and recall in 0/3; bootstrap gap -0.052, interval above 0 in 0/3
+  recall>=10% (3 seeds): stage 1 alone P=0.696 R=0.084  |  two stage P=0.684 R=0.114  |  precision gain -0.084 to +0.024; two stage better on precision and recall in 2/3; bootstrap gap -0.013, interval above 0 in 0/3
+  recall>=20% (3 seeds): stage 1 alone P=0.607 R=0.175  |  two stage P=0.612 R=0.180  |  precision gain -0.050 to +0.050; two stage better on precision and recall in 1/3; bootstrap gap +0.005, interval above 0 in 1/3
+  recall>=35% (3 seeds): stage 1 alone P=0.496 R=0.287  |  two stage P=0.515 R=0.280  |  precision gain +0.009 to +0.024; two stage better on precision and recall in 1/3; bootstrap gap +0.018, interval above 0 in 2/3
+  recall>=50% (3 seeds): stage 1 alone P=0.379 R=0.408  |  two stage P=0.386 R=0.397  |  precision gain -0.010 to +0.016; two stage better on precision and recall in 0/3; bootstrap gap +0.007, interval above 0 in 2/3
+  recall>=60% (3 seeds): stage 1 alone P=0.266 R=0.509  |  two stage P=0.279 R=0.496  |  precision gain +0.010 to +0.015; two stage better on precision and recall in 0/3; bootstrap gap +0.013, interval above 0 in 3/3
+  recall>=70% (3 seeds): stage 1 alone P=0.145 R=0.621  |  two stage P=0.136 R=0.628  |  precision gain -0.018 to -0.002; two stage better on precision and recall in 0/3; bootstrap gap -0.008, interval above 0 in 0/3
+  recall>=80% (3 seeds): stage 1 alone P=0.044 R=0.792  |  two stage P=0.044 R=0.791  |  precision gain +0.000 to +0.001; two stage better on precision and recall in 1/3; bootstrap gap +0.000, interval above 0 in 3/3
+
+== net 80% cox
+
+#### TWO STAGE ACROSS SEEDS - TEST, drive level (means)
+  recall>=5% (3 seeds): stage 1 alone P=0.761 R=0.050  |  two stage P=0.768 R=0.070  |  precision gain -0.019 to +0.021; two stage better on precision and recall in 2/3; bootstrap gap +0.007, interval above 0 in 0/3
+  recall>=10% (3 seeds): stage 1 alone P=0.696 R=0.084  |  two stage P=0.706 R=0.134  |  precision gain -0.021 to +0.031; two stage better on precision and recall in 2/3; bootstrap gap +0.009, interval above 0 in 0/3
+  recall>=20% (3 seeds): stage 1 alone P=0.607 R=0.175  |  two stage P=0.637 R=0.212  |  precision gain +0.007 to +0.048; two stage better on precision and recall in 3/3; bootstrap gap +0.030, interval above 0 in 1/3
+  recall>=35% (3 seeds): stage 1 alone P=0.496 R=0.287  |  two stage P=0.503 R=0.312  |  precision gain -0.026 to +0.042; two stage better on precision and recall in 1/3; bootstrap gap +0.006, interval above 0 in 1/3
+  recall>=50% (3 seeds): stage 1 alone P=0.379 R=0.408  |  two stage P=0.366 R=0.408  |  precision gain -0.027 to -0.004; two stage better on precision and recall in 0/3; bootstrap gap -0.013, interval above 0 in 0/3
+  recall>=60% (3 seeds): stage 1 alone P=0.266 R=0.509  |  two stage P=0.265 R=0.515  |  precision gain -0.007 to +0.004; two stage better on precision and recall in 0/3; bootstrap gap -0.001, interval above 0 in 0/3
+  recall>=70% (3 seeds): stage 1 alone P=0.145 R=0.621  |  two stage P=0.142 R=0.627  |  precision gain -0.005 to -0.000; two stage better on precision and recall in 0/3; bootstrap gap -0.003, interval above 0 in 0/3
+  recall>=80% (3 seeds): stage 1 alone P=0.044 R=0.792  |  two stage P=0.044 R=0.790  |  precision gain +0.000 to +0.001; two stage better on precision and recall in 1/3; bootstrap gap +0.000, interval above 0 in 2/3
+
+== net 80% stack
+
+#### TWO STAGE ACROSS SEEDS - TEST, drive level (means)
+  recall>=5% (3 seeds): stage 1 alone P=0.761 R=0.050  |  two stage P=0.767 R=0.055  |  precision gain -0.042 to +0.046; two stage better on precision and recall in 2/3; bootstrap gap +0.005, interval above 0 in 0/3
+  recall>=10% (3 seeds): stage 1 alone P=0.696 R=0.084  |  two stage P=0.680 R=0.155  |  precision gain -0.049 to +0.003; two stage better on precision and recall in 1/3; bootstrap gap -0.017, interval above 0 in 0/3
+  recall>=20% (3 seeds): stage 1 alone P=0.607 R=0.175  |  two stage P=0.640 R=0.201  |  precision gain +0.008 to +0.072; two stage better on precision and recall in 3/3; bootstrap gap +0.033, interval above 0 in 1/3
+  recall>=35% (3 seeds): stage 1 alone P=0.496 R=0.287  |  two stage P=0.520 R=0.298  |  precision gain +0.011 to +0.042; two stage better on precision and recall in 2/3; bootstrap gap +0.024, interval above 0 in 1/3
+  recall>=50% (3 seeds): stage 1 alone P=0.379 R=0.408  |  two stage P=0.378 R=0.399  |  precision gain -0.008 to +0.004; two stage better on precision and recall in 0/3; bootstrap gap -0.002, interval above 0 in 0/3
+  recall>=60% (3 seeds): stage 1 alone P=0.266 R=0.509  |  two stage P=0.270 R=0.505  |  precision gain -0.000 to +0.007; two stage better on precision and recall in 0/3; bootstrap gap +0.005, interval above 0 in 2/3
+  recall>=70% (3 seeds): stage 1 alone P=0.145 R=0.621  |  two stage P=0.140 R=0.629  |  precision gain -0.011 to +0.001; two stage better on precision and recall in 1/3; bootstrap gap -0.005, interval above 0 in 0/3
+  recall>=80% (3 seeds): stage 1 alone P=0.044 R=0.792  |  two stage P=0.044 R=0.791  |  precision gain +0.000 to +0.001; two stage better on precision and recall in 2/3; bootstrap gap +0.000, interval above 0 in 2/3
+
+Two-stage results saved to data/audit/stack_q3_h60
+Logged to MLflow run 47d8ff0c058a4763a5c3ab105e656394
+
+Results saved to data/tmp/train_model_frame_xjxdieoe/experiment_results.json

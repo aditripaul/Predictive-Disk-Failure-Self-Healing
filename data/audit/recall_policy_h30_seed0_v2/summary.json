@@ -1,0 +1,203 @@
+{
+  "members": [
+    "lightgbm",
+    "lstm",
+    "aft",
+    "tcn"
+  ],
+  "weights": [
+    0.2,
+    0.0,
+    0.5,
+    0.3
+  ],
+  "recall_target": 0.6,
+  "lead_min": 1,
+  "warn_threshold": 0.9957882997525767,
+  "tiers": {
+    "cordon": 0.9973038578968265,
+    "migrate": 0.9993777106904873,
+    "drain": 0.9999692690206857
+  },
+  "validation_recall_at_far": {
+    "chosen": [
+      0.0721,
+      0.113,
+      0.2064
+    ],
+    "equal": [
+      0.0658,
+      0.1077,
+      0.194
+    ],
+    "precision-first best": [
+      0.0747,
+      0.1157,
+      0.218
+    ]
+  },
+  "windows": {
+    "validation": [
+      "2026-02-15",
+      "2026-03-31"
+    ],
+    "test": [
+      "2026-04-01",
+      "2026-05-31"
+    ]
+  },
+  "results": {
+    "validation": {
+      "1": {
+        "failing_drives_in_range": 1183,
+        "failing_drives_judged": 1124,
+        "warned_drives": 2808,
+        "caught_drives": 675,
+        "recall": 0.6005338078291815,
+        "recall_lead_7": 0.5400355871886121,
+        "warn_precision": 0.2403846153846154,
+        "median_lead_days": 25.0,
+        "carried_in_at_start": 1060,
+        "new_warns_per_day": 39.72727272727273,
+        "new_warns_peak_day": 97,
+        "tiers": {
+          "cordon": {
+            "escalated": 2013,
+            "caught": 604,
+            "precision": 0.30004967709885744
+          },
+          "migrate": {
+            "escalated": 760,
+            "caught": 360,
+            "precision": 0.47368421052631576
+          },
+          "drain": {
+            "escalated": 30,
+            "caught": 22,
+            "precision": 0.7333333333333333
+          }
+        },
+        "late_hits": {
+          "judged_warned_drives": 2808,
+          "late_hits": 222
+        },
+        "caught_then_escalated": 0.8948148148148148,
+        "watchlist_mean": 433.46666666666664,
+        "watchlist_peak": 510
+      },
+      "2": {
+        "failing_drives_in_range": 1183,
+        "failing_drives_judged": 1124,
+        "warned_drives": 2808,
+        "caught_drives": 675,
+        "recall": 0.6005338078291815,
+        "recall_lead_7": 0.5400355871886121,
+        "warn_precision": 0.2403846153846154,
+        "median_lead_days": 25.0,
+        "carried_in_at_start": 1060,
+        "new_warns_per_day": 39.72727272727273,
+        "new_warns_peak_day": 97,
+        "tiers": {
+          "cordon": {
+            "escalated": 1794,
+            "caught": 542,
+            "precision": 0.30211817168338906
+          },
+          "migrate": {
+            "escalated": 606,
+            "caught": 298,
+            "precision": 0.49174917491749176
+          },
+          "drain": {
+            "escalated": 20,
+            "caught": 15,
+            "precision": 0.75
+          }
+        },
+        "late_hits": {
+          "judged_warned_drives": 2808,
+          "late_hits": 222
+        },
+        "caught_then_escalated": 0.802962962962963,
+        "watchlist_mean": 547.2,
+        "watchlist_peak": 646
+      }
+    },
+    "test": {
+      "1": {
+        "failing_drives_in_range": 1508,
+        "failing_drives_judged": 1479,
+        "warned_drives": 3431,
+        "caught_drives": 925,
+        "recall": 0.625422582826234,
+        "recall_lead_7": 0.5185936443542934,
+        "warn_precision": 0.26960069950451765,
+        "median_lead_days": 21.0,
+        "carried_in_at_start": 1188,
+        "new_warns_per_day": 37.38333333333333,
+        "new_warns_peak_day": 139,
+        "tiers": {
+          "cordon": {
+            "escalated": 2499,
+            "caught": 837,
+            "precision": 0.3349339735894358
+          },
+          "migrate": {
+            "escalated": 947,
+            "caught": 519,
+            "precision": 0.5480464625131996
+          },
+          "drain": {
+            "escalated": 62,
+            "caught": 47,
+            "precision": 0.7580645161290323
+          }
+        },
+        "late_hits": {
+          "judged_warned_drives": 1041,
+          "late_hits": 12
+        },
+        "caught_then_escalated": 0.9048648648648648,
+        "watchlist_mean": 393.1290322580645,
+        "watchlist_peak": 501
+      },
+      "2": {
+        "failing_drives_in_range": 1508,
+        "failing_drives_judged": 1479,
+        "warned_drives": 3431,
+        "caught_drives": 925,
+        "recall": 0.625422582826234,
+        "recall_lead_7": 0.5185936443542934,
+        "warn_precision": 0.26960069950451765,
+        "median_lead_days": 21.0,
+        "carried_in_at_start": 1188,
+        "new_warns_per_day": 37.38333333333333,
+        "new_warns_peak_day": 139,
+        "tiers": {
+          "cordon": {
+            "escalated": 2199,
+            "caught": 752,
+            "precision": 0.3419736243747158
+          },
+          "migrate": {
+            "escalated": 770,
+            "caught": 426,
+            "precision": 0.5532467532467532
+          },
+          "drain": {
+            "escalated": 41,
+            "caught": 29,
+            "precision": 0.7073170731707317
+          }
+        },
+        "late_hits": {
+          "judged_warned_drives": 1041,
+          "late_hits": 12
+        },
+        "caught_then_escalated": 0.812972972972973,
+        "watchlist_mean": 487.80645161290323,
+        "watchlist_peak": 623
+      }
+    }
+  }
+}

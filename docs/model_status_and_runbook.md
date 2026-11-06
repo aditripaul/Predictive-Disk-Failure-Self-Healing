@@ -6,7 +6,8 @@
 > 2026-04/05 window. Section 4 is the
 > measurement record in the order it was produced; Section 5 holds the
 > lessons from the earlier Q1-only, 14-day work, which still apply. For a
-> shorter overview see `docs/system_summary.md`.
+> shorter overview see `docs/system_summary.md`. Section 1.8 maps every
+> number to its file under `data/audit/` and `frozen_runs/`.
 
 This document records what was run on real Backblaze data, what was learned,
 what is still open, and how to run the pipeline end to end. Numbers are
@@ -139,7 +140,7 @@ Every table in this section is generated from saved outputs, with no test-split 
         TABLES_ARGS="--status --recall-policy data/audit/recall_policy_h30_seed0_v2/summary.json \
         --cascade data/audit/cascade_wide_net_h30/experiment_two_stage.json"
 
-The two `data/audit` inputs are local and not committed. The rows below match that output
+The two `data/audit` inputs are tracked. The rows below match that output
 verbatim (checked 2026-11-06).
 
 Test window 2026-04-01 to 2026-05-31, **1,479 failing drives**. Each model's threshold was
@@ -262,8 +263,12 @@ model against its own labels, so the columns are not a like-for-like comparison)
 - The stated goal (90% precision at >= 10% recall) is **not met**: 59-63% at
   9-12.5% recall. The 30-day run is the model `score-fleet` and the agent now
   use (`primary_horizon_days: 30`, latest run for the horizon).
-- Validation overstates precision by 15-20 points in every run: a same-period
-  drive holdout is optimistic, as earlier same-period validation was.
+- Validation shows 15-20 points more precision than test in every run. That is
+  **the base rate, not overfitting** (Section 1.1.5): validation spans 121 days
+  in which 0.59% of drives fail, test 62 days with 0.30%. The ranking
+  transferred intact (AUROC 0.922 on validation, 0.926 on test; the same
+  recall at a matched false-alarm rate), and test precision restated at the
+  validation base rate is 73.9% against validation's 75.0%.
 - Precision at the strict operating points rises with the horizon, but the
   paired comparison below shows that is the base rate, not the model.
 - The 0.8 Stage 1 net kept 79-82% of failing Q3 drives, as it did on
@@ -301,8 +306,8 @@ exact.
 | ![60-day model: test precision-recall](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/test_precision_recall.png) | ![60-day model: test confusion matrices](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/test_confusion.png) |
 
 Validation curves and matrices (the same thresholds on the holdout that chose
-them) sit beside these in each bundle; the gap between the two is the
-optimism of a same-period holdout (15-20 points of precision, above). For
+them) sit beside these in each bundle; the precision gap between the two is
+mostly the higher validation base rate (above and Section 1.1.5). For
 example, the 30-day model on validation:
 
 | Precision-recall (validation) | Confusion matrices (validation) |
@@ -474,8 +479,499 @@ recall on test). The confusion matrices give the counts behind each marker.
 
 ![Cascade confusion matrices, 60-day](figures/q3_2026/cascade_h60_confusion.png)
 
-Looks at test: `data/audit/test_access_log.jsonl` lines 114-126 (3 training
-runs, 1 horizon comparison, 9 cascade seeds).
+**Commands that produced Section 1.1.4** (all from the repository root, 2026-11-06;
+times are IST, the access-log and log-file times are UTC; `ARGS`-style options are
+passed through `make` as shown). Each step names the code commit it ran at.
+
+*Data refresh to include Q3 2026.* Bronze, silver and gold from before the ingest
+were first copied to `data/tmp/backup_pre_q3_20261106/` (local, not committed).
+
+| # | Command | Code | What it did |
+|---|---|---|---|
+| 1 | `make download-backblaze ARGS="--quarters Q3_2026"` | `e226bdb` | Downloaded the Q3 2026 archive |
+| 2 | `make ingest-backblaze ARGS="--start-date 2026-07-01 --end-date 2026-09-30"` | `e226bdb` | Bronze for July to September (92 days) |
+| 3 | `make build-silver` | `5a93d86` | Silver; `build_drive_metadata` in 8 hash partitions (`resource_limits.drive_metadata_partitions`) to stay under the 20 GB cap |
+| 4 | `make build-features` | `f8bab86` | Gold features, rebuilt after the fix that computes the model-family z-score statistics and each model's expected attributes on rows before `sealed_start` only (the first build, before the fix, was replaced; the code was committed after the rebuild started) |
+| 5 | `make build-labels` | `edeb1b3` | Labels for horizons 30, 44, 60 with a 20% drive holdout, at 14:49 |
+
+*Training* (`data/audit/q3_logs/run_q3.sh` in this order; code `edeb1b3`, the two
+later runs also saw the docs-only commits `b81a0ff` and `9dbadd8`, which is why
+access-log lines 115 and 116 show `9dbadd8`):
+
+```bash
+make train TRAIN_TAG=h30_q1q2_q3 TRAIN_ARGS="--horizon-days 30 --keep-work-dir --save-scores"   # line 114, run c459046e
+make train TRAIN_TAG=h44_q1q2_q3 TRAIN_ARGS="--horizon-days 44 --keep-work-dir --save-scores"   # line 115, run a2cd06d5
+make train TRAIN_TAG=h60_q1q2_q3 TRAIN_ARGS="--horizon-days 60 --keep-work-dir --save-scores"   # line 116, run 804a20ce
+```
+
+Kept work directories (`data/tmp/`, local): `train_model_frame_fag3o60h` is the 30-day
+run, `train_model_frame_ff5ejt7a` the 44-day, `train_model_frame_xjxdieoe` the 60-day.
+Score tables: `data/tmp/lightgbm_scores_h<H>_h<H>_q1q2_q3.parquet`.
+
+*Horizon comparison* (code `6c61e35`, line 117):
+
+```bash
+uv run python scripts/compare_horizons.py \
+    --scores 30=data/tmp/lightgbm_scores_h30_h30_q1q2_q3.parquet \
+             44=data/tmp/lightgbm_scores_h44_h44_q1q2_q3.parquet \
+             60=data/tmp/lightgbm_scores_h60_h60_q1q2_q3.parquet
+```
+
+*Cascade and survival Stage 2* (`data/audit/q3_logs/run_cascade.sh`, 3 seeds each, lines
+118-126; code `6c61e35` for the 30-day seeds 0-1 and `3bfe609` after, which changed only
+config comments, docs and a docstring; nets, Stage 2 kinds, survival parameters and
+seeds come from `configs/model.yaml` `model.two_stage.experiment`):
+
+```bash
+make experiment-model EXPERIMENT_ARGS="--work-dir data/tmp/train_model_frame_fag3o60h --variants --skip-baseline --two-stage --two-stage-out data/audit/cascade_q3_h30"
+make experiment-model EXPERIMENT_ARGS="--work-dir data/tmp/train_model_frame_ff5ejt7a --variants --skip-baseline --two-stage --two-stage-out data/audit/cascade_q3_h44"
+make experiment-model EXPERIMENT_ARGS="--work-dir data/tmp/train_model_frame_xjxdieoe --variants --skip-baseline --two-stage --two-stage-out data/audit/cascade_q3_h60"
+```
+
+*Tables and figures in this section:*
+
+```bash
+# generated cascade tables (10%, 35% and 60% levels), one per horizon
+make merged-tables REPORT=frozen_runs/fb58d9576c6146ba94c13389005fa15b/merged_evaluation_report.json \
+    TABLES_ARGS="--cascade data/audit/cascade_q3_h30/experiment_two_stage.json --cascade-levels 0.10 0.35 0.60"
+# (repeat with cascade_q3_h44 and cascade_q3_h60)
+# figures embedded above: copies of the seed-0 cascade and horizon-comparison figures
+cp data/audit/cascade_q3_h<H>/figures/cascade_{precision_recall,confusion}_seed0.png docs/figures/q3_2026/   # renamed cascade_h<H>_*.png
+cp data/audit/horizon_q3/figures/labels_<H>d_{precision_recall,confusion}.png docs/figures/q3_2026/horizon_labels_<H>d_*.png
+```
+
+*Frozen bundles.* `frozen_runs/<run id>/` were assembled by following the steps in
+`frozen_runs/README.md` ("Adding a run") with an inline script that is not kept in the
+repository; every file is checked by `cd frozen_runs/<run id> && sha256sum -c SHA256SUMS`.
+
+*Test looks:* `data/audit/test_access_log.jsonl` lines 114-126 (3 training runs, 1
+horizon comparison, 9 cascade seeds).
+
+### 1.1.4a A stacked Stage 2: LightGBM + Cox (run 2026-11-06, small strict-end gain, not confirmed, outputs frozen)
+
+Question: does a blend of the LightGBM and Cox Stage 2 re-rank the Stage 1
+candidates better than either alone? Section 1.1.4 found Cox matches LightGBM
+within about 1 point at every level, so any gain would sit at the strict end.
+
+**Method.** A new Stage 2 kind, `stack` (`src/models/stacking.py`), blends the
+two Stage 2 models already fitted for the same net; nothing is retrained. Each
+member's score becomes its rank against that member's validation candidate
+scores (`src/models/ensemble.py::validation_rank`, so test is not used), and
+the weights are searched on a 0.1 simplex grid for drive-level average
+precision on the validation candidates. The members early-stopped on the same
+validation rows, so the blend's validation score is optimistic; only the paired
+test comparison counts. A stack is compared, not deployed (`log_two_stage`
+accepts a LightGBM Stage 2 only). Same settings as Section 1.1.4: nets 0.5 and
+0.8, survival nets 0.8, 3 seeds, paired drive bootstrap against Stage 1 alone
+and against the LightGBM Stage 2 (`paired_vs_lightgbm`).
+
+**Commands.** The Q3 runs below read the kept work directories of the three
+Q1+Q2 -> Q3 training runs (`data/tmp/train_model_frame_fag3o60h` for 30 days,
+`ff5ejt7a` for 44, `xjxdieoe` for 60). Run from the repository root:
+
+```bash
+# 1. The runs this one repeats (Section 1.1.4); scripts as run on 2026-11-06:
+bash data/audit/q3_logs/run_q3.sh        # build-labels, then make train per horizon
+                                         #   TRAIN_ARGS="--horizon-days H --keep-work-dir --save-scores"
+bash data/audit/q3_logs/run_cascade.sh   # make experiment-model ... --two-stage, kinds from config
+
+# 2. The stacked run: lightgbm + cox + stack, per horizon
+bash data/audit/stack_q3_logs/run_stack.sh "$PWD"
+#   which runs, for H in 30 (fag3o60h), 44 (ff5ejt7a), 60 (xjxdieoe):
+make experiment-model EXPERIMENT_ARGS="--work-dir data/tmp/train_model_frame_<dir> \
+  --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack \
+  --two-stage-out data/audit/stack_q3_h<H>"
+
+# 3. Tests of the new code
+uv run pytest tests/unit/test_two_stage.py
+```
+
+The three horizons are the three frozen runs of Section 1.1.4. The experiment
+reads the data and kept work directory of each and refits Stage 1 and the Stage 2
+models per seed; it does not load the frozen models (`frozen_runs/README.md`).
+
+| Horizon | Frozen run folder (`frozen_runs/<id>/`) | Tag | Kept work dir | Stack output |
+|---|---|---|---|---|
+| 30 days | `c459046e4f1645169151e7be25ff064d` (the current model) | `h30_q1q2_q3` | `fag3o60h` | `data/audit/stack_q3_h30/` |
+| 44 days | `a2cd06d53e624c09b0d12f81076def8a` | `h44_q1q2_q3` | `ff5ejt7a` | `data/audit/stack_q3_h44/` |
+| 60 days | `804a20cec10048abb1bc3ccf510f96e1` | `h60_q1q2_q3` | `xjxdieoe` | `data/audit/stack_q3_h60/` |
+
+Each run appends a line to `data/audit/test_access_log.jsonl` and writes
+`experiment_results.json` into the work directory, as the Section 1.1.4 run
+did. Outputs: `data/audit/stack_q3_h30/`, `_h44/`, `_h60/` (`tables.md`,
+`experiment_two_stage.json`, `figures/`, `code.patch` = the uncommitted diff at
+launch) and `data/audit/stack_q3_logs/` (the launcher and one log per horizon).
+The table headed "Survival Stage 2 against the LightGBM Stage 2" also lists the
+stack; the numbers are right, the heading predates the stack kind.
+
+**Results** (Q3 2026 test, per drive, 0.8 net, mean of 3 seeds, thresholds from
+validation; run 2026-11-06 20:12-21:37 IST; the LightGBM and Cox rows reproduce
+the Section 1.1.4 tables exactly, so the repeat is consistent with that run).
+Precision / recall at each recall level; the last column is the stack minus
+the LightGBM Stage 2 in **precision points only**, with how many of the 3 seeds
+have the paired 95% interval above / below 0. Read it with the recall columns
+beside it and with the two tables below: each model's threshold is set on
+validation for a recall target, so on test the models land at different recall
+and flag different numbers of drives, and precision alone is not a fair
+comparison between them (the 60-day 10% row is the clearest case):
+
+| Horizon | Level | Stage 1 alone | LightGBM Stage 2 | Cox | Stack | Stack minus LightGBM |
+|---|---|---|---|---|---|---|
+| 30 | 10% | 56.5% | 61.7% / 10.4% | 61.0% / 15.7% | **64.9% / 11.6%** | +3.2 (1 / 0) |
+| 30 | 35% | 41.6% | 42.3% / 36.3% | 40.7% / 37.0% | 41.7% / 37.2% | -0.5 (0 / 0) |
+| 30 | 60% | 20.1% | 19.9% / 58.6% | 20.3% / 58.3% | 19.9% / 58.9% | 0.0 (0 / 0) |
+| 44 | 10% | 59.0% | 58.4% / 15.4% | 63.2% / 16.1% | **64.6% / 14.1%** | +6.1 (3 / 0) |
+| 44 | 35% | 45.2% | 45.9% / 32.7% | 45.1% / 35.1% | 45.9% / 34.2% | 0.0 (0 / 0) |
+| 44 | 60% | 23.2% | 23.1% / 55.7% | 22.9% / 56.5% | 23.4% / 56.2% | +0.3 (1 / 1) |
+| 60 | 10% | 69.6% | 68.4% / 11.4% | 70.6% / 13.4% | 68.0% / 15.5% | -0.4 (0 / 0) |
+| 60 | 35% | 49.6% | 51.5% / 28.0% | 50.3% / 31.2% | 52.0% / 29.8% | +0.6 (1 / 0) |
+| 60 | 60% | 26.6% | 27.9% / 49.6% | 26.5% / 51.5% | 27.0% / 50.5% | -0.9 (0 / 3) |
+
+**Both axes at the 10% level, per seed** (stack minus LightGBM Stage 2, points,
+paired 95% interval in brackets; **bold** = interval entirely above 0, *italic*
+= entirely below 0):
+
+| Horizon | Seed | Precision | Recall | Drives caught, LightGBM / Cox / stack |
+|---|---|---|---|---|
+| 30 | 0 | +2.4 [-1.7, +6.6] | **+1.9** [+0.5, +3.2] | 120 / 221 / 141 |
+| 30 | 1 | **+5.3** [+1.2, +9.8] | +0.5 [-0.6, +1.6] | 119 / 159 / 124 |
+| 30 | 2 | +1.9 [-2.5, +6.0] | **+1.1** [+0.2, +2.0] | 107 / 140 / 119 |
+| 44 | 0 | **+5.3** [+2.5, +8.4] | -0.8 [-1.7, +0.1] | 164 / 259 / 155 |
+| 44 | 1 | **+8.8** [+4.6, +13.3] | -1.0 [-2.2, +0.2] | 142 / 148 / 131 |
+| 44 | 2 | **+4.3** [+1.4, +7.6] | *-2.2* [-3.5, -0.9] | 206 / 126 / 182 |
+| 60 | 0 | +3.5 [-0.4, +7.7] | **+3.8** [+2.5, +5.0] | 124 / 200 / 166 |
+| 60 | 1 | -2.0 [-7.7, +3.5] | **+6.4** [+4.8, +8.0] | 123 / 123 / 194 |
+| 60 | 2 | -2.8 [-7.1, +1.7] | **+2.1** [+1.1, +3.3] | 135 / 126 / 159 |
+
+- 30 and 60 days: in every seed the stack is better on at least one axis and
+  significantly worse on none. At 60 days it catches more drives in 3 / 3 seeds
+  at a precision whose interval includes 0, which a precision-only reading (-0.4)
+  hid. 44 days is a trade: higher precision in 3 / 3 seeds, but fewer drives
+  caught in all three (significantly so in one).
+
+**Matched budget: failing drives caught when exactly K drives are flagged**
+(mean of 3 seeds; no thresholds involved; "seeds" = in how many of the 3 seeds
+the stack catches more than that model):
+
+| Horizon | K | LightGBM | Cox | Stack | Stack > LightGBM | Stack > Cox |
+|---|---|---|---|---|---|---|
+| 30 | 100 | 64.7 | 70.7 | 69.0 | 3 / 3 | 0 / 3 |
+| 30 | 250 | 146.3 | 156.7 | 153.7 | 3 / 3 | 0 / 3 |
+| 30 | 500 | 266.0 | 267.3 | 270.3 | 3 / 3 | 3 / 3 |
+| 30 | 1,000 | 413.0 | 408.0 | 415.0 | 2 / 3 | 3 / 3 |
+| 44 | 100 | 67.3 | 73.0 | 72.7 | 3 / 3 | 1 / 3 |
+| 44 | 250 | 149.0 | 162.7 | 159.3 | 3 / 3 | 1 / 3 |
+| 44 | 500 | 267.3 | 271.7 | 274.0 | 3 / 3 | 3 / 3 |
+| 44 | 1,000 | 415.7 | 419.3 | 417.3 | 1 / 3 | 0 / 3 |
+| 60 | 100 | 70.7 | 76.3 | 75.0 | 3 / 3 | 1 / 3 |
+| 60 | 250 | 161.3 | 174.7 | 167.7 | 3 / 3 | 0 / 3 |
+| 60 | 500 | 276.0 | 284.7 | 287.3 | 3 / 3 | 3 / 3 |
+| 60 | 1,000 | 413.3 | 409.3 | 414.3 | 1 / 3 | 1 / 3 |
+
+![Failing drives caught at the same number of drives flagged, Cox and the stack against the LightGBM Stage 2, three seeds per horizon](figures/q3_2026/stack_topk_caught.png)
+
+*Q3 2026 test, 0.8 net. Each dot is one seed, the difference being taken within
+the seed against the LightGBM Stage 2; the line is the mean over the 3 seeds. The
+K drives are the highest-scored of each model, so no threshold is involved.
+Drawn by `scripts/plot_stack_topk.py` from the saved `top_k` results of the three
+stack folders; no new look at the test set.* Up to K = 500 the stack is above zero
+in every seed in all three horizons (9 of 9 seed-and-K points each, +1 to +14);
+Cox is above zero in 25 of 27, with a larger spread (up to +26 in a seed); from
+K = 1,000 the differences are mixed in sign (stack -6 to +13, Cox -21 to +13).
+
+**Reading.**
+- **A small, consistent strict-end gain over LightGBM.** Flagging the same
+  number of drives, the stack catches more failing drives than LightGBM at K =
+  100, 250 and 500 in 3 / 3 seeds in all three horizons: about 4 to 11 more
+  drives out of about 1,100 failing (0.4 to 1 point of recall). From K = 1,000
+  there is no consistent difference, and above about 35% recall the curves
+  coincide (the figures below).
+- **At K = 100 and 250 the gain is Cox's, not the blend's.** Cox alone catches
+  as many or more than the stack there (the stack beats Cox in 0 to 1 seeds). At
+  K = 500 the stack beats both LightGBM and Cox in 3 / 3 seeds in every horizon,
+  the only place a blend adds something over its better member.
+- **The same applies to the 44-day precision gain:** Cox alone reaches 63.2% at
+  the 10% level against 58.4% for LightGBM, so the stack's +6.1 is +1.4 over
+  Cox.
+- **Not confirmed, because the evidence is weaker than "3 / 3" sounds.** (1)
+  The matched-K counts have no confidence intervals. (2) The three seeds share
+  the same test drives, so they are not independent samples of the test set.
+  (3) This is a second look at the same data after the precision-only reading
+  and the rule suggested before the run (interval above 0 in at least 2 of 3
+  seeds at both 10% and 35% recall, met by no horizon, written in conversation
+  and not in a file) disagreed, so which view is "the" result was not fixed in
+  advance. (4) Q3 is already a test set. Treat the K <= 500 gain as a lead.
+- **The weights are not stable:** LightGBM / Cox 0.4 / 0.6, 0.5 / 0.5 and 0.6 /
+  0.4 at 30 days; 0.5 / 0.5, 0.4 / 0.6 and 0.3 / 0.7 at 44; 0.5 / 0.5, 0.3 /
+  0.7 and 0.5 / 0.5 at 60. Validation drive-level average precision of the
+  stack is 0.544-0.547 (30), 0.573-0.581 (44), 0.587-0.596 (60), within about
+  0.01 of either member and partly optimistic (members early-stopped on the
+  same rows).
+- **Not adopted.** The production Stage 2 stays the LightGBM at the 0.8 net
+  (`c459046e` and the 44- and 60-day runs). A confirmation needs an untouched
+  quarter, one stated metric (caught drives at a fixed number flagged, with a
+  paired interval), Cox alone as a third arm, and the rules of
+  `docs/q3_horizon_and_cascade_run.md` section 6.
+
+**Figures** (seed 0 only; the table above averages three seeds; copies of
+`data/audit/stack_q3_h<H>/figures/cascade_*_seed0.png` in `docs/figures/q3_2026/`,
+named `stack_h<H>_*.png`). The precision-recall curves of Stage 1 alone, the 0.5
+and 0.8 LightGBM nets, Cox and the stack coincide above about 35% recall; the
+markers are the 10% and 60% recall levels, with thresholds from validation, so
+each model's marker lands at a different test recall. The confusion matrices
+give the counts behind each marker, and are exact.
+
+**These curves cannot show the strict end, where the stack differs.** The figure
+code draws about 2,000 of the roughly 360,000 points of each drive-level curve,
+evenly spaced, so the highest-scored 500 drives, the region of the matched-budget
+table below, are drawn with about three points and appear as straight segments
+(the 60-day 0.8 LightGBM curve is one: its own 10% marker lies about 25 points
+below it). Do not read differences below about 30% recall from them. Marker colours
+follow matplotlib's cycle, not the curve they belong to (a green marker is not on
+the green curve). Redrawing them needs the per-drive scores, which these runs did
+not save. The matched-budget figure after the table uses the saved top-K counts
+instead.
+
+| 30-day | 44-day | 60-day |
+|---|---|---|
+| ![Stack precision-recall, 30-day](figures/q3_2026/stack_h30_precision_recall.png) | ![Stack precision-recall, 44-day](figures/q3_2026/stack_h44_precision_recall.png) | ![Stack precision-recall, 60-day](figures/q3_2026/stack_h60_precision_recall.png) |
+
+![Stack confusion matrices, 30-day](figures/q3_2026/stack_h30_confusion.png)
+
+![Stack confusion matrices, 44-day](figures/q3_2026/stack_h44_confusion.png)
+
+![Stack confusion matrices, 60-day](figures/q3_2026/stack_h60_confusion.png)
+
+**Frozen outputs.** Do not re-run into these folders (the runner refuses to
+overwrite) and do not edit them. SHA-256 prefixes (first 16), full list in
+`data/audit/stack_q3_logs/CHECKSUMS.sha256`; verify from the repository root
+with `sha256sum -c data/audit/stack_q3_logs/CHECKSUMS.sha256`:
+
+| File | SHA-256 (first 16) |
+|---|---|
+| `stack_q3_h30/experiment_two_stage.json` | `28e34940a6c1a904` |
+| `stack_q3_h44/experiment_two_stage.json` | `2cebafd0a4210cac` |
+| `stack_q3_h60/experiment_two_stage.json` | `38ec83854ab4e699` |
+| `stack_q3_h30/tables.md`, `_h44/`, `_h60/` | `c4c275ba13058c8a`, `ffc7bfb976d6240d`, `34344e99f016b60c` |
+| `stack_q3_logs/run_stack.sh` | `b44c437016a87086` |
+
+These folders are tracked (`.gitignore`, `data/audit/README.md`); the checksums
+let a later reader detect a changed file. MLflow runs: `5ab8f0bb` (30 days), `7a568b77` (44), `47d8ff0c` (60).
+
+**Overlap check, not yet reproducible.** A drive-level comparison of the
+`cox` and `lightgbm` columns of `data/tmp/merged/merged_scores_h30_h30_seed0.parquet`
+(April-May test window, Cox as a standalone model, not as a Stage 2) found
+Spearman 0.90 and, at a false-alarm rate of 1e-4, 22 failing drives shared of
+54 (LightGBM) and 92 (Cox); at 1e-3, 322 shared of 397 and 415. That script
+was a one-off in a scratch directory and is not in the repository.
+
+### 1.1.5 Deep dive into the 30-day Q3 run (2026-11-06)
+
+What sits under the 30-day numbers of Section 1.1.4: which failing drives are
+missed and why, who the false alarms are, how stable Q3 was week by week, and
+why validation precision runs above test. Frozen run `c459046e`, its own
+thresholds (Stage 1 0.235, warn 0.653, cordon 0.836, primary 0.919), per drive
+on Q3 2026 (1,105 failing and 367,583 healthy drives). Script
+`scripts/deep_dive_q3.py`; outputs `data/audit/deep_dive_q3_h30/` (`tables.md`
+holds every table, including the full week-by-week one). Test looks: lines
+127 and 129 of the access log; line 128 is a run stopped before it computed
+anything (it used the unfixed age column).
+
+Commands (code `f2e1805`; line 129 also had the power-on-hours age fix that commit
+`42c2a89` contains):
+
+```bash
+uv run python scripts/deep_dive_q3.py --run-dir frozen_runs/c459046e4f1645169151e7be25ff064d \
+    --scores data/tmp/lightgbm_scores_h30_h30_q1q2_q3.parquet \
+    --test-ids data/tmp/train_model_frame_fag3o60h/test_ids.parquet           # line 127 (age column unfixed)
+# the same with --overwrite after the age fix                                 # line 129 (line 128: stopped early)
+uv run python scripts/deep_dive_q3.py --run-dir x --scores x --test-ids x --figures-only   # redraw figures from the JSON, no test look
+```
+
+**Missed failures.** Each failing drive placed at the strictest point that
+catches it. "Core counter" = the six priority SMART counters; "warned before
+window" = flagged at warn more than 30 days before failing; lead = days from the
+first alert at the group's own point to failure.
+
+| Group | Drives | Share | Any core counter > 0 | Counter rose in window | Active defects (median) | Telemetry coverage | Power-on age (years, median) | Warned before window | Median lead (days) |
+|---|---|---|---|---|---|---|---|---|---|
+| caught at primary | 138 | 12.5% | 92.0% | 75.4% | 4324 | 0.83 | 5.5 | 42.8% | 14 |
+| caught at cordon only | 331 | 30.0% | 96.7% | 72.2% | 1866 | 0.81 | 5.5 | 42.6% | 16 |
+| caught at warn only | 204 | 18.5% | 99.5% | 66.7% | 703 | 0.95 | 5.2 | 43.1% | 21 |
+| passed Stage 1, below warn | 210 | 19.0% | 82.4% | 38.6% | 40 | 0.99 | 3.6 | 12.9% | 26 |
+| never passed Stage 1 | 222 | 20.1% | 21.6% | 1.4% | 0 | 0.96 | 2.9 | 0.0% | - |
+
+![Where each failing drive stops, and its SMART evidence](../data/audit/deep_dive_q3_h30/figures/missed_failures.png)
+
+- **The roughly 20% that Stage 1 never passes are silent.** 98.6% of them show
+  no rise in any core counter in the 30 days before failing, with complete
+  telemetry (coverage 0.96), so it is not missing data. Overall 21.2% of
+  failing drives have every core counter at zero throughout; Stage 1 passes
+  25.6% of them and 94.5% of the rest. That is the recall ceiling, and only new
+  information can move it.
+- **They are young:** median power-on age 2.9 years against 5.5 for drives
+  caught at the primary threshold. Silent failures are mostly early-life ones.
+- **Many catches come early:** 43% of caught drives were already flagged at
+  warn more than 30 days before failing, which the 30-day label does not count.
+- By family, the primary point is mostly Seagate; Western Digital reaches 78%
+  at Stage 1 but 1.2% at primary, HGST 92% at Stage 1 and 82% at warn but 7% at
+  primary:
+
+| Family | Failing | Stage 1 recall | Warn recall | Primary recall | No core signal |
+|---|---|---|---|---|---|
+| Seagate HDD | 537 | 80.8% | 63.7% | 18.4% | 23.6% |
+| Toshiba HDD | 247 | 71.7% | 54.7% | 10.5% | 26.7% |
+| Western Digital HDD | 165 | 78.2% | 42.4% | 1.2% | 17.6% |
+| HGST HDD | 153 | 92.2% | 82.4% | 7.2% | 5.9% |
+| WUH721816ALE6L4 | 3 | 66.7% | 0.0% | 0.0% | 100.0% |
+
+**False alarms.** The healthy drives flagged at each point. "Failed later" is
+limited by the data, which ends 2026-09-30.
+
+| Point | Flagged healthy | Still active | Removed without failure | Failed later | Any core counter > 0 (fleet) | Counter rose | Power-on age, years (fleet) |
+|---|---|---|---|---|---|---|---|
+| stage1 | 22,463 | 97.6% | 2.3% | 23 | 59.8% (8.9%) | 39.6% | 3.9 (3.5) |
+| warn | 3,208 | 90.4% | 9.0% | 20 | 99.8% (8.9%) | 87.5% | 5.4 (3.5) |
+| cordon | 877 | 79.6% | 18.5% | 17 | 99.3% (8.9%) | 86.7% | 5.7 (3.5) |
+| primary | 96 | 60.4% | 35.4% | 4 | 97.9% (8.9%) | 81.2% | 5.5 (3.5) |
+
+![What the false alarms are, by operating point](../data/audit/deep_dive_q3_h30/figures/false_alarm_outcomes.png)
+
+- **False alarms are damaged drives, not noise:** 98-99.8% of those at warn and
+  above have a non-zero core counter, against 8.9% of the healthy fleet, and
+  they are older (median 5.4-5.7 years against 3.5).
+- **The stricter the point, the more of its false alarms were removed from
+  service anyway:** 2.3% at Stage 1, 9.0% at warn, 18.5% at cordon, 35.4% at
+  primary. Counting removals as correct would take primary precision from 59%
+  to about 74%; that is a definition to decide, not a result.
+- **HGST is 4.2 times over-represented among warn false alarms**, Seagate 2.2
+  times among primary ones:
+
+| Family | Flagged | Share | Fleet share | Lift |
+|---|---|---|---|---|
+| HGST HDD | 925 | 28.8% | 6.9% | 4.2 |
+| Seagate HDD | 884 | 27.6% | 30.3% | 0.9 |
+| Toshiba HDD | 793 | 24.7% | 36.1% | 0.7 |
+| Western Digital HDD | 604 | 18.8% | 25.7% | 0.7 |
+| WUH721816ALE6L4 | 2 | 0.1% | 0.2% | 0.4 |
+
+| Family | Flagged | Share | Fleet share | Lift |
+|---|---|---|---|---|
+| Seagate HDD | 64 | 66.7% | 30.3% | 2.2 |
+| Toshiba HDD | 24 | 25.0% | 36.1% | 0.7 |
+| HGST HDD | 8 | 8.3% | 6.9% | 1.2 |
+
+**Week by week** (thresholds fixed; a drive is failing in a week if it has a
+positive row in it; full table in `data/audit/deep_dive_q3_h30/tables.md`).
+Primary recall stays at 6-8% and warn recall at 45-53% in all nine Q3 weeks;
+primary precision is 36-43% in most weeks and 57-58% in the last two, as
+failing drives per week fell from 461 to 352. Weekly figures are below the
+62-day ones because each week is a shorter window with a lower base rate. The
+share of drives passing Stage 1 rises from 3.4% to 3.8% across Q3 and is above
+every validation week (2.0-3.4%) with no matching rise in failures: SMART
+counters only accumulate, so more healthy drives look suspicious over time. A
+2x drift threshold would never fire on this; a weekly trend check would.
+
+![Week by week on Q3 and on validation](../data/audit/deep_dive_q3_h30/figures/weekly_stability.png)
+
+**Validation against test.** The 15-20 point precision gap is the base rate,
+not overfitting:
+
+| | Window | Drives | Failing | Base rate | AUROC | Recall at 0.01% / 0.1% false alarms | Primary P / R / false-alarm rate | Warn P / R |
+|---|---|---|---|---|---|---|---|---|
+| validation | 121 d | 70,977 | 418 | 0.589% | 0.922 | 3.8% / 30.6% | 75.0% / 10.0% / 0.020% | 33.3% / 63.6% |
+| validation, last 62 days | 62 d | 70,638 | 295 | 0.418% | 0.947 | 4.1% / 36.6% | 68.3% / 9.5% / 0.018% | 30.1% / 69.2% |
+| test | 62 d | 368,688 | 1,105 | 0.300% | 0.926 | 4.2% / 30.4% | 59.0% / 12.5% / 0.026% | 17.3% / 60.9% |
+
+| Point | Validation precision | Test precision | Test restated at the validation base rate | Validation restated at the test base rate |
+|---|---|---|---|---|
+| warn | 33.3% | 17.3% | 29.2% | 20.2% |
+| cordon | 55.7% | 34.8% | 51.3% | 38.9% |
+| primary | 75.0% | 59.0% | 73.9% | 60.4% |
+
+![Validation against test, restated at the validation base rate](../data/audit/deep_dive_q3_h30/figures/validation_vs_test.png)
+
+- **The ranking transferred intact:** AUROC 0.922 on validation and 0.926 on
+  test, the same recall at matched false-alarm rates.
+- **The base rate explains about 90% of the primary gap.** Validation spans
+  121 days with 0.59% failing drives, test 62 days with 0.30%. At the
+  validation base rate, test precision would be 73.9% (validation 75.0%).
+- **Drives first seen after training** (18,698, 33 failing) have the same
+  precision but lower recall (9% at primary and 52% at warn, against 13% and
+  61%), probably because their features have less history. Suggestive only, on
+  33 failing drives.
+
+**Candidates these findings point to** (untested): a separate warn threshold
+for HGST; reporting removed-without-failure drives as their own outcome when
+judging alerts; a weekly trend monitor on the Stage 1 pass share; features that
+could see early-life failures, the one group SMART does not reach.
+
+### 1.1.6 Cluster-based action policy (2026-11-06; rule not passed)
+
+Method, rule and results: `docs/cluster_action_policy.md`; outputs
+`data/audit/cluster_policy_h30/`. The idea: cluster the Stage 1 suspects by SMART
+signature (never the score or the vendor) and let the agent's action depend on
+(tier, cluster) instead of the tier alone, judged on Q3 against the tier-only policy
+with the rule written down before the Q3 look.
+
+**Clusters** (GMM, 4 clusters, chosen on validation from a 35-candidate ablation by
+stability and failure-rate separation within band; `tables.md`):
+
+| Cluster | Name | Share of suspects (Q3) | Failure rate validation / Q3 | Action kind |
+|---|---|---|---|---|
+| C0 | no clear damage | 53.5% (49.6%) | 1.1% / 0.7% | watch |
+| C1 | reallocated sectors rising, defect acceleration | 14.9% (14.3%) | 4.7% / 2.7% | replace |
+| C2 | pending sectors, pending vs reallocated | 22.1% (23.6%) | 11.7% / 4.5% | migrate data |
+| C3 | reallocated sectors rising, defect velocity | 9.6% (12.4%) | 33.4% / 16.1% | replace |
+
+![What each cluster is](../data/audit/cluster_policy_h30/figures/cluster_signatures.png)
+
+The clusters are stable (Q3 shares within a factor of 2 of validation, refit ARI
+0.87) and separate risk from 1% to 33%. The action map, fixed on validation, moved
+three cells, all down (C1 and C2 at warn, C2 at cordon):
+
+![Failure rate per cluster and band on validation, moved cells outlined](../data/audit/cluster_policy_h30/figures/tier_cluster_matrix_validation.png)
+
+**Q3 result** (one look, test-access log line 133; cumulative tiers, 1,105 failing
+drives):
+
+| Tier | Tier-only P / R | Cluster policy P / R | Precision gap [95%] | Recall gap [95%] | Cost 20:1 |
+|---|---|---|---|---|---|
+| warn | 17.3% / 60.9% | 25.3% / 52.1% | +8.0% [+7.1, +8.9] | **-8.8% [-10.5, -7.1]** | 11,848 -> 12,279 |
+| cordon | 34.8% / 42.4% | 39.4% / 36.2% | +4.6% [+3.1, +5.9] | **-6.2% [-7.7, -4.9]** | 13,597 -> 14,715 |
+
+| Policy comparison | Where each policy operates on the score's curve |
+|---|---|
+| ![Precision, recall and moved drives per tier](../data/audit/cluster_policy_h30/figures/policy_comparison.png) | ![Operating points against the drive curve](../data/audit/cluster_policy_h30/figures/policy_precision_recall.png) |
+
+- **Rule not passed:** precision is up but recall is lower at warn and cordon, so the
+  agent integration was not built and the agent is unchanged.
+- **The precision gain is not a gain:** at the recall the cluster policy reaches, a
+  plain stricter threshold gives 26.0% (warn) and 42.5% (cordon) against its 25.3% and
+  39.4%: its points lie on or below the curve.
+- Demoting at warn avoided 1,509 false alarms for 97 lost failing drives, which pays
+  only if a missed failure costs under about 16 false alarms.
+- The clusters stay useful as a description and a watch list (C3: 12% of suspects,
+  16% failing on Q3), not as a policy.
+
+![Q3 failure rate per cluster and band](../data/audit/cluster_policy_h30/figures/tier_cluster_matrix_test.png)
+
+**Commands** (code `8dcca9b`; the first ablation run, stopped after 39 minutes
+because spectral clustering with an RBF kernel did not converge, produced nothing):
+
+```bash
+# validation only: suspects, signatures, 35-candidate ablation, map; reads no test row
+uv run python scripts/cluster_action_policy.py --run-dir frozen_runs/c459046e4f1645169151e7be25ff064d \
+    --scores data/tmp/lightgbm_scores_h30_h30_q1q2_q3.parquet --validation-only
+# the Q3 step with the committed map (one test look, access-log line 133)
+uv run python scripts/cluster_action_policy.py --run-dir frozen_runs/c459046e4f1645169151e7be25ff064d \
+    --scores data/tmp/lightgbm_scores_h30_h30_q1q2_q3.parquet
+# redraw the tables and figures from the saved JSON, no data read
+uv run python scripts/cluster_action_policy.py --run-dir x --scores x --figures-only
+```
+
+The validation step resumes from `ablation_partial.json` if interrupted (and was
+rerun once with `--overwrite` after a naming fix, resuming all 35 candidates).
 
 ### 1.2 The two-stage gain is not established
 
@@ -599,6 +1095,8 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
 
 ### 1.7 Three conventions these numbers depend on
 
+(How the action tiers are derived from the score, step by step: Section 1.9.)
+
 - **Action tiers are set in lift, not precision.**
   `threshold.action_tier_lift` (56.6 / 94.3 / 151.0 / 226.4) replaces the
   earlier per-tier precision targets, because precision moves with the base
@@ -637,6 +1135,95 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
   by `make train`. Precision may be restated at a common base rate with
   `precision_at_failure_rate`, but that is arithmetic on the measured rates,
   not a second measurement, and it does not fix a mismatch in recall.
+
+### 1.8 Where the evidence lives
+
+Every number in this runbook comes from a file in the repository, in one of
+three places:
+
+| Folder | What is there | Description of every file |
+|---|---|---|
+| [`data/audit/`](../data/audit/) | Reports and results the pipelines write: training reports, experiment outputs, horizon comparison, deep dive, agent runs, run logs, the test-access log | [`data/audit/README.md`](../data/audit/README.md) |
+| [`frozen_runs/`](../frozen_runs/) | One folder per frozen training run: spec, thresholds, both model stages, model card, figures, checksums | [`frozen_runs/README.md`](../frozen_runs/README.md) |
+| [`docs/figures/`](figures/) | Copies of figures embedded here (Q3 cascade and horizon comparison) | [`docs/figures/q3_2026/README.md`](figures/q3_2026/README.md) |
+
+Where each section's numbers come from:
+
+| Section | Source |
+|---|---|
+| 1.1.4 (Q1+Q2 -> Q3 runs) | Training reports `data/audit/data_quality_reports/model_evaluation_report_h<H>_q1q2_q3.json` and `action_tiers_h<H>_q1q2_q3.json`; cascade and survival Stage 2 `data/audit/cascade_q3_h30/`, `_h44/`, `_h60/`; horizon comparison `data/audit/horizon_q3/`; runs `frozen_runs/c459046e.../`, `a2cd06d5.../`, `804a20ce.../` |
+| 1.1.4a (stacked Stage 2, not confirmed, frozen) | `data/audit/stack_q3_h30/`, `_h44/`, `_h60/`; launcher, logs and `CHECKSUMS.sha256` in `data/audit/stack_q3_logs/` (tracked) |
+| 1.1.5 (deep dive) | `data/audit/deep_dive_q3_h30/` |
+| 1.1.6 (cluster action policy) | `data/audit/cluster_policy_h30/` |
+| 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` |
+| 4.7 - 4.10 (point-in-time policy, family calibration) | `data/audit/agent_point_in_time*`, `agent_pit_validation*`, `family_calibration.json` |
+| Every look at test | `data/audit/test_access_log.jsonl` (tracked, append-only) |
+
+What git tracks under `data/audit/` and what stays local is listed in its
+README; the Q1+Q2 -> Q3 results are all tracked.
+
+### 1.9 How the tiers are set
+
+The agent's four action tiers (warn, cordon, migrate, drain) are four thresholds on
+one score. Stage 2 does not create them; it produces the score, and the thresholds
+are chosen on the validation holdout to meet a precision target each. For the
+current 30-day model (frozen run `c459046e`):
+
+1. **The score.** Stage 1 scores every drive-day; at or above the candidate
+   threshold (0.235, `frozen_runs/c459046e.../two_stage.json` `candidate_threshold`)
+   Stage 2 re-scores it and the combined score is `0.235 + 0.765 x stage2`;
+   below, the Stage 1 score stands (`src/models/two_stage.py::TwoStageModel.final_scores`).
+   Per drive, the highest score in its window: a failing drive over the 30 days
+   before failure, a healthy drive over the whole period
+   (`src/models/evaluation.py::drive_level_table`).
+2. **Lift to precision target.** `configs/model.yaml` `threshold.action_tier_lift`
+   gives a lift per tier; times the validation drive failure rate (0.589%, 418 of
+   70,977 drives) it is the precision the tier must earn
+   (`src/models/threshold.py::precision_targets_from_lift`). Lift is used so a target
+   keeps its meaning when the failure rate changes between windows (Section 1.7).
+3. **Threshold per tier.** On the validation drive-level precision-recall curve,
+   each tier takes the cutoff with the most recall whose precision still meets its
+   target (`tune_action_tiers`). A target no cutoff meets falls back to the curve's
+   most precise point:
+
+| Tier | Lift | Target on validation | Threshold | Validation precision / recall | Q3 test precision / recall |
+|---|---|---|---|---|---|
+| warn | 56.6 | 33.3% | 0.653 | 33.3% / 63.6% | 17.3% / 60.9% |
+| cordon | 94.3 | 55.5% | 0.836 | 55.7% / 44.7% | 34.8% / 42.4% |
+| migrate | 151.0 | 88.9% | 0.926 | 100% / 0.5% (2 drives) | 33.3% / 0.2% |
+| drain | 226.4 | 133% (stored capped at 100%), unreachable | 0.926 | same cutoff | same |
+
+   Source: `data/audit/data_quality_reports/model_evaluation_report_h30_q1q2_q3.json`
+   (`action_tiers`: `threshold`, `target_lift`, `target_precision`, `validation`,
+   `test`) and `action_tiers_h30_q1q2_q3.json`. Migrate's target is met only at the
+   very top of the curve and drain's is impossible, so both share 0.926 and flag 6
+   drives on Q3: on this model they are not usable tiers.
+4. **The primary threshold is separate** (`tune_drive_level_threshold`): it aims at
+   90% precision with at least 10% recall, cannot reach it, and takes the most
+   precise cutoff with 10% recall: 0.919, giving 75.0% on validation and 59.0% on Q3
+   (`model_evaluation_report_h30_q1q2_q3.json` `threshold`).
+5. **Run-time gates** (`src/models/action_tiers.py::determine_action_tier`): migrate
+   and drain need feature confidence >= 0.80 (`configs/agent.yaml`
+   `feature_confidence.min_confidence_for_destructive_action`), a mature drive and
+   fresh telemetry, otherwise they become cordon. Then `src/agent/nodes.py::make_plan_node`
+   applies hysteresis (2 consecutive cycles before escalating) and a cooldown after
+   an action (3,600 s), both in `configs/agent.yaml` `loop`.
+6. **Where the cluster policy enters** (`docs/cluster_action_policy.md`): between 3
+   and 5, the drive's (cluster, tier) cell can move it one band up or down, by how
+   often that cell failed on validation compared with each band. The clustering never
+   sees the score, so Stage 2's precision shapes which drives sit in each tier, not
+   the clusters.
+
+**The same thresholds give lower precision on Q3** because fewer drives fail there
+(0.300% against 0.589%); recall holds (Section 1.1.5). Lift times each base rate
+gives the precision each tier would be expected to reach:
+
+| How the tiers are set (validation curve, lift-derived targets) | Lift x base rate = target |
+|---|---|
+| ![Validation drive curve with tier thresholds and targets](../data/audit/cluster_policy_h30/figures/tier_thresholds_validation.png) | ![Lift times base rate, validation and Q3](../data/audit/cluster_policy_h30/figures/tier_lift_targets.png) |
+
+The per-run curves are in `frozen_runs/c459046e.../figures/`
+(`validation_precision_recall.png`, `test_precision_recall.png`).
 
 ## 2. How to run the pipeline
 
@@ -2266,6 +2853,9 @@ make experiment-model EXPERIMENT_ARGS="--variants reg_spw xgboost --skip-baselin
 - `--per-model N`: one model per drive family, for the N families with the most
   failing validation drives, each compared with the pooled model on the same
   test drives. Ran on real data for the first time on 2026-10-06 (Section 4.1).
+- `--two-stage --stage2-kinds lightgbm cox aft stack`: Stage 2 models compared
+  per net; `stack` blends the fitted LightGBM and Cox Stage 2 by
+  validation-fitted rank weights and needs both (Section 1.1.4a).
 - Results go to `experiment_results.json`, `experiment_deep_dive.json` and
   `experiment_per_model.json` in the kept work directory.
 
@@ -2437,6 +3027,12 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   descriptive and unconfirmed. The rules new data must apply are in
   `docs/q3_horizon_and_cascade_run.md` section 6. `evaluate_frozen.py` needs a
   sealed-split date cap before any quarter is sealed again.
+- **Stacked Stage 2 (LightGBM + Cox) was run and not adopted** (2026-11-06,
+  Section 1.1.4a): at the same number of drives flagged it catches about 4 to 11
+  more failing drives than LightGBM at K <= 500 in 3 / 3 seeds in every horizon,
+  but Cox alone is as good at K <= 250, the intervals are not computed and the
+  seeds share the test drives; nothing above about 35% recall; unstable weights.
+  A lead for an untouched quarter, with Cox alone as a third arm. Outputs frozen.
 - **Untested ideas for the 60-80% recall band** (2026-11-06 review): a cohort
   feature (trailing failure rate of the drive's batch or vault; screen on
   validation first) and a sequence-model third stage on the Stage 1 suspects
@@ -2444,8 +3040,9 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   the pool). Expected gain is a few points at most. SVM or autoencoder stages
   and a PatchTST were judged unlikely to add information (same features, same
   signal); a longer window is the first thing to test for PatchTST.
-- **Same-period validation overstates precision by 15-20 points** (Section
-  1.1.4), the same pattern as Section 4.4.
+- **Validation precision runs 15-20 points above test**, which on Q3 is almost
+  all the base rate (Section 1.1.5): the ranking transfers, the failure share
+  does not. Quote precision with its base rate (Section 1.7).
 - **Validation precision is still above test** after the split fix (56.7%
   against 41.4%); about half is the higher failure rate in the validation
   period, the rest is unexplained (Section 4.4).
@@ -2506,6 +3103,10 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 ## 10. Related documents
 
 - `docs/system_summary.md`: the short overview for a reviewer.
+- `docs/q3_horizon_and_cascade_run.md`: method, results and provenance of the
+  Q1+Q2 -> Q3 runs (Sections 1.1.4 and 1.1.5).
+- `data/audit/README.md` and `frozen_runs/README.md`: what every output and
+  frozen-run file is (Section 1.8).
 - `docs/feature_engineering.md`: what the model sees, and why.
 - `docs/developer_guide.md` sections 5.10 to 5.14: the memory cap, how
   `make train` fits in RAM, the model experiment workflow, the current
