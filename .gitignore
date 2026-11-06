@@ -29,6 +29,7 @@ data/audit/*/*
 !data/audit/cascade_q3_h*/*
 !data/audit/horizon_q3/*
 !data/audit/data_quality_reports/*_q1q2_q3.json
+!data/audit/deep_dive_q3_h*/*
 !data/**/.gitkeep
 
 # ML experiment tracking artifacts

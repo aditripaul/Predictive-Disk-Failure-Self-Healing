@@ -6,7 +6,8 @@
 > 2026-04/05 window. Section 4 is the
 > measurement record in the order it was produced; Section 5 holds the
 > lessons from the earlier Q1-only, 14-day work, which still apply. For a
-> shorter overview see `docs/system_summary.md`.
+> shorter overview see `docs/system_summary.md`. Section 1.8 maps every
+> number to its file under `data/audit/` and `frozen_runs/`.
 
 This document records what was run on real Backblaze data, what was learned,
 what is still open, and how to run the pipeline end to end. Numbers are
@@ -262,8 +263,12 @@ model against its own labels, so the columns are not a like-for-like comparison)
 - The stated goal (90% precision at >= 10% recall) is **not met**: 59-63% at
   9-12.5% recall. The 30-day run is the model `score-fleet` and the agent now
   use (`primary_horizon_days: 30`, latest run for the horizon).
-- Validation overstates precision by 15-20 points in every run: a same-period
-  drive holdout is optimistic, as earlier same-period validation was.
+- Validation shows 15-20 points more precision than test in every run. That is
+  **the base rate, not overfitting** (Section 1.1.5): validation spans 121 days
+  in which 0.59% of drives fail, test 62 days with 0.30%. The ranking
+  transferred intact (AUROC 0.922 on validation, 0.926 on test; the same
+  recall at a matched false-alarm rate), and test precision restated at the
+  validation base rate is 73.9% against validation's 75.0%.
 - Precision at the strict operating points rises with the horizon, but the
   paired comparison below shows that is the base rate, not the model.
 - The 0.8 Stage 1 net kept 79-82% of failing Q3 drives, as it did on
@@ -301,8 +306,8 @@ exact.
 | ![60-day model: test precision-recall](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/test_precision_recall.png) | ![60-day model: test confusion matrices](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/test_confusion.png) |
 
 Validation curves and matrices (the same thresholds on the holdout that chose
-them) sit beside these in each bundle; the gap between the two is the
-optimism of a same-period holdout (15-20 points of precision, above). For
+them) sit beside these in each bundle; the precision gap between the two is
+mostly the higher validation base rate (above and Section 1.1.5). For
 example, the 30-day model on validation:
 
 | Precision-recall (validation) | Confusion matrices (validation) |
@@ -477,6 +482,136 @@ recall on test). The confusion matrices give the counts behind each marker.
 Looks at test: `data/audit/test_access_log.jsonl` lines 114-126 (3 training
 runs, 1 horizon comparison, 9 cascade seeds).
 
+### 1.1.5 Deep dive into the 30-day Q3 run (2026-11-06)
+
+What sits under the 30-day numbers of Section 1.1.4: which failing drives are
+missed and why, who the false alarms are, how stable Q3 was week by week, and
+why validation precision runs above test. Frozen run `c459046e`, its own
+thresholds (Stage 1 0.235, warn 0.653, cordon 0.836, primary 0.919), per drive
+on Q3 2026 (1,105 failing and 367,583 healthy drives). Script
+`scripts/deep_dive_q3.py`; outputs `data/audit/deep_dive_q3_h30/` (`tables.md`
+holds every table, including the full week-by-week one). Test looks: lines
+127 and 129 of the access log; line 128 is a run stopped before it computed
+anything (it used the unfixed age column).
+
+**Missed failures.** Each failing drive placed at the strictest point that
+catches it. "Core counter" = the six priority SMART counters; "warned before
+window" = flagged at warn more than 30 days before failing; lead = days from the
+first alert at the group's own point to failure.
+
+| Group | Drives | Share | Any core counter > 0 | Counter rose in window | Active defects (median) | Telemetry coverage | Power-on age (years, median) | Warned before window | Median lead (days) |
+|---|---|---|---|---|---|---|---|---|---|
+| caught at primary | 138 | 12.5% | 92.0% | 75.4% | 4324 | 0.83 | 5.5 | 42.8% | 14 |
+| caught at cordon only | 331 | 30.0% | 96.7% | 72.2% | 1866 | 0.81 | 5.5 | 42.6% | 16 |
+| caught at warn only | 204 | 18.5% | 99.5% | 66.7% | 703 | 0.95 | 5.2 | 43.1% | 21 |
+| passed Stage 1, below warn | 210 | 19.0% | 82.4% | 38.6% | 40 | 0.99 | 3.6 | 12.9% | 26 |
+| never passed Stage 1 | 222 | 20.1% | 21.6% | 1.4% | 0 | 0.96 | 2.9 | 0.0% | - |
+
+![Where each failing drive stops, and its SMART evidence](../data/audit/deep_dive_q3_h30/figures/missed_failures.png)
+
+- **The roughly 20% that Stage 1 never passes are silent.** 98.6% of them show
+  no rise in any core counter in the 30 days before failing, with complete
+  telemetry (coverage 0.96), so it is not missing data. Overall 21.2% of
+  failing drives have every core counter at zero throughout; Stage 1 passes
+  25.6% of them and 94.5% of the rest. That is the recall ceiling, and only new
+  information can move it.
+- **They are young:** median power-on age 2.9 years against 5.5 for drives
+  caught at the primary threshold. Silent failures are mostly early-life ones.
+- **Many catches come early:** 43% of caught drives were already flagged at
+  warn more than 30 days before failing, which the 30-day label does not count.
+- By family, the primary point is mostly Seagate; Western Digital reaches 78%
+  at Stage 1 but 1.2% at primary, HGST 92% at Stage 1 and 82% at warn but 7% at
+  primary:
+
+| Family | Failing | Stage 1 recall | Warn recall | Primary recall | No core signal |
+|---|---|---|---|---|---|
+| Seagate HDD | 537 | 80.8% | 63.7% | 18.4% | 23.6% |
+| Toshiba HDD | 247 | 71.7% | 54.7% | 10.5% | 26.7% |
+| Western Digital HDD | 165 | 78.2% | 42.4% | 1.2% | 17.6% |
+| HGST HDD | 153 | 92.2% | 82.4% | 7.2% | 5.9% |
+| WUH721816ALE6L4 | 3 | 66.7% | 0.0% | 0.0% | 100.0% |
+
+**False alarms.** The healthy drives flagged at each point. "Failed later" is
+limited by the data, which ends 2026-09-30.
+
+| Point | Flagged healthy | Still active | Removed without failure | Failed later | Any core counter > 0 (fleet) | Counter rose | Power-on age, years (fleet) |
+|---|---|---|---|---|---|---|---|
+| stage1 | 22,463 | 97.6% | 2.3% | 23 | 59.8% (8.9%) | 39.6% | 3.9 (3.5) |
+| warn | 3,208 | 90.4% | 9.0% | 20 | 99.8% (8.9%) | 87.5% | 5.4 (3.5) |
+| cordon | 877 | 79.6% | 18.5% | 17 | 99.3% (8.9%) | 86.7% | 5.7 (3.5) |
+| primary | 96 | 60.4% | 35.4% | 4 | 97.9% (8.9%) | 81.2% | 5.5 (3.5) |
+
+![What the false alarms are, by operating point](../data/audit/deep_dive_q3_h30/figures/false_alarm_outcomes.png)
+
+- **False alarms are damaged drives, not noise:** 98-99.8% of those at warn and
+  above have a non-zero core counter, against 8.9% of the healthy fleet, and
+  they are older (median 5.4-5.7 years against 3.5).
+- **The stricter the point, the more of its false alarms were removed from
+  service anyway:** 2.3% at Stage 1, 9.0% at warn, 18.5% at cordon, 35.4% at
+  primary. Counting removals as correct would take primary precision from 59%
+  to about 74%; that is a definition to decide, not a result.
+- **HGST is 4.2 times over-represented among warn false alarms**, Seagate 2.2
+  times among primary ones:
+
+| Family | Flagged | Share | Fleet share | Lift |
+|---|---|---|---|---|
+| HGST HDD | 925 | 28.8% | 6.9% | 4.2 |
+| Seagate HDD | 884 | 27.6% | 30.3% | 0.9 |
+| Toshiba HDD | 793 | 24.7% | 36.1% | 0.7 |
+| Western Digital HDD | 604 | 18.8% | 25.7% | 0.7 |
+| WUH721816ALE6L4 | 2 | 0.1% | 0.2% | 0.4 |
+
+| Family | Flagged | Share | Fleet share | Lift |
+|---|---|---|---|---|
+| Seagate HDD | 64 | 66.7% | 30.3% | 2.2 |
+| Toshiba HDD | 24 | 25.0% | 36.1% | 0.7 |
+| HGST HDD | 8 | 8.3% | 6.9% | 1.2 |
+
+**Week by week** (thresholds fixed; a drive is failing in a week if it has a
+positive row in it; full table in `data/audit/deep_dive_q3_h30/tables.md`).
+Primary recall stays at 6-8% and warn recall at 45-53% in all nine Q3 weeks;
+primary precision is 36-43% in most weeks and 57-58% in the last two, as
+failing drives per week fell from 461 to 352. Weekly figures are below the
+62-day ones because each week is a shorter window with a lower base rate. The
+share of drives passing Stage 1 rises from 3.4% to 3.8% across Q3 and is above
+every validation week (2.0-3.4%) with no matching rise in failures: SMART
+counters only accumulate, so more healthy drives look suspicious over time. A
+2x drift threshold would never fire on this; a weekly trend check would.
+
+![Week by week on Q3 and on validation](../data/audit/deep_dive_q3_h30/figures/weekly_stability.png)
+
+**Validation against test.** The 15-20 point precision gap is the base rate,
+not overfitting:
+
+| | Window | Drives | Failing | Base rate | AUROC | Recall at 0.01% / 0.1% false alarms | Primary P / R / false-alarm rate | Warn P / R |
+|---|---|---|---|---|---|---|---|---|
+| validation | 121 d | 70,977 | 418 | 0.589% | 0.922 | 3.8% / 30.6% | 75.0% / 10.0% / 0.020% | 33.3% / 63.6% |
+| validation, last 62 days | 62 d | 70,638 | 295 | 0.418% | 0.947 | 4.1% / 36.6% | 68.3% / 9.5% / 0.018% | 30.1% / 69.2% |
+| test | 62 d | 368,688 | 1,105 | 0.300% | 0.926 | 4.2% / 30.4% | 59.0% / 12.5% / 0.026% | 17.3% / 60.9% |
+
+| Point | Validation precision | Test precision | Test restated at the validation base rate | Validation restated at the test base rate |
+|---|---|---|---|---|
+| warn | 33.3% | 17.3% | 29.2% | 20.2% |
+| cordon | 55.7% | 34.8% | 51.3% | 38.9% |
+| primary | 75.0% | 59.0% | 73.9% | 60.4% |
+
+![Validation against test, restated at the validation base rate](../data/audit/deep_dive_q3_h30/figures/validation_vs_test.png)
+
+- **The ranking transferred intact:** AUROC 0.922 on validation and 0.926 on
+  test, the same recall at matched false-alarm rates.
+- **The base rate explains about 90% of the primary gap.** Validation spans
+  121 days with 0.59% failing drives, test 62 days with 0.30%. At the
+  validation base rate, test precision would be 73.9% (validation 75.0%).
+- **Drives first seen after training** (18,698, 33 failing) have the same
+  precision but lower recall (9% at primary and 52% at warn, against 13% and
+  61%), probably because their features have less history. Suggestive only, on
+  33 failing drives.
+
+**Candidates these findings point to** (untested): a separate warn threshold
+for HGST; reporting removed-without-failure drives as their own outcome when
+judging alerts; a weekly trend monitor on the Stage 1 pass share; features that
+could see early-life failures, the one group SMART does not reach.
+
 ### 1.2 The two-stage gain is not established
 
 Two paired bootstraps now exist, both over the same resampled drives with
@@ -637,6 +772,30 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
   by `make train`. Precision may be restated at a common base rate with
   `precision_at_failure_rate`, but that is arithmetic on the measured rates,
   not a second measurement, and it does not fix a mismatch in recall.
+
+### 1.8 Where the evidence lives
+
+Every number in this runbook comes from a file in the repository, in one of
+three places:
+
+| Folder | What is there | Description of every file |
+|---|---|---|
+| [`data/audit/`](../data/audit/) | Reports and results the pipelines write: training reports, experiment outputs, horizon comparison, deep dive, agent runs, run logs, the test-access log | [`data/audit/README.md`](../data/audit/README.md) |
+| [`frozen_runs/`](../frozen_runs/) | One folder per frozen training run: spec, thresholds, both model stages, model card, figures, checksums | [`frozen_runs/README.md`](../frozen_runs/README.md) |
+| [`docs/figures/`](figures/) | Copies of figures embedded here (Q3 cascade and horizon comparison) | [`docs/figures/q3_2026/README.md`](figures/q3_2026/README.md) |
+
+Where each section's numbers come from:
+
+| Section | Source |
+|---|---|
+| 1.1.4 (Q1+Q2 -> Q3 runs) | Training reports `data/audit/data_quality_reports/model_evaluation_report_h<H>_q1q2_q3.json` and `action_tiers_h<H>_q1q2_q3.json`; cascade and survival Stage 2 `data/audit/cascade_q3_h30/`, `_h44/`, `_h60/`; horizon comparison `data/audit/horizon_q3/`; runs `frozen_runs/c459046e.../`, `a2cd06d5.../`, `804a20ce.../` |
+| 1.1.5 (deep dive) | `data/audit/deep_dive_q3_h30/` |
+| 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` (local, not committed) |
+| 4.7 - 4.10 (point-in-time policy, family calibration) | `data/audit/agent_point_in_time*`, `agent_pit_validation*`, `family_calibration.json` |
+| Every look at test | `data/audit/test_access_log.jsonl` (local, never committed) |
+
+What git tracks under `data/audit/` and what stays local is listed in its
+README; the Q1+Q2 -> Q3 results are all tracked.
 
 ## 2. How to run the pipeline
 
@@ -2444,8 +2603,9 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   the pool). Expected gain is a few points at most. SVM or autoencoder stages
   and a PatchTST were judged unlikely to add information (same features, same
   signal); a longer window is the first thing to test for PatchTST.
-- **Same-period validation overstates precision by 15-20 points** (Section
-  1.1.4), the same pattern as Section 4.4.
+- **Validation precision runs 15-20 points above test**, which on Q3 is almost
+  all the base rate (Section 1.1.5): the ranking transfers, the failure share
+  does not. Quote precision with its base rate (Section 1.7).
 - **Validation precision is still above test** after the split fix (56.7%
   against 41.4%); about half is the higher failure rate in the validation
   period, the rest is unexplained (Section 4.4).
@@ -2506,6 +2666,10 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 ## 10. Related documents
 
 - `docs/system_summary.md`: the short overview for a reviewer.
+- `docs/q3_horizon_and_cascade_run.md`: method, results and provenance of the
+  Q1+Q2 -> Q3 runs (Sections 1.1.4 and 1.1.5).
+- `data/audit/README.md` and `frozen_runs/README.md`: what every output and
+  frozen-run file is (Section 1.8).
 - `docs/feature_engineering.md`: what the model sees, and why.
 - `docs/developer_guide.md` sections 5.10 to 5.14: the memory cap, how
   `make train` fits in RAM, the model experiment workflow, the current

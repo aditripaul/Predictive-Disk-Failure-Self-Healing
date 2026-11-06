@@ -65,8 +65,10 @@ Read it with these in mind (runbook 1.1.4):
 - Stage 2's gain over Stage 1 alone at the primary point is +4.2 precision points
   (95% interval -0.1 to +8.5): not established. Above 20% recall it adds about a
   point or less.
-- The same thresholds on the validation holdout gave 75% precision, so
-  validation overstates test precision by about 15 points.
+- The same thresholds on the validation holdout gave 75% precision. The gap
+  to test is the base rate (0.59% of validation drives fail against 0.30% on
+  test), not overfitting: restated at the validation base rate, test precision
+  is 73.9% (runbook 1.1.5).
 - The migrate and drain tiers flag only 6 drives, so they are not usable here.
 - The 90%-precision goal is not met.
 
