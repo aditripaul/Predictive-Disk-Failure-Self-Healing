@@ -195,3 +195,18 @@ def test_an_exhausted_pool_yields_no_drives_rather_than_raising(tmp_path):
         return {"fleet_snapshot_id": "s", "drives": [max(empty, key=lambda d: d["p_fail"])]}
 
     assert provider()["drives"] == []
+
+
+def test_sealed_test_split_starts_at_sealed_start():
+    """With test_split: sealed the test period is the sealed window, so the
+    unused days between validation_end and sealed_start are not test."""
+    splits = {
+        "validation_end": "2026-05-01",
+        "test_end": "2026-08-31",
+        "sealed_start": "2026-07-01",
+        "test_split": "sealed",
+    }
+    assert not overlaps_test_split(dt.date(2026, 5, 2), dt.date(2026, 6, 30), splits)
+    assert overlaps_test_split(dt.date(2026, 6, 30), dt.date(2026, 7, 1), splits)
+    assert overlaps_test_split(dt.date(2026, 8, 31), dt.date(2026, 9, 30), splits)
+    assert not overlaps_test_split(dt.date(2026, 9, 1), dt.date(2026, 9, 30), splits)

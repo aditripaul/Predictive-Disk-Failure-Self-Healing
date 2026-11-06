@@ -102,6 +102,7 @@ from src.models.evaluation import (
     precision_at_recall_level,
     precision_at_recall_table,
     recall_at_false_alarm_table,
+    recall_at_top_k,
 )
 from src.models.explainability import (
     build_explainer,
@@ -132,10 +133,16 @@ from src.models.training import (
     predict_proba_positive,
     train_lightgbm,
 )
-from src.models.two_stage import fit_second_stage, lightgbm_fitter, log_two_stage
+from src.models.two_stage import (
+    fit_second_stage,
+    lightgbm_fitter,
+    log_two_stage,
+    stage1_flag_rate,
+)
 from src.models.uncertainty import drive_level_bootstrap_ci, paired_difference_ci
 from src.models.xgboost_training import train_xgboost
 from src.outputs import refuse_overwrite
+from src.reporting.evaluation_figures import write_evaluation_figures
 from src.reporting.figure_data import gain_importance, roc_points
 from src.resource_limits import apply_memory_limit_from_config
 
@@ -174,6 +181,9 @@ LABEL_COLUMNS_USED = [
 
 DATA_CONFIG_PATH = Path("configs/data.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
+#: Per-run precision-recall and confusion-matrix figures go in a subdirectory
+#: named by the run tag (or MLflow run id when untagged).
+PLOTS_DIR = Path("data/audit/plots/train")
 FEATURES_CONFIG_PATH = Path("configs/features.yaml")
 
 logger = get_logger(__name__)
@@ -377,7 +387,9 @@ def _stage_assemble(work_dir: Path, horizon_days: int | None = None) -> None:
         zip(split_counts_df["split"].to_list(), split_counts_df["count"].to_list(), strict=True)
     )
     empty_splits = [
-        name for name in ("train", "validation", "test") if split_counts.get(name, 0) == 0
+        name
+        for name in ("train", "validation", test_source_split(model_config))
+        if split_counts.get(name, 0) == 0
     ]
     if empty_splits:
         raise ValueError(
@@ -397,6 +409,9 @@ def _stage_assemble(work_dir: Path, horizon_days: int | None = None) -> None:
                 "feature_columns": feature_columns,
                 "split_counts": split_counts,
                 "horizon_days": horizon_days,
+                "test_split": test_source_split(model_config),
+                "train_start": model_config.get("splits", {}).get("train_start"),
+                "test_end": str(resolved_test_end(model_config, horizon_days)),
             }
         )
     )
@@ -463,43 +478,73 @@ def _rate(split_meta: dict) -> float | None:
     return positives / rows
 
 
+def _split_boundary(model_config: dict, name: str) -> dt.date | None:
+    value = model_config.get("splits", {}).get(name)
+    return dt.date.fromisoformat(str(value)) if value else None
+
+
+def resolved_test_end(model_config: dict, horizon_days: int) -> dt.date | None:
+    """Last date of the test split: `splits.test_end`, capped at
+    `splits.observation_end - horizon_days` when that is set. A later row's
+    horizon runs past the data, so a healthy row there has no label (it is
+    dropped) while a failing one keeps its positive label - those dates would
+    add failing drives with no healthy rows beside them. The cap lets runs of
+    different horizons share one config and each use all the test data its
+    labels allow (30 days: 08-31, 60 days: 08-01 for data ending 09-30)."""
+    test_end = _split_boundary(model_config, "test_end")
+    observation_end = _split_boundary(model_config, "observation_end")
+    if observation_end is None:
+        return test_end
+    cap = observation_end - dt.timedelta(days=horizon_days)
+    return cap if test_end is None else min(test_end, cap)
+
+
+def test_source_split(model_config: dict) -> str:
+    """The label-table split `make train` tests on: `splits.test_split`, or
+    "test". "sealed" tests on the rows dated on or after `sealed_start`
+    (Q3 2026 since 2026-11-06), which makes that window an ordinary test set
+    rather than a sealed one."""
+    return str(model_config.get("splits", {}).get("test_split") or "test")
+
+
 def _split_period_predicate(
     split_name: str, model_config: dict, horizon_days: int
 ) -> pl.Expr | None:
     """The dates each split may use, beyond the label table's own `split`
-    column. All three default on; `splits.purge_label_window: false` or
-    `splits.validation_after_train_only: false` in configs/model.yaml
-    restore the earlier behaviour.
+    column. `split_name` is the role ("train", "validation", "test"), not
+    the label-table split the test rows come from (`test_source_split`).
 
-    - **train:** only rows dated at least `horizon_days` before `train_end`.
-      A later row's label is decided by what happens after `train_end`,
-      inside the validation period, which a model trained on `train_end`
-      could not know. It also made validation look easier than the future:
-      the same drive's rows a few days apart sat in train and validation
-      with nearly the same features and the same outcome.
-    - **validation:** only rows after `train_end`. The label table also
-      puts the held-out drives' rows from the training period here; those
-      share their dates with the training rows, so thresholds and early
-      stopping chosen on them did not carry over to test.
-    - **test:** only rows up to `test_end`. Later, a healthy drive-day has
-      no label (its horizon runs past the data) and is dropped, but a
-      failing one keeps its positive label, so those dates would add
-      failing drives with no healthy rows beside them. `test_end` must be
-      at least the horizon before the last date in the data."""
+    - **train:** rows on or after `train_start` (when set). With
+      `purge_label_window` (default on), only rows dated at least
+      `horizon_days` before `train_end`: a later row's label is decided by
+      what happens after `train_end`, inside a later validation period.
+      Turn it off when validation shares the training dates.
+    - **validation:** rows on or after `train_start` (when set). With
+      `validation_after_train_only` (default on), only rows after
+      `train_end`; the label table also puts the held-out drives' rows from
+      the training period here, and thresholds chosen on those carried over
+      to test worse than ones chosen on a later period.
+    - **test:** only rows up to `resolved_test_end`."""
     splits = model_config.get("splits", {})
-
-    def boundary(name: str) -> dt.date | None:
-        value = splits.get(name)
-        return dt.date.fromisoformat(str(value)) if value else None
-
-    train_end, test_end = boundary("train_end"), boundary("test_end")
+    train_start = _split_boundary(model_config, "train_start")
+    train_end = _split_boundary(model_config, "train_end")
+    predicates: list[pl.Expr] = []
+    if split_name in ("train", "validation") and train_start is not None:
+        predicates.append(pl.col("date") >= train_start)
     if split_name == "train" and train_end and splits.get("purge_label_window", True):
-        return pl.col("date") <= train_end - dt.timedelta(days=horizon_days)
+        predicates.append(pl.col("date") <= train_end - dt.timedelta(days=horizon_days))
     if split_name == "validation" and train_end and splits.get("validation_after_train_only", True):
-        return pl.col("date") > train_end
-    if split_name == "test" and test_end:
-        return pl.col("date") <= test_end
-    return None
+        predicates.append(pl.col("date") > train_end)
+    if split_name == "test":
+        test_end = resolved_test_end(model_config, horizon_days)
+        if test_end is not None:
+            predicates.append(pl.col("date") <= test_end)
+    if not predicates:
+        return None
+    combined = predicates[0]
+    for predicate in predicates[1:]:
+        combined = combined & predicate
+    return combined
 
 
 def _row_group_parts(
@@ -774,7 +819,9 @@ def _stage_extract_split(work_dir: Path, split_name: str) -> None:
         try:
             part_paths = _row_group_parts(
                 frame_path,
-                split_name=split_name,
+                split_name=(
+                    test_source_split(model_config) if split_name == "test" else split_name
+                ),
                 select_columns=select_columns,
                 read_columns=sorted({*select_columns, "split"}),
                 extra_predicate=_split_period_predicate(
@@ -1158,6 +1205,18 @@ def main() -> None:
                     test_scores,
                 )
                 test_scores = two_stage_model.final_scores(x_test, test_scores)
+                # How much of the fleet Stage 1 passes to Stage 2, recorded so a
+                # deployment can watch it for drift (see stage1_flag_rate).
+                results["two_stage"]["stage1_flag_rate"] = {
+                    "validation": stage1_flag_rate(
+                        val_drive_ids, stage1_val_scores, two_stage_model.candidate_threshold
+                    ),
+                    "test": stage1_flag_rate(
+                        test_ids["drive_id"].to_numpy(),
+                        stage1_test_scores,
+                        two_stage_model.candidate_threshold,
+                    ),
+                }
             del stage1_val_scores
             if args.save_scores:
                 scores_path = paths["scores"]
@@ -1185,6 +1244,12 @@ def main() -> None:
             record_test_access(
                 variant=f"{model_type}{'+two_stage' if two_stage_model is not None else ''}",
                 purpose="train_model headline test metrics",
+                extra={
+                    "horizon_days": horizon_days,
+                    "test_split": frame_meta.get("test_split", "test"),
+                    "test_end": frame_meta.get("test_end"),
+                    "train_start": frame_meta.get("train_start"),
+                },
             )
             # Calibrated probabilities are reported beside the raw scores. The
             # map is monotone, so decisions (the thresholds above and the action
@@ -1242,6 +1307,53 @@ def main() -> None:
             results["test_drive_ci"] = drive_level_bootstrap_ci(
                 test_drive_ids, y_test, test_scores, threshold_result["threshold"]
             )
+            # Inspection-budget view: precision and recall when exactly K drives
+            # are flagged (configs/model.yaml evaluation.top_k).
+            top_k = list(model_config.get("evaluation", {}).get("top_k", []))
+            if top_k:
+                results["validation_top_k"] = recall_at_top_k(
+                    val_drive_ids, y_val, val_scores, top_k
+                )
+                results["test_top_k"] = recall_at_top_k(test_drive_ids, y_test, test_scores, top_k)
+                for row in results["test_top_k"]:
+                    mlflow.log_metric(f"test_top{row['k']}_precision", row["precision"])
+                    mlflow.log_metric(f"test_top{row['k']}_recall", row["recall"])
+            # Precision-recall curves and confusion matrices for every split the
+            # run scored. Train scores are in-sample (the rows the model was fitted
+            # on, after the sample cap), so they are labelled optimistic.
+            t0 = time.perf_counter()
+            active_run = mlflow.active_run()
+            figure_dir = PLOTS_DIR / (
+                args.tag or (active_run.info.run_id if active_run else "untagged")
+            )
+            figure_thresholds = {"primary": threshold_result["threshold"], **tier_thresholds}
+            stage_label = "+two-stage" if two_stage_model is not None else ""
+            title_prefix = f"{model_type}{stage_label}, {horizon_days}-day, "
+            train_drive_ids = pl.read_parquet(work_dir / "train_ids.parquet")["drive_id"].to_numpy()
+            train_scores = (
+                two_stage_model.predict_proba(x_train)[:, 1]
+                if two_stage_model is not None
+                else predict_proba_positive(model, x_train)
+            )
+            for split_name, split_drives, split_y, split_scores, in_sample in (
+                ("train", train_drive_ids, y_train, train_scores, True),
+                ("validation", val_drive_ids, y_val, val_scores, False),
+                ("test", test_drive_ids, y_test, test_scores, False),
+            ):
+                write_evaluation_figures(
+                    figure_dir,
+                    split_name,
+                    split_drives,
+                    split_y,
+                    split_scores,
+                    figure_thresholds,
+                    title_prefix=title_prefix,
+                    in_sample=in_sample,
+                    top_k=top_k,
+                )
+            del train_scores, train_drive_ids
+            gc.collect()
+            _log_stage("evaluation_figures_written", t0, path=str(figure_dir))
             if two_stage_model is not None:
                 # Stage 1 at the SAME catch rate as the two-stage model, so the
                 # gain is measured at matched recall, not at different thresholds.
@@ -1460,6 +1572,14 @@ def main() -> None:
             gc.collect()
 
             mlflow.log_params({"horizon_days": horizon_days, **model_params})
+            mlflow.log_params(
+                {
+                    "test_split": frame_meta.get("test_split", "test"),
+                    "test_end_resolved": frame_meta.get("test_end"),
+                    "train_start": frame_meta.get("train_start"),
+                    "holdout_fraction": model_config.get("splits", {}).get("holdout_fraction", 0.1),
+                }
+            )
             mlflow.log_metric("validation_auprc", results["validation_metrics"]["auprc"])
             mlflow.log_metric("validation_precision", results["validation_metrics"]["precision"])
             mlflow.log_metric("validation_recall", results["validation_metrics"]["recall"])
@@ -1513,6 +1633,7 @@ def main() -> None:
                     "drive_threshold": threshold_result["threshold"],
                     "action_tier_thresholds": tier_thresholds,
                     "calibrator": results["calibration"],
+                    "stage1_flag_rate": results.get("two_stage", {}).get("stage1_flag_rate"),
                 },
                 "frozen_spec.json",
             )

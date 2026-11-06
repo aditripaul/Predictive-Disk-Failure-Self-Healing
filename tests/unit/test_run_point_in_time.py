@@ -64,7 +64,14 @@ def _configs(tmp_path: Path, gold: Path) -> tuple[Path, Path]:
     data["sources"]["backblaze"]["end_date"] = "2026-06-30"
     model = yaml.safe_load(Path("configs/model.yaml").read_text())
     model["splits"].update(
-        {"validation_end": "2026-05-10", "test_end": "2026-05-31", "train_end": "2026-04-01"}
+        {
+            "validation_end": "2026-05-10",
+            "test_end": "2026-05-31",
+            "train_end": "2026-04-01",
+            # The fixture's gold data is the old chronological window, where test
+            # follows validation directly.
+            "test_split": "test",
+        }
     )
     data_path, model_path = tmp_path / "data.yaml", tmp_path / "model.yaml"
     data_path.write_text(yaml.safe_dump(data))

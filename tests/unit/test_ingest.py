@@ -123,7 +123,10 @@ def test_synthetic_stub_failures_land_in_every_configured_split():
     failure_dates = df.filter(pl.col("failure") == 1)["date"].to_list()
 
     assert any(d <= train_end for d in failure_dates)
-    assert any(train_end < d <= validation_end for d in failure_dates)
+    # With train_end == validation_end validation is a drive holdout over the
+    # training dates (configs/model.yaml), so it has no period of its own.
+    if validation_end > train_end:
+        assert any(train_end < d <= validation_end for d in failure_dates)
     assert any(validation_end < d <= test_end for d in failure_dates)
 
 

@@ -14,6 +14,7 @@ label definition differs between the things being compared.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -422,3 +423,43 @@ def evaluate_at_threshold(y_true: np.ndarray, y_scores: np.ndarray, threshold: f
         "calibration": compute_calibration(y_true, y_scores),
         **precision_at_k_fractions(y_true, y_scores),
     }
+
+
+def top_k_from_drive_table(
+    drive_labels: np.ndarray, drive_scores: np.ndarray, ks: Sequence[int]
+) -> list[dict[str, Any]]:
+    """`recall_at_top_k` on an already-built `drive_level_table`."""
+    labels = np.asarray(drive_labels, dtype=int)
+    order = np.argsort(-np.asarray(drive_scores, dtype=float), kind="stable")
+    caught_cumulative = np.cumsum(labels[order])
+    failing = int(labels.sum())
+    rows = []
+    for k in ks:
+        k_eff = min(int(k), len(labels))
+        caught = int(caught_cumulative[k_eff - 1]) if k_eff > 0 else 0
+        rows.append(
+            {
+                "k": int(k),
+                "flagged": k_eff,
+                "caught": caught,
+                "false_alarms": k_eff - caught,
+                "precision": caught / k_eff if k_eff else 0.0,
+                "recall": caught / failing if failing else 0.0,
+                "failing_drives": failing,
+                "drives": len(labels),
+            }
+        )
+    return rows
+
+
+def recall_at_top_k(
+    drive_ids: np.ndarray, y_true: np.ndarray, y_scores: np.ndarray, ks: Sequence[int]
+) -> list[dict[str, Any]]:
+    """Precision and recall when exactly K drives are flagged: the K drives
+    with the highest drive score (`drive_level_table`) over the whole window.
+    An inspection budget rather than a threshold, so it does not depend on
+    the score being calibrated. K counts drives over the window, so compare
+    K values only between windows of the same length. Ties at the K-th score
+    are broken by drive order (deterministic)."""
+    labels, scores = drive_level_table(drive_ids, y_true, y_scores)
+    return top_k_from_drive_table(labels, scores, ks)

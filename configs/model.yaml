@@ -1,7 +1,10 @@
 version: 1
 
 primary_horizon_days: 30
-horizons_days: [7, 14, 30]
+# 7 and 14 dropped 2026-11-06; 44 and 60 added for the horizon comparison
+# (docs/q3_horizon_and_cascade_run.md). Above 60 days the test window is too short
+# on this data (a 90-day label needs 90 days of data after the row).
+horizons_days: [30, 44, 60]
 
 model:
   type: lightgbm  # lightgbm | xgboost (src/models/training.py, src/models/xgboost_training.py)
@@ -39,7 +42,13 @@ model:
     # Candidates = rows at or above the validation threshold that still
     # catches this share of failing drives. Tiers needing more recall than
     # this are unaffected by the second stage.
-    candidate_recall: 0.5
+    # 0.8 since 2026-11-06 (was 0.5). Adopted post hoc: under the
+    # pre-registered rule of docs/cascade_wide_net.md section 9.3 it failed
+    # only criterion 3 (a recall dip of 3-10 of 1,479 drives, not
+    # statistically established) and gained +1.9 precision points at 60%
+    # recall and +4.8 at 10%. Q4 2026 confirms or rejects it
+    # (docs/q3_horizon_and_cascade_run.md section 6).
+    candidate_recall: 0.8
     # Train rows get their first-stage score from a model that never saw
     # their drive (this many folds), so the second stage learns from scores
     # like the ones it will meet in use.
@@ -193,63 +202,61 @@ diagnostics:
 
 splits:
   strategy: chronological
-  # Quarter-aligned (2026-10-18): Q4 2025 + Q1 2026 train and validate,
-  # Q2 2026 tests. Data runs 2025-10-01 to 2026-06-30 (273 days).
+  # Q1+Q2 2026 -> Q3 2026 (2026-11-06). Train on Q1+Q2, validate on a drive
+  # holdout over the same dates, test on Q3. Horizons 30, 44 and 60 are
+  # trained on identical rows so the horizon is the only variable
+  # (docs/q3_horizon_and_cascade_run.md).
   #
-  #   train rows   2025-10-01 .. 2026-01-15   (107 d, after the 30-day purge)
-  #   purge gap    2026-01-16 .. 2026-02-14   (dropped, see purge_label_window)
-  #   validation   2026-02-15 .. 2026-03-31   (45 d, ends on the Q1 boundary)
-  #   test         2026-04-01 .. 2026-05-31   (61 d)
-  #   June 2026    the 30-day label-observation window for the test rows, and
-  #                what `make score-fleet` scores for inference
+  #   train        80% of drives, 2026-01-01 .. 2026-05-01
+  #   validation   the other 20% (holdout_fraction), same dates
+  #   unused       2026-05-02 .. 2026-06-30 (their 60-day labels depend on Q3)
+  #   test         Q3 rows from 2026-07-01 to min(test_end,
+  #                observation_end - horizon): 08-31 / 08-17 / 08-01
   #
-  # test_end stops 30 days before the data does so every test row's 7-, 14-
-  # and 30-day label is observable; a row whose horizon runs past the last day
-  # of data is censored (label null), never counted as a negative
-  # (src/labels/labeling.py), so a too-late test_end silently shrinks the split
-  # instead of corrupting it (Section 5.7). Rows after validation_end are
-  # labeled split="test" but train_model applies test_end as a hard cap, so
-  # June is scorable without entering any evaluation.
+  # Every 60-day label of a train or validation row is observed by 06-30, so
+  # no fitting or tuning decision depends on a Q3 outcome. There is no purge
+  # gap because validation is not a later period. Q4 2025 is feature history
+  # only (the rolling windows of early January read it).
   #
-  # train_end splits inside Q1 rather than on the quarter boundary. Strict
-  # Q4=train / Q1=validation would leave only 62 days of training rows after
-  # the purge - fewer than the 75 the frozen run had - against 107 this way,
-  # with validation still 45 days (was 25).
+  # Q3 WAS the sealed quarter for frozen run 839d92bc. Its single-shot
+  # evaluation was skipped by decision on 2026-11-06 and Q3 is used here as
+  # an ordinary test set (test_split: sealed), so it is no longer sealed.
+  # Q4 2026 is the next sealed quarter (runbook 1.4).
   #
-  # This is NOT the frozen run's window (that was 2026-01-01..2026-06-30 with
-  # 2026-04-15 / 2026-05-10 / 2026-05-31), so results are not directly
-  # comparable to Section 1.1's figures. The frozen run remains the reference
-  # for the sealed quarter.
-  #
-  # The 60-day horizon experiment is PARKED, not abandoned (Section 2.4):
-  # start_date 2025-07-01, add 60 to horizons_days, and use
-  # 2026-02-01 / 2026-03-17 / 2026-05-01 here.
-  #
-  # For Q1 only use 2026-02-22 / 2026-03-06 / 2026-03-17 (14-day horizon).
-  train_end: "2026-02-14"
-  validation_end: "2026-03-31"
-  test_end: "2026-05-31"
-  # Sealed final quarter (Q3 2026). Rows dated on or after this are labeled
-  # split="sealed" and no training, validation or test step reads them. They
-  # are scored once, by pipelines/evaluate_frozen.py, with a model frozen
-  # before the data arrived. Null = no sealed window.
+  # The previous window (Q4 2025 + Q1 2026 train/validation, Q2 2026 test,
+  # 2026-02-14 / 2026-03-31 / 2026-05-31 with the 30-day purge) is recorded
+  # in docs/model_status_and_runbook.md section 2.2; the frozen runs were
+  # trained on it.
+  train_start: "2026-01-01"
+  train_end: "2026-05-01"
+  validation_end: "2026-05-01"
+  # Read directly by src/agent/fleet.py and src/ingest/synthetic_stub.py.
+  # make train caps the test split at min(test_end, observation_end -
+  # horizon): the last row whose horizon-day label is fully observed.
+  test_end: "2026-08-31"
+  observation_end: "2026-09-30"
+  # Which label-table split make train tests on. "sealed" = the rows dated on
+  # or after sealed_start (Q3).
+  test_split: sealed
+  # Rows dated on or after this are labeled split="sealed". It is also the
+  # cutoff of the fleet-wide feature statistics
+  # (pipelines/build_gold_features.py::sealed_start), so it stays at
+  # 2026-07-01 while Q3 is the test set.
   sealed_start: "2026-07-01"
+  # Share of drives (first seen before sealed_start) held out as validation
+  # (pipelines/build_labels.py). Was a fixed 0.1; 0.2 gives about 500 failing
+  # validation drives for thresholds and early stopping.
+  holdout_fraction: 0.2
   # Applied when `make train` extracts each split
   # (pipelines/train_model.py::_split_period_predicate):
   # - purge_label_window: train only on rows dated at least the label horizon
-  #   before train_end, so no training label is decided by what happens in
-  #   the validation period.
+  #   before train_end. Off here: validation shares the training dates.
   # - validation_after_train_only: validation holds only dates after
-  #   train_end (not the held-out drives' rows from the training period).
-  # test_end is always applied: test stops there.
-  purge_label_window: true
-  validation_after_train_only: true
+  #   train_end. Off here: validation IS the held-out drives' rows.
+  # train_start bounds train and validation; the test cap is always applied.
+  purge_label_window: false
+  validation_after_train_only: false
 
-# Sequence-model comparison (pipelines/train_sequence_model.py, `make
-# train-sequence`; needs `uv sync --extra torch`). An LSTM over each drive's raw
-# 30-day history, scored on the same labelled drive-days, splits and drive-level
-# metrics as the tree model, to test whether the ceiling is the feature set or
-# the data. Not used by `make train`, score-fleet or the agent.
 sequence_model:
   window_days: 30
   # Gold feature-table columns. seek_error_rate, raw_read_error_rate and
@@ -316,3 +323,15 @@ merged_models:
 mlflow:
   tracking_uri: sqlite:///mlflow/mlflow.db
   experiment_name: disk-failure-prediction
+
+# Reporting (pipelines/train_model.py, pipelines/experiment_model.py,
+# scripts/compare_horizons.py).
+evaluation:
+  # Precision and recall when exactly K drives are flagged over the test
+  # window, ranked by each drive's highest score (an inspection budget, not a
+  # threshold). Chosen from the drive counts earlier runs flagged on a
+  # ~355k-drive test fleet: about 110 at the primary threshold, 500 at 35%
+  # recall, 3,100 at 60% recall, 18,000 at the 0.8 net. K counts drives over
+  # the whole window, so the window length is printed beside it and horizons
+  # are compared at K only on a matched window.
+  top_k: [100, 250, 500, 1000, 2500, 5000]

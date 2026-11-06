@@ -142,12 +142,16 @@ def _stage_prepare(tmp_dir: Path) -> None:
         holdout_pool = drive_metadata.filter(
             pl.col("first_seen_date") < dt.date.fromisoformat(str(sealed_start))
         )
-    holdout_drive_ids = sample_holdout_drive_ids(holdout_pool["drive_id"])
+    holdout_fraction = float(model_config.get("splits", {}).get("holdout_fraction", 0.1))
+    holdout_drive_ids = sample_holdout_drive_ids(
+        holdout_pool["drive_id"], holdout_fraction=holdout_fraction
+    )
     _log_stage(
         "holdout_drive_ids_sampled",
         t0,
         drive_count=drive_metadata.height,
         holdout_count=len(holdout_drive_ids),
+        holdout_fraction=holdout_fraction,
     )
 
     batch_target_rows = int(

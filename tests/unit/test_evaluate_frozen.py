@@ -7,6 +7,18 @@ import pipelines.evaluate_frozen as frozen
 from src.models.calibration import IsotonicCalibrator
 
 
+@pytest.fixture(autouse=True)
+def _config_without_sealed_test_split(tmp_path_factory, monkeypatch):
+    """The shipped config tests on the sealed window (test_split: sealed), which
+    makes evaluate() refuse a sealed evaluation. These tests exercise the other
+    guards, so they run against a config where the sealed window is sealed."""
+    import yaml
+
+    path = tmp_path_factory.mktemp("config") / "model_config.yaml"
+    path.write_text(yaml.safe_dump({"splits": {"sealed_start": "2026-07-01"}}))
+    monkeypatch.setattr(frozen, "MODEL_CONFIG_PATH", path)
+
+
 class _FakeModel:
     """Returns the scores it was built with, row for row."""
 
@@ -98,3 +110,17 @@ def test_evaluate_refuses_two_stage_spec_without_second_stage(tmp_path, monkeypa
     with pytest.raises(SystemExit, match="frozen as two-stage"):
         frozen.evaluate("run123", "sealed", tmp_path / "frame.parquet", n_boot=10)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_sealed_evaluation_is_refused_while_the_sealed_window_is_the_test_set(
+    tmp_path, monkeypatch
+):
+    import yaml
+
+    path = tmp_path / "sealed_as_test.yaml"
+    path.write_text(yaml.safe_dump({"splits": {"test_split": "sealed"}}))
+    monkeypatch.setattr(frozen, "MODEL_CONFIG_PATH", path)
+    monkeypatch.setattr(frozen, "RESULTS_DIR", tmp_path / "results")
+    with pytest.raises(SystemExit, match="ordinary test set"):
+        frozen.evaluate("run123", "sealed", tmp_path / "frame.parquet", n_boot=10)
+    assert not (tmp_path / "results").exists()

@@ -164,3 +164,44 @@ def test_holdout_set_does_not_change_when_sealed_window_drives_arrive(tmp_path, 
     # Without the pool restriction the same data does reshuffle the draw.
     plain = build_labels.sample_holdout_drive_ids(old + new)
     assert set(plain) != set(before)
+
+
+def test_holdout_fraction_is_read_from_the_config(tmp_path, monkeypatch):
+    """splits.holdout_fraction sets the share of (pre-sealed) drives held out."""
+    import datetime as dt
+    import json
+
+    import polars as pl
+    import yaml
+
+    from pipelines import build_labels
+
+    silver, gold = tmp_path / "silver", tmp_path / "gold"
+    (gold / "features").mkdir(parents=True)
+    (silver / "drive_metadata").mkdir(parents=True)
+    pl.DataFrame({"drive_id": ["x"], "date": [dt.date(2026, 1, 1)]}).write_parquet(
+        gold / "features" / "part.parquet"
+    )
+    drives = [f"d{i:04d}" for i in range(1000)]
+    pl.DataFrame(
+        {"drive_id": drives, "first_seen_date": [dt.date(2026, 2, 1)] * len(drives)}
+    ).write_parquet(silver / "drive_metadata" / "part.parquet")
+    data_cfg = tmp_path / "data.yaml"
+    data_cfg.write_text(yaml.safe_dump({"silver_dir": str(silver), "gold_dir": str(gold)}))
+    monkeypatch.setattr(build_labels, "DATA_CONFIG_PATH", data_cfg)
+    monkeypatch.setattr(build_labels, "apply_memory_limit_from_config", lambda: None)
+
+    counts = {}
+    for fraction in (None, 0.2):
+        splits = {"sealed_start": "2026-07-01"}
+        if fraction is not None:
+            splits["holdout_fraction"] = fraction
+        model_cfg = tmp_path / f"model_{fraction}.yaml"
+        model_cfg.write_text(yaml.safe_dump({"splits": splits}))
+        monkeypatch.setattr(build_labels, "MODEL_CONFIG_PATH", model_cfg)
+        out = tmp_path / f"out_{fraction}"
+        out.mkdir()
+        build_labels._stage_prepare(out)
+        manifest = json.loads((out / build_labels.PREPARE_MANIFEST_NAME).read_text())
+        counts[fraction] = len(manifest["holdout_drive_ids"])
+    assert counts == {None: 100, 0.2: 200}

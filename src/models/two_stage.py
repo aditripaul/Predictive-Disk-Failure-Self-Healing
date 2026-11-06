@@ -150,6 +150,29 @@ def threshold_at_drive_recall(
     return float(thresholds[ok[np.argmax(precision[ok])]])
 
 
+def stage1_flag_rate(
+    drive_ids: np.ndarray, stage1_scores: np.ndarray, threshold: float
+) -> dict[str, Any]:
+    """Share of drives with at least one row whose Stage 1 score clears the
+    candidate threshold over the window: how much of the fleet Stage 1
+    passes to Stage 2. Recorded at training time so a deployment can watch
+    it; a sudden change on new data means the inputs have drifted (or the
+    fleet's failure rate has), since the threshold itself is fixed."""
+    flagged = (
+        pl.DataFrame({"drive_id": drive_ids, "flag": np.asarray(stage1_scores) >= threshold})
+        .group_by("drive_id")
+        .agg(pl.col("flag").any())
+    )
+    drives = flagged.height
+    passing = int(flagged["flag"].sum())
+    return {
+        "drives": drives,
+        "passing_drives": passing,
+        "share": passing / drives if drives else 0.0,
+        "threshold": float(threshold),
+    }
+
+
 def with_stage1_score(x: np.ndarray, stage1_scores: np.ndarray, rows: np.ndarray) -> np.ndarray:
     """Stage 2's input: the `rows` of `x` plus their Stage 1 score as a last
     column."""

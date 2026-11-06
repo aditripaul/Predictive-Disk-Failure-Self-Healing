@@ -8,6 +8,13 @@ training wrote them. The result file is written once per (split, run); a second
 call refuses, because a second look at the same split is another comparison.
 
     uv run python pipelines/evaluate_frozen.py --run-id <mlflow run id> --split sealed
+
+Known gap, to fix before the next sealed quarter (Q4 2026): the sealed split
+is read without a date cap. Rows whose horizon runs past the last day of data
+keep a positive label when the drive fails but have no label (and are
+dropped) when it does not, so the last `horizon` days add failing drives with
+no healthy rows beside them. Cap it at the last day of data minus the
+horizon, as `pipelines/train_model.py::resolved_test_end` does for test.
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+import yaml
 
 import mlflow
 from pipelines.train_model import _build_feature_arrays, _row_group_parts, _write_id_columns
@@ -34,6 +42,7 @@ from src.models.uncertainty import drive_level_bootstrap_ci
 
 ALLOWED_SPLITS = ("sealed", "external_smartz")
 RESULTS_DIR = Path("data/audit/frozen_evaluations")
+MODEL_CONFIG_PATH = Path("configs/model.yaml")
 
 
 def score_frozen(
@@ -101,6 +110,16 @@ def _latest_frame() -> Path:
 def evaluate(run_id: str, split: str, frame_path: Path, n_boot: int) -> dict[str, Any]:
     if split not in ALLOWED_SPLITS:
         raise SystemExit(f"split must be one of {ALLOWED_SPLITS}, got {split!r}")
+    test_split = (
+        yaml.safe_load(MODEL_CONFIG_PATH.read_text()).get("splits", {}).get("test_split", "test")
+    )
+    if split == "sealed" and test_split == "sealed":
+        raise SystemExit(
+            "configs/model.yaml splits.test_split is 'sealed': the sealed window is "
+            "being used as an ordinary test set (Q3 2026, since 2026-11-06), so a "
+            "single-shot frozen evaluation of it would not be one. Seal a later "
+            "quarter first (runbook 1.4)."
+        )
     out_path = RESULTS_DIR / f"{split}__{run_id}.json"
     if out_path.exists():
         raise SystemExit(

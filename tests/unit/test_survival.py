@@ -226,6 +226,85 @@ def test_each_split_is_limited_to_its_own_dates(tmp_path):
     assert kept("test", 30) == ["s1", "s2"]
 
 
+def test_q1q2_to_q3_window_bounds_each_split(tmp_path):
+    """The Q1+Q2 -> Q3 window: train and validation start at train_start and
+    share dates (no purge, holdout validation); test reads the sealed rows and
+    stops at observation_end minus the horizon, never after test_end."""
+    import datetime as dt
+
+    import polars as pl
+
+    from pipelines.train_model import (
+        _row_group_parts,
+        _split_period_predicate,
+        resolved_test_end,
+        test_source_split,
+    )
+
+    config = {
+        "splits": {
+            "train_start": "2026-01-01",
+            "train_end": "2026-05-01",
+            "validation_end": "2026-05-01",
+            "test_end": "2026-08-31",
+            "observation_end": "2026-09-30",
+            "test_split": "sealed",
+            "purge_label_window": False,
+            "validation_after_train_only": False,
+        }
+    }
+    assert test_source_split(config) == "sealed"
+    assert test_source_split({"splits": {}}) == "test"
+    assert resolved_test_end(config, 30) == dt.date(2026, 8, 31)
+    assert resolved_test_end(config, 44) == dt.date(2026, 8, 17)
+    assert resolved_test_end(config, 60) == dt.date(2026, 8, 1)
+    assert resolved_test_end({"splits": {"observation_end": "2026-09-30"}}, 14) == dt.date(
+        2026, 9, 16
+    )
+    tight = {"splits": {**config["splits"], "test_end": "2026-07-15"}}
+    assert resolved_test_end(tight, 30) == dt.date(2026, 7, 15)
+
+    d = dt.date
+    frame = pl.DataFrame(
+        {
+            "drive_id": ["t0", "t1", "t2", "v0", "v1", "u1", "s1", "s2", "s3"],
+            "date": [
+                d(2025, 12, 31),  # before train_start
+                d(2026, 1, 1),
+                d(2026, 5, 1),  # train
+                d(2025, 11, 1),  # held-out drive, before train_start
+                d(2026, 4, 30),  # validation
+                d(2026, 6, 15),  # label split "test": unused
+                d(2026, 7, 1),
+                d(2026, 8, 1),
+                d(2026, 8, 2),  # sealed
+            ],
+            "split": ["train"] * 3 + ["validation"] * 2 + ["test"] + ["sealed"] * 3,
+            "label": [0, 0, 0, 0, 0, 0, 0, 0, 1],
+        }
+    )
+    frame_path = tmp_path / "frame.parquet"
+    frame.write_parquet(frame_path)
+
+    def kept(role, horizon_days):
+        out = tmp_path / f"{role}_{horizon_days}"
+        out.mkdir()
+        parts = _row_group_parts(
+            frame_path,
+            split_name=test_source_split(config) if role == "test" else role,
+            select_columns=["drive_id", "date", "label"],
+            read_columns=["drive_id", "date", "label", "split"],
+            extra_predicate=_split_period_predicate(role, config, horizon_days),
+            tmp_dir=out,
+        )
+        return pl.concat([pl.read_parquet(p) for p in parts])["drive_id"].to_list()
+
+    assert kept("train", 60) == ["t1", "t2"]  # no purge, train_start applies
+    assert kept("validation", 60) == ["v1"]
+    assert kept("test", 60) == ["s1", "s2"]  # 09-30 - 60 days = 08-01
+    assert kept("test", 30) == ["s1", "s2", "s3"]
+
+
 def test_extract_stage_applies_the_split_dates_end_to_end(tmp_path, monkeypatch):
     """The real extract stage on a tiny frame: train is purged of the last
     horizon before train_end, validation drops the held-out drives'
