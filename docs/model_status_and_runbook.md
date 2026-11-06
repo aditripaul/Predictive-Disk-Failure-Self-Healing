@@ -547,7 +547,7 @@ repository; every file is checked by `cd frozen_runs/<run id> && sha256sum -c SH
 *Test looks:* `data/audit/test_access_log.jsonl` lines 114-126 (3 training runs, 1
 horizon comparison, 9 cascade seeds).
 
-### 1.1.4a A stacked Stage 2: LightGBM + Cox (run 2026-11-06, not confirmed, outputs frozen)
+### 1.1.4a A stacked Stage 2: LightGBM + Cox (run 2026-11-06, small strict-end gain, not confirmed, outputs frozen)
 
 Question: does a blend of the LightGBM and Cox Stage 2 re-rank the Stage 1
 candidates better than either alone? Section 1.1.4 found Cox matches LightGBM
@@ -586,6 +586,16 @@ make experiment-model EXPERIMENT_ARGS="--work-dir data/tmp/train_model_frame_<di
 uv run pytest tests/unit/test_two_stage.py
 ```
 
+The three horizons are the three frozen runs of Section 1.1.4. The experiment
+reads the data and kept work directory of each and refits Stage 1 and the Stage 2
+models per seed; it does not load the frozen models (`frozen_runs/README.md`).
+
+| Horizon | Frozen run folder (`frozen_runs/<id>/`) | Tag | Kept work dir | Stack output |
+|---|---|---|---|---|
+| 30 days | `c459046e4f1645169151e7be25ff064d` (the current model) | `h30_q1q2_q3` | `fag3o60h` | `data/audit/stack_q3_h30/` |
+| 44 days | `a2cd06d53e624c09b0d12f81076def8a` | `h44_q1q2_q3` | `ff5ejt7a` | `data/audit/stack_q3_h44/` |
+| 60 days | `804a20cec10048abb1bc3ccf510f96e1` | `h60_q1q2_q3` | `xjxdieoe` | `data/audit/stack_q3_h60/` |
+
 Each run appends a line to `data/audit/test_access_log.jsonl` and writes
 `experiment_results.json` into the work directory, as the Section 1.1.4 run
 did. Outputs: `data/audit/stack_q3_h30/`, `_h44/`, `_h60/` (`tables.md`,
@@ -598,8 +608,12 @@ stack; the numbers are right, the heading predates the stack kind.
 validation; run 2026-11-06 20:12-21:37 IST; the LightGBM and Cox rows reproduce
 the Section 1.1.4 tables exactly, so the repeat is consistent with that run).
 Precision / recall at each recall level; the last column is the stack minus
-the LightGBM Stage 2 in precision points, with how many of the 3 seeds have the
-paired 95% interval above / below 0:
+the LightGBM Stage 2 in **precision points only**, with how many of the 3 seeds
+have the paired 95% interval above / below 0. Read it with the recall columns
+beside it and with the two tables below: each model's threshold is set on
+validation for a recall target, so on test the models land at different recall
+and flag different numbers of drives, and precision alone is not a fair
+comparison between them (the 60-day 10% row is the clearest case):
 
 | Horizon | Level | Stage 1 alone | LightGBM Stage 2 | Cox | Stack | Stack minus LightGBM |
 |---|---|---|---|---|---|---|
@@ -613,20 +627,69 @@ paired 95% interval above / below 0:
 | 60 | 35% | 49.6% | 51.5% / 28.0% | 50.3% / 31.2% | 52.0% / 29.8% | +0.6 (1 / 0) |
 | 60 | 60% | 26.6% | 27.9% / 49.6% | 26.5% / 51.5% | 27.0% / 50.5% | -0.9 (0 / 3) |
 
-- **Not confirmed.** The rule proposed before the run (interval above 0 in at
-  least 2 of 3 seeds, at both 10% and 35% recall) is met by no horizon: 44 days
-  passes at 10% (3 / 3) but not at 35% (0 / 3); 30 days gets 1 / 3 at 10%; 60
-  days gets none. That rule was suggested in conversation, not written to a
-  file before the run, so treat it as a description of how the result was
-  read, not as a pre-registration.
-- **The 44-day gain is mostly Cox, not the blend.** Cox alone reaches 63.2% at
-  10% against 58.4% for LightGBM, so the stack's +6.1 over LightGBM is +1.4
-  over Cox. The 60-day stack is below LightGBM at 60% recall in 3 / 3 seeds
-  (-0.9).
-- **Same pattern as the 0.8 net itself:** any gain sits at the strict end
-  (10% recall), where one or two seeds carry it; at 35% and above the stack
-  lies on top of LightGBM and Stage 1, as every Stage 2 kind does (Section
-  1.1.4).
+**Both axes at the 10% level, per seed** (stack minus LightGBM Stage 2, points,
+paired 95% interval in brackets; **bold** = interval entirely above 0, *italic*
+= entirely below 0):
+
+| Horizon | Seed | Precision | Recall | Drives caught, LightGBM / Cox / stack |
+|---|---|---|---|---|
+| 30 | 0 | +2.4 [-1.7, +6.6] | **+1.9** [+0.5, +3.2] | 120 / 221 / 141 |
+| 30 | 1 | **+5.3** [+1.2, +9.8] | +0.5 [-0.6, +1.6] | 119 / 159 / 124 |
+| 30 | 2 | +1.9 [-2.5, +6.0] | **+1.1** [+0.2, +2.0] | 107 / 140 / 119 |
+| 44 | 0 | **+5.3** [+2.5, +8.4] | -0.8 [-1.7, +0.1] | 164 / 259 / 155 |
+| 44 | 1 | **+8.8** [+4.6, +13.3] | -1.0 [-2.2, +0.2] | 142 / 148 / 131 |
+| 44 | 2 | **+4.3** [+1.4, +7.6] | *-2.2* [-3.5, -0.9] | 206 / 126 / 182 |
+| 60 | 0 | +3.5 [-0.4, +7.7] | **+3.8** [+2.5, +5.0] | 124 / 200 / 166 |
+| 60 | 1 | -2.0 [-7.7, +3.5] | **+6.4** [+4.8, +8.0] | 123 / 123 / 194 |
+| 60 | 2 | -2.8 [-7.1, +1.7] | **+2.1** [+1.1, +3.3] | 135 / 126 / 159 |
+
+- 30 and 60 days: in every seed the stack is better on at least one axis and
+  significantly worse on none. At 60 days it catches more drives in 3 / 3 seeds
+  at a precision whose interval includes 0, which a precision-only reading (-0.4)
+  hid. 44 days is a trade: higher precision in 3 / 3 seeds, but fewer drives
+  caught in all three (significantly so in one).
+
+**Matched budget: failing drives caught when exactly K drives are flagged**
+(mean of 3 seeds; no thresholds involved; "seeds" = in how many of the 3 seeds
+the stack catches more than that model):
+
+| Horizon | K | LightGBM | Cox | Stack | Stack > LightGBM | Stack > Cox |
+|---|---|---|---|---|---|---|
+| 30 | 100 | 64.7 | 70.7 | 69.0 | 3 / 3 | 0 / 3 |
+| 30 | 250 | 146.3 | 156.7 | 153.7 | 3 / 3 | 0 / 3 |
+| 30 | 500 | 266.0 | 267.3 | 270.3 | 3 / 3 | 3 / 3 |
+| 30 | 1,000 | 413.0 | 408.0 | 415.0 | 2 / 3 | 3 / 3 |
+| 44 | 100 | 67.3 | 73.0 | 72.7 | 3 / 3 | 1 / 3 |
+| 44 | 250 | 149.0 | 162.7 | 159.3 | 3 / 3 | 1 / 3 |
+| 44 | 500 | 267.3 | 271.7 | 274.0 | 3 / 3 | 3 / 3 |
+| 44 | 1,000 | 415.7 | 419.3 | 417.3 | 1 / 3 | 0 / 3 |
+| 60 | 100 | 70.7 | 76.3 | 75.0 | 3 / 3 | 1 / 3 |
+| 60 | 250 | 161.3 | 174.7 | 167.7 | 3 / 3 | 0 / 3 |
+| 60 | 500 | 276.0 | 284.7 | 287.3 | 3 / 3 | 3 / 3 |
+| 60 | 1,000 | 413.3 | 409.3 | 414.3 | 1 / 3 | 1 / 3 |
+
+**Reading.**
+- **A small, consistent strict-end gain over LightGBM.** Flagging the same
+  number of drives, the stack catches more failing drives than LightGBM at K =
+  100, 250 and 500 in 3 / 3 seeds in all three horizons: about 4 to 11 more
+  drives out of about 1,100 failing (0.4 to 1 point of recall). From K = 1,000
+  there is no consistent difference, and above about 35% recall the curves
+  coincide (the figures below).
+- **At K = 100 and 250 the gain is Cox's, not the blend's.** Cox alone catches
+  as many or more than the stack there (the stack beats Cox in 0 to 1 seeds). At
+  K = 500 the stack beats both LightGBM and Cox in 3 / 3 seeds in every horizon,
+  the only place a blend adds something over its better member.
+- **The same applies to the 44-day precision gain:** Cox alone reaches 63.2% at
+  the 10% level against 58.4% for LightGBM, so the stack's +6.1 is +1.4 over
+  Cox.
+- **Not confirmed, because the evidence is weaker than "3 / 3" sounds.** (1)
+  The matched-K counts have no confidence intervals. (2) The three seeds share
+  the same test drives, so they are not independent samples of the test set.
+  (3) This is a second look at the same data after the precision-only reading
+  and the rule suggested before the run (interval above 0 in at least 2 of 3
+  seeds at both 10% and 35% recall, met by no horizon, written in conversation
+  and not in a file) disagreed, so which view is "the" result was not fixed in
+  advance. (4) Q3 is already a test set. Treat the K <= 500 gain as a lead.
 - **The weights are not stable:** LightGBM / Cox 0.4 / 0.6, 0.5 / 0.5 and 0.6 /
   0.4 at 30 days; 0.5 / 0.5, 0.4 / 0.6 and 0.3 / 0.7 at 44; 0.5 / 0.5, 0.3 /
   0.7 and 0.5 / 0.5 at 60. Validation drive-level average precision of the
@@ -634,9 +697,29 @@ paired 95% interval above / below 0:
   0.01 of either member and partly optimistic (members early-stopped on the
   same rows).
 - **Not adopted.** The production Stage 2 stays the LightGBM at the 0.8 net
-  (`c459046e` and the 44- and 60-day runs). Q3 was already a test set, so these
-  are descriptive; a confirmation needs an untouched quarter and the rules of
+  (`c459046e` and the 44- and 60-day runs). A confirmation needs an untouched
+  quarter, one stated metric (caught drives at a fixed number flagged, with a
+  paired interval), Cox alone as a third arm, and the rules of
   `docs/q3_horizon_and_cascade_run.md` section 6.
+
+**Figures** (seed 0 only; the table above averages three seeds; copies of
+`data/audit/stack_q3_h<H>/figures/cascade_*_seed0.png` in `docs/figures/q3_2026/`,
+named `stack_h<H>_*.png`). The precision-recall curves of Stage 1 alone, the 0.5
+and 0.8 LightGBM nets, Cox and the stack coincide above about 35% recall and differ below it (the 60-day
+Cox and the 0.8 LightGBM curves lie highest at 15-25% recall); the
+markers are the 10% and 60% recall levels, with thresholds from validation, so
+each model's marker lands at a different test recall. The confusion matrices
+give the counts behind each marker.
+
+| 30-day | 44-day | 60-day |
+|---|---|---|
+| ![Stack precision-recall, 30-day](figures/q3_2026/stack_h30_precision_recall.png) | ![Stack precision-recall, 44-day](figures/q3_2026/stack_h44_precision_recall.png) | ![Stack precision-recall, 60-day](figures/q3_2026/stack_h60_precision_recall.png) |
+
+![Stack confusion matrices, 30-day](figures/q3_2026/stack_h30_confusion.png)
+
+![Stack confusion matrices, 44-day](figures/q3_2026/stack_h44_confusion.png)
+
+![Stack confusion matrices, 60-day](figures/q3_2026/stack_h60_confusion.png)
 
 **Frozen outputs.** Do not re-run into these folders (the runner refuses to
 overwrite) and do not edit them. SHA-256 prefixes (first 16), full list in
@@ -651,9 +734,8 @@ with `sha256sum -c data/audit/stack_q3_logs/CHECKSUMS.sha256`:
 | `stack_q3_h30/tables.md`, `_h44/`, `_h60/` | `c4c275ba13058c8a`, `ffc7bfb976d6240d`, `34344e99f016b60c` |
 | `stack_q3_logs/run_stack.sh` | `b44c437016a87086` |
 
-`data/audit/*/*` is git-ignored, so these folders are local until force-added
-(see `data/audit/README.md`); the checksums are what lets a later reader detect a
-changed file. MLflow runs: `5ab8f0bb` (30 days), `7a568b77` (44), `47d8ff0c` (60).
+These folders are tracked (`.gitignore`, `data/audit/README.md`); the checksums
+let a later reader detect a changed file. MLflow runs: `5ab8f0bb` (30 days), `7a568b77` (44), `47d8ff0c` (60).
 
 **Overlap check, not yet reproducible.** A drive-level comparison of the
 `cox` and `lightgbm` columns of `data/tmp/merged/merged_scores_h30_h30_seed0.parquet`
@@ -1049,7 +1131,7 @@ Where each section's numbers come from:
 | Section | Source |
 |---|---|
 | 1.1.4 (Q1+Q2 -> Q3 runs) | Training reports `data/audit/data_quality_reports/model_evaluation_report_h<H>_q1q2_q3.json` and `action_tiers_h<H>_q1q2_q3.json`; cascade and survival Stage 2 `data/audit/cascade_q3_h30/`, `_h44/`, `_h60/`; horizon comparison `data/audit/horizon_q3/`; runs `frozen_runs/c459046e.../`, `a2cd06d5.../`, `804a20ce.../` |
-| 1.1.4a (stacked Stage 2, not confirmed, frozen) | `data/audit/stack_q3_h30/`, `_h44/`, `_h60/`; launcher, logs and `CHECKSUMS.sha256` in `data/audit/stack_q3_logs/` (git-ignored: local until force-added) |
+| 1.1.4a (stacked Stage 2, not confirmed, frozen) | `data/audit/stack_q3_h30/`, `_h44/`, `_h60/`; launcher, logs and `CHECKSUMS.sha256` in `data/audit/stack_q3_logs/` (tracked) |
 | 1.1.5 (deep dive) | `data/audit/deep_dive_q3_h30/` |
 | 1.1.6 (cluster action policy) | `data/audit/cluster_policy_h30/` |
 | 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` (local, not committed) |
@@ -2925,9 +3007,11 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   `docs/q3_horizon_and_cascade_run.md` section 6. `evaluate_frozen.py` needs a
   sealed-split date cap before any quarter is sealed again.
 - **Stacked Stage 2 (LightGBM + Cox) was run and not adopted** (2026-11-06,
-  Section 1.1.4a): +3.2 / +6.1 / -0.4 points at 10% recall for 30 / 44 / 60 days,
-  nothing at 35% recall and above, unstable weights; the 44-day gain is mostly
-  Cox. Outputs frozen.
+  Section 1.1.4a): at the same number of drives flagged it catches about 4 to 11
+  more failing drives than LightGBM at K <= 500 in 3 / 3 seeds in every horizon,
+  but Cox alone is as good at K <= 250, the intervals are not computed and the
+  seeds share the test drives; nothing above about 35% recall; unstable weights.
+  A lead for an untouched quarter, with Cox alone as a third arm. Outputs frozen.
 - **Untested ideas for the 60-80% recall band** (2026-11-06 review): a cohort
   feature (trailing failure rate of the drive's batch or vault; screen on
   validation first) and a sequence-model third stage on the Stage 1 suspects

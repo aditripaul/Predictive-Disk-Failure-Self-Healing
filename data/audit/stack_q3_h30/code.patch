@@ -1,0 +1,282 @@
+diff --git a/docs/model_status_and_runbook.md b/docs/model_status_and_runbook.md
+index 29dbf8e..a1cebac 100644
+--- a/docs/model_status_and_runbook.md
++++ b/docs/model_status_and_runbook.md
+@@ -734,6 +734,8 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
+ 
+ ### 1.7 Three conventions these numbers depend on
+ 
++(How the action tiers are derived from the score, step by step: Section 1.9.)
++
+ - **Action tiers are set in lift, not precision.**
+   `threshold.action_tier_lift` (56.6 / 94.3 / 151.0 / 226.4) replaces the
+   earlier per-tier precision targets, because precision moves with the base
+@@ -797,6 +799,69 @@ Where each section's numbers come from:
+ What git tracks under `data/audit/` and what stays local is listed in its
+ README; the Q1+Q2 -> Q3 results are all tracked.
+ 
++### 1.9 How the tiers are set
++
++The agent's four action tiers (warn, cordon, migrate, drain) are four thresholds on
++one score. Stage 2 does not create them; it produces the score, and the thresholds
++are chosen on the validation holdout to meet a precision target each. For the
++current 30-day model (frozen run `c459046e`):
++
++1. **The score.** Stage 1 scores every drive-day; at or above the candidate
++   threshold (0.235, `frozen_runs/c459046e.../two_stage.json` `candidate_threshold`)
++   Stage 2 re-scores it and the combined score is `0.235 + 0.765 x stage2`;
++   below, the Stage 1 score stands (`src/models/two_stage.py::TwoStageModel.final_scores`).
++   Per drive, the highest score in its window: a failing drive over the 30 days
++   before failure, a healthy drive over the whole period
++   (`src/models/evaluation.py::drive_level_table`).
++2. **Lift to precision target.** `configs/model.yaml` `threshold.action_tier_lift`
++   gives a lift per tier; times the validation drive failure rate (0.589%, 418 of
++   70,977 drives) it is the precision the tier must earn
++   (`src/models/threshold.py::precision_targets_from_lift`). Lift is used so a target
++   keeps its meaning when the failure rate changes between windows (Section 1.7).
++3. **Threshold per tier.** On the validation drive-level precision-recall curve,
++   each tier takes the cutoff with the most recall whose precision still meets its
++   target (`tune_action_tiers`). A target no cutoff meets falls back to the curve's
++   most precise point:
++
++| Tier | Lift | Target on validation | Threshold | Validation precision / recall | Q3 test precision / recall |
++|---|---|---|---|---|---|
++| warn | 56.6 | 33.3% | 0.653 | 33.3% / 63.6% | 17.3% / 60.9% |
++| cordon | 94.3 | 55.5% | 0.836 | 55.7% / 44.7% | 34.8% / 42.4% |
++| migrate | 151.0 | 88.9% | 0.926 | 100% / 0.5% (2 drives) | 33.3% / 0.2% |
++| drain | 226.4 | 133% (stored capped at 100%), unreachable | 0.926 | same cutoff | same |
++
++   Source: `data/audit/data_quality_reports/model_evaluation_report_h30_q1q2_q3.json`
++   (`action_tiers`: `threshold`, `target_lift`, `target_precision`, `validation`,
++   `test`) and `action_tiers_h30_q1q2_q3.json`. Migrate's target is met only at the
++   very top of the curve and drain's is impossible, so both share 0.926 and flag 6
++   drives on Q3: on this model they are not usable tiers.
++4. **The primary threshold is separate** (`tune_drive_level_threshold`): it aims at
++   90% precision with at least 10% recall, cannot reach it, and takes the most
++   precise cutoff with 10% recall: 0.919, giving 75.0% on validation and 59.0% on Q3
++   (`model_evaluation_report_h30_q1q2_q3.json` `threshold`).
++5. **Run-time gates** (`src/models/action_tiers.py::determine_action_tier`): migrate
++   and drain need feature confidence >= 0.80 (`configs/agent.yaml`
++   `feature_confidence.min_confidence_for_destructive_action`), a mature drive and
++   fresh telemetry, otherwise they become cordon. Then `src/agent/nodes.py::make_plan_node`
++   applies hysteresis (2 consecutive cycles before escalating) and a cooldown after
++   an action (3,600 s), both in `configs/agent.yaml` `loop`.
++6. **Where the cluster policy enters** (`docs/cluster_action_policy.md`): between 3
++   and 5, the drive's (cluster, tier) cell can move it one band up or down, by how
++   often that cell failed on validation compared with each band. The clustering never
++   sees the score, so Stage 2's precision shapes which drives sit in each tier, not
++   the clusters.
++
++**The same thresholds give lower precision on Q3** because fewer drives fail there
++(0.300% against 0.589%); recall holds (Section 1.1.5). Lift times each base rate
++gives the precision each tier would be expected to reach:
++
++| How the tiers are set (validation curve, lift-derived targets) | Lift x base rate = target |
++|---|---|
++| ![Validation drive curve with tier thresholds and targets](../data/audit/cluster_policy_h30/figures/tier_thresholds_validation.png) | ![Lift times base rate, validation and Q3](../data/audit/cluster_policy_h30/figures/tier_lift_targets.png) |
++
++The per-run curves are in `frozen_runs/c459046e.../figures/`
++(`validation_precision_recall.png`, `test_precision_recall.png`).
++
+ ## 2. How to run the pipeline
+ 
+ ### 2.1 Setup
+diff --git a/pipelines/experiment_model.py b/pipelines/experiment_model.py
+index 526e110..6a354b0 100644
+--- a/pipelines/experiment_model.py
++++ b/pipelines/experiment_model.py
+@@ -42,6 +42,7 @@ from src.models.evaluation import (
+     top_k_from_drive_table,
+ )
+ from src.models.logistic_regression_baseline import train_logistic_regression_baseline
++from src.models.stacking import STACK_KIND, fit_stack
+ from src.models.survival import AftModel, drive_concordance, survival_bounds, train_aft
+ from src.models.threshold import tune_drive_level_threshold
+ from src.models.training import (
+@@ -72,6 +73,9 @@ from src.resource_limits import apply_memory_limit_from_config
+ 
+ logger = get_logger(__name__)
+ 
++#: Every kind the experiment compares: the Stage 2 models plus the stack of them.
++EXPERIMENT_KINDS = (*STAGE2_KINDS, STACK_KIND)
++
+ DATA_CONFIG_PATH = Path("configs/data.yaml")
+ MODEL_CONFIG_PATH = Path("configs/model.yaml")
+ 
+@@ -792,33 +796,71 @@ def two_stage_experiment(
+     jobs = [
+         (net, kind)
+         for net in candidate_recalls
+-        for kind in stage2_kinds
++        for kind in sorted(stage2_kinds, key=lambda k: k == STACK_KIND)
+         if kind == "lightgbm" or survival_nets is None or net in survival_nets
+     ]
++    fitted_stage2: dict[tuple[float, str], Any] = {}
++    net_reports: dict[tuple[float, str], dict[str, Any]] = {}
+     for net, kind in jobs:
+         t1 = time.perf_counter()
+         levels = [r for r in recall_levels if r <= net + 1e-9]
+-        model, report = fit_second_stage(
+-            fit,
+-            stage1,
+-            x_train=data["x_train"],
+-            y_train=data["y_train"],
+-            train_drives=data["train_drives"],
+-            x_val=data["x_val"],
+-            y_val=data["y_val"],
+-            val_drives=data["val_drives"],
+-            val_stage1_scores=val_s1,
+-            candidate_recall=net,
+-            n_folds=n_folds,
+-            seed=seed,
+-            train_stage1_scores=train_oof,
+-            stage2_params=stage2_params,
+-            early_stopping_max_negatives=early_stopping_max_negatives,
+-            stage2_kind=kind,
+-            train_survival_bounds=survival_bounds_train,
+-            horizon_days=data.get("horizon_days"),
+-            survival_params=survival_params,
+-        )
++        if kind == STACK_KIND:
++            members = {
++                k: fitted_stage2[(net, k)] for k in STAGE2_KINDS if (net, k) in fitted_stage2
++            }
++            model, report = fit_stack(
++                stage1,
++                members,
++                x_val=data["x_val"],
++                y_val=data["y_val"],
++                val_drives=data["val_drives"],
++                val_stage1_scores=val_s1,
++                candidate_threshold=next(
++                    (net_reports[(net, k)]["candidate_threshold"] for k in members), 0.0
++                ),
++            )
++            # The stack shares the candidates and Stage 1 of its members.
++            if members:
++                first = net_reports[(net, next(iter(members)))]
++                report = {
++                    **{
++                        key: first[key]
++                        for key in (
++                            "stage1_trees",
++                            "candidate_recall",
++                            "n_folds",
++                            "seed",
++                            "candidates",
++                        )
++                        if key in first
++                    },
++                    **report,
++                }
++        else:
++            model, report = fit_second_stage(
++                fit,
++                stage1,
++                x_train=data["x_train"],
++                y_train=data["y_train"],
++                train_drives=data["train_drives"],
++                x_val=data["x_val"],
++                y_val=data["y_val"],
++                val_drives=data["val_drives"],
++                val_stage1_scores=val_s1,
++                candidate_recall=net,
++                n_folds=n_folds,
++                seed=seed,
++                train_stage1_scores=train_oof,
++                stage2_params=stage2_params,
++                early_stopping_max_negatives=early_stopping_max_negatives,
++                stage2_kind=kind,
++                train_survival_bounds=survival_bounds_train,
++                horizon_days=data.get("horizon_days"),
++                survival_params=survival_params,
++            )
++        if model is not None and kind != STACK_KIND:
++            fitted_stage2[(net, kind)] = model.stage2
++            net_reports[(net, kind)] = report
+         report["stage2_kind"] = kind
+         report["stage1"] = [stage1_rows[r] for r in levels]
+         if model is None:
+@@ -1024,7 +1066,9 @@ def summarize_two_stage_seeds(reports: list[dict[str, Any]]) -> list[dict[str, A
+ def summarize_two_stage_nets(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+     """`summarize_two_stage_seeds` per net, plus each net's mean candidate
+     pool and ceiling over the seeds that trained it."""
+-    keys = sorted({_net_key(r) for r in reports}, key=lambda k: (k[0], STAGE2_KINDS.index(k[1])))
++    keys = sorted(
++        {_net_key(r) for r in reports}, key=lambda k: (k[0], EXPERIMENT_KINDS.index(k[1]))
++    )
+     out = []
+     for net, kind in keys:
+         group = [r for r in reports if _net_key(r) == (net, kind)]
+@@ -1729,7 +1773,7 @@ def main() -> None:
+         "--stage2-kinds",
+         nargs="+",
+         default=None,
+-        choices=list(STAGE2_KINDS),
++        choices=list(EXPERIMENT_KINDS),
+         help="With --two-stage: Stage 2 models to compare per net. Survival kinds (cox, aft) "
+         "are paired against the LightGBM Stage 2 of the same net. Default "
+         "model.two_stage.experiment.stage2_kinds (lightgbm).",
+diff --git a/tests/unit/test_two_stage.py b/tests/unit/test_two_stage.py
+index bbca3be..2c25603 100644
+--- a/tests/unit/test_two_stage.py
++++ b/tests/unit/test_two_stage.py
+@@ -640,3 +640,58 @@ def test_two_stage_experiment_compares_stage2_kinds(tmp_path):
+     names = {name for name, _, _ in two_stage_mlflow_metrics({"runs": reports, "summary": nets})}
+     assert "net80_cox_c_index_cascade" in names and "net80_c_index_cascade" in names
+     assert any(name.startswith("net80_aft_r60_mean_vs_lightgbm") for name in names)
++
++
++def test_stack_blends_fitted_stage2_models(tmp_path):
++    """A stack of the LightGBM and Cox Stage 2 of one net: same candidates,
++    weights on the simplex, scores on the cascade's one scale."""
++    x_train, y_train, train_drives = _split(1, 900, tmp_path, "tr")
++    x_val, y_val, val_drives = _split(2, 500, tmp_path, "va")
++    x_test, y_test, test_drives = _split(3, 500, tmp_path, "te")
++    data = {
++        "horizon_days": 30,
++        "x_train": np.asarray(x_train),
++        "y_train": y_train,
++        "train_drives": train_drives,
++        "train_ids": _ids(train_drives, y_train),
++        "x_val": x_val,
++        "y_val": y_val,
++        "val_drives": val_drives,
++        "x_test": x_test,
++        "y_test": y_test,
++        "test_drives": test_drives,
++        "test_ids": _ids(test_drives, y_test, start="2026-07-01"),
++        "es_idx": early_stopping_subset(y_val),
++    }
++    reports = two_stage_experiment(
++        data,
++        candidate_recalls=(0.8,),
++        recall_levels=(0.10, 0.50),
++        stage2_kinds=("stack", "lightgbm", "cox"),  # order is not the caller's burden
++        n_boot=30,
++    )
++    assert [r["stage2_kind"] for r in reports] == ["lightgbm", "cox", "stack"]
++    stack = reports[-1]
++    assert stack["status"] == "ok", stack
++    weights = stack["stack"]["weights"]
++    assert set(weights) == {"lightgbm", "cox"} and abs(sum(weights.values()) - 1) < 1e-9
++    ap = stack["stack"]["validation_drive_ap"]
++    assert ap["stack"] >= max(ap["lightgbm"], ap["cox"], ap["equal_weights"]) - 1e-12
++    assert stack["candidates"] == reports[0]["candidates"]
++    assert any("paired_vs_lightgbm" in row for row in stack["two_stage"])
++    assert stack["stage2_trees"] == reports[0]["stage2_trees"] + reports[1]["stage2_trees"]
++
++
++def test_stack_needs_two_members():
++    from src.models.stacking import fit_stack
++
++    model, report = fit_stack(
++        None,
++        {"lightgbm": object()},
++        x_val=np.zeros((2, 1)),
++        y_val=np.zeros(2),
++        val_drives=np.array([0, 1]),
++        val_stage1_scores=np.zeros(2),
++        candidate_threshold=0.5,
++    )
++    assert model is None and "at least two" in report["status"]

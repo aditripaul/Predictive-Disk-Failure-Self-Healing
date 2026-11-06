@@ -31,6 +31,12 @@ data/audit/*/*
 !data/audit/data_quality_reports/*_q1q2_q3.json
 !data/audit/deep_dive_q3_h*/*
 !data/audit/cluster_policy_h*/*
+# Stacked Stage 2 runs (runbook 1.1.4a): results, launcher, checksums and logs,
+# and the two launcher scripts the runbook commands point to.
+!data/audit/stack_q3_h*/*
+!data/audit/stack_q3_logs/*
+!data/audit/q3_logs/run_q3.sh
+!data/audit/q3_logs/run_cascade.sh
 !data/**/.gitkeep
 
 # ML experiment tracking artifacts
