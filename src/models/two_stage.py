@@ -38,7 +38,12 @@ from sklearn.metrics import precision_recall_curve
 
 import mlflow
 from src.models.evaluation import drive_level_table
-from src.models.training import PREDICT_CHUNK_ROWS, predict_proba_positive, train_lightgbm
+from src.models.training import (
+    PREDICT_CHUNK_ROWS,
+    early_stopping_subset,
+    predict_proba_positive,
+    train_lightgbm,
+)
 
 #: Fits one LightGBM. `eval_x`/`eval_y` switch on early stopping;
 #: `n_estimators` fixes the tree count instead; `extra_params` override the
@@ -46,7 +51,8 @@ from src.models.training import PREDICT_CHUNK_ROWS, predict_proba_positive, trai
 Fitter = Callable[..., lgb.LGBMClassifier]
 
 #: Stage 2 sees thousands of rows, not millions: it needs smaller leaves
-#: than the pipeline's `min_child_samples`.
+#: than the pipeline's `min_child_samples`. The default when
+#: `model.two_stage.stage2_params` is not set.
 STAGE2_PARAMS = {"min_child_samples": 50}
 
 
@@ -126,6 +132,14 @@ def threshold_for_drive_recall(
     """The highest-precision drive-level threshold that still catches at
     least `recall` of the failing drives; None if that is not reachable."""
     labels, drive_scores = drive_level_table(drive_ids, y, scores)
+    return threshold_at_drive_recall(labels, drive_scores, recall)
+
+
+def threshold_at_drive_recall(
+    labels: np.ndarray, drive_scores: np.ndarray, recall: float
+) -> float | None:
+    """`threshold_for_drive_recall` on a drive table already built (one label
+    and score per drive)."""
     if labels.sum() == 0:
         return None
     precision, achieved, thresholds = precision_recall_curve(labels, drive_scores)
@@ -188,12 +202,24 @@ def fit_second_stage(
     n_folds: int = 3,
     seed: int = 0,
     min_candidate_positives: int = 20,
+    train_stage1_scores: np.ndarray | None = None,
+    stage2_params: dict[str, Any] | None = None,
+    early_stopping_max_negatives: int | None = None,
 ) -> tuple[TwoStageModel | None, dict[str, Any]]:
     """Trains Stage 2 for an already-trained `stage1`.
 
     Returns the combined model and a report; the model is None (and
     `report["status"]` says why) when validation cannot reach
-    `candidate_recall` or too few failing rows are candidates to train on."""
+    `candidate_recall` or too few failing rows are candidates to train on.
+
+    `train_stage1_scores`: out-of-fold Stage 1 scores of the train rows, when
+    the caller already has them (they depend on the seed, the fold count and
+    Stage 1's tree count, not on `candidate_recall`, so several nets can share
+    one set); computed here when None.
+    `stage2_params`: LightGBM overrides for Stage 2 (default `STAGE2_PARAMS`).
+    `early_stopping_max_negatives`: Stage 2 early-stops on every positive
+    validation candidate row plus at most this many negatives (None = all
+    candidate rows). A wide net has millions of validation candidates."""
     report: dict[str, Any] = {
         "stage1_trees": tree_count(stage1),
         "candidate_recall": candidate_recall,
@@ -206,21 +232,24 @@ def fit_second_stage(
         report["status"] = "candidate recall not reachable on validation"
         return None, report
 
-    train_stage1_scores = out_of_fold_scores(
-        fit,
-        x_train,
-        y_train,
-        train_drives,
-        n_estimators=report["stage1_trees"],
-        n_folds=n_folds,
-        seed=seed,
-    )
+    if train_stage1_scores is None:
+        train_stage1_scores = out_of_fold_scores(
+            fit,
+            x_train,
+            y_train,
+            train_drives,
+            n_estimators=report["stage1_trees"],
+            n_folds=n_folds,
+            seed=seed,
+        )
     train_rows = np.flatnonzero(train_stage1_scores >= threshold)
     val_rows = np.flatnonzero(val_stage1_scores >= threshold)
     report["candidates"] = {
         "train_rows": len(train_rows),
         "train_positive_rows": int(y_train[train_rows].sum()),
+        "train_positive_share": float(y_train[train_rows].mean()) if len(train_rows) else 0.0,
         "validation_rows": len(val_rows),
+        "validation_positive_rows": int(y_val[val_rows].sum()),
     }
     if (
         report["candidates"]["train_positive_rows"] < min_candidate_positives
@@ -229,12 +258,20 @@ def fit_second_stage(
         report["status"] = "too few candidate failures to train a second stage"
         return None, report
 
+    eval_rows = val_rows
+    if early_stopping_max_negatives is not None:
+        eval_rows = val_rows[
+            early_stopping_subset(
+                y_val[val_rows], max_negatives=early_stopping_max_negatives, seed=seed
+            )
+        ]
+    report["candidates"]["early_stopping_rows"] = len(eval_rows)
     stage2 = fit(
         with_stage1_score(x_train, train_stage1_scores, train_rows),
         y_train[train_rows],
-        eval_x=with_stage1_score(x_val, val_stage1_scores, val_rows),
-        eval_y=y_val[val_rows],
-        extra_params=STAGE2_PARAMS,
+        eval_x=with_stage1_score(x_val, val_stage1_scores, eval_rows),
+        eval_y=y_val[eval_rows],
+        extra_params=STAGE2_PARAMS if stage2_params is None else stage2_params,
     )
     report["stage2_trees"] = tree_count(stage2)
     report["status"] = "ok"

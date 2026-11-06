@@ -1223,7 +1223,12 @@ is judged on the fleet figure only.
 2. Train rows are scored out of fold by drive (`n_folds`), so Stage 2 learns
    from Stage 1 scores like those it meets in use.
 3. Stage 2 is a LightGBM trained on the candidate train rows, with the Stage
-   1 score as an extra feature, early-stopped on the validation candidates.
+   1 score as an extra feature (overrides: `stage2_params`), early-stopped on
+   the validation candidates (all positives plus at most
+   `early_stopping_max_negatives` negatives). `fit_second_stage` also accepts
+   precomputed out-of-fold train scores (`train_stage1_scores`), so several
+   nets can share one Stage 1; `make experiment-model --two-stage` does this
+   (`docs/cascade_wide_net.md`).
 4. One combined score: a non-candidate keeps its Stage 1 score; a candidate
    scores `threshold + (1 - threshold) * stage2`. Tiers needing more recall
    than `candidate_recall` therefore behave exactly as with Stage 1 alone.
@@ -1266,7 +1271,7 @@ and should not be rewired to this.
 
 | Flag / variant | What it measures |
 |---|---|
-| `--two-stage` | the same `two_stage` module, against Stage 1 alone at 5/10/20/35% recall |
+| `--two-stage` | the same `two_stage` module, one report per Stage 1 net (`--candidate-recalls`), against Stage 1 alone at each recall level up to the net, with a paired drive bootstrap |
 | `--two-stage-seeds N` | repeats it with N seeds and prints the mean, the spread of the precision gain, and in how many seeds it was better on both precision and recall |
 | `xgboost_aft`, `xgboost_aft_spw` | survival model (`src/models/survival.py`): XGBoost accelerated failure time on each train row's time to failure, scored on the same binary label |
 | `--anomaly-stage` | isolation forest fitted on healthy rows: the anomaly score alone, an anomaly-filter-then-classify cascade, and the score as an extra feature |

@@ -40,16 +40,23 @@ def latest_run_id_for_horizon(experiment_name: str, horizon_days: int) -> str:
 
     Filtered on the horizon so a trial run - `make train
     TRAIN_ARGS="--horizon-days 60"` - cannot silently become the model behind
-    30-day predictions. Raises if there is none; callers that must keep
-    running without a model use `resolve_trained_action_thresholds`."""
+    30-day predictions. Only runs that trained a model count: the same
+    experiment also holds `make train-merged` and `make experiment-model`
+    runs, which log `horizon_days` but no `model`; a training run is the one
+    that logged its LightGBM parameters (`params.objective`). Raises if there
+    is none; callers that must keep running without a model use
+    `resolve_trained_action_thresholds`."""
     import mlflow
 
     runs = mlflow.search_runs(
         experiment_names=[experiment_name],
         filter_string=f"params.horizon_days = '{horizon_days}'",
         order_by=["start_time DESC"],
-        max_results=1,
     )
+    if "params.objective" in runs.columns:
+        runs = runs[runs["params.objective"].notna()]
+    else:
+        runs = runs.iloc[0:0]
     if runs.empty:
         raise RuntimeError(
             f"No MLflow runs with horizon_days={horizon_days} found for experiment "

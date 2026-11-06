@@ -1116,6 +1116,8 @@ def main() -> None:
                     candidate_recall=two_stage_cfg.get("candidate_recall", 0.5),
                     n_folds=two_stage_cfg.get("n_folds", 3),
                     seed=two_stage_cfg.get("seed", 0),
+                    stage2_params=two_stage_cfg.get("stage2_params"),
+                    early_stopping_max_negatives=two_stage_cfg.get("early_stopping_max_negatives"),
                 )
                 results["two_stage"] = two_stage_report
                 _log_stage("two_stage_trained", t0, **two_stage_report)

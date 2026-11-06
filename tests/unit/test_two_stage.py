@@ -47,13 +47,136 @@ def test_two_stage_experiment_runs_and_reports_both_models(tmp_path):
         "test_drives": test_drives,
         "es_idx": early_stopping_subset(y_val),
     }
-    report = two_stage_experiment(data, n_folds=3, candidate_recall=0.5)
+    (report,) = two_stage_experiment(data, n_folds=3, candidate_recalls=(0.5,), n_boot=50)
     assert report["status"] == "ok", report
     assert report["candidates"]["train_rows"] < len(y_train)  # stage 2 sees a subset
     assert [r["target_recall"] for r in report["stage1"]] == [0.05, 0.10, 0.20, 0.35]
     for row in report["two_stage"]:
         assert row["threshold"] is not None
         assert 0.0 <= row["test"]["precision"] <= 1.0
+        assert "paired_test" in row
+    assert report["ceiling"]["test_recall"] >= max(r["test"]["recall"] for r in report["two_stage"])
+
+
+def test_two_stage_experiment_compares_several_nets_against_one_stage1(tmp_path):
+    x_train, y_train, train_drives = _split(1, 900, tmp_path, "tr")
+    x_val, y_val, val_drives = _split(2, 500, tmp_path, "va")
+    x_test, y_test, test_drives = _split(3, 500, tmp_path, "te")
+    data = {
+        "x_train": np.asarray(x_train),
+        "y_train": y_train,
+        "train_drives": train_drives,
+        "x_val": x_val,
+        "y_val": y_val,
+        "val_drives": val_drives,
+        "x_test": x_test,
+        "y_test": y_test,
+        "test_drives": test_drives,
+        "es_idx": early_stopping_subset(y_val),
+        # days 0..9 per drive; positives are days 5-9, i.e. 4..0 days before failure
+        "test_days_to_event": np.tile(np.arange(9, -1, -1), 500),
+        "val_days_to_event": np.tile(np.arange(9, -1, -1), 500),
+    }
+    levels = (0.10, 0.50, 0.70, 0.90)
+    reports = two_stage_experiment(
+        data, candidate_recalls=(0.5, 0.9), recall_levels=levels, n_boot=50
+    )
+    assert [r["candidate_recall"] for r in reports] == [0.5, 0.9]
+    assert [row["target_recall"] for row in reports[0]["stage1"]] == [0.10, 0.50]
+    assert [row["target_recall"] for row in reports[1]["stage1"]] == list(levels)
+    # Stage 1 is fitted once: its rows are identical in both nets.
+    assert reports[0]["stage1"] == reports[1]["stage1"][:2]
+    narrow, wide = reports
+    assert wide["candidates"]["train_rows"] > narrow["candidates"]["train_rows"]
+    for report in reports:
+        assert report["status"] == "ok", report
+        for row in report["stage1"] + report["two_stage"]:
+            test = row["test"]
+            assert test["recall_with_lead"] <= test["recall"]
+
+
+def test_drive_view_matches_drive_level_table_and_counts_lead():
+    from pipelines.experiment_model import drive_view, view_metrics
+    from src.models.evaluation import drive_level_table
+
+    drives = np.array(["b", "b", "a", "a", "c", "c"])
+    y = np.array([1, 1, 1, 1, 0, 0])
+    scores = np.array([0.2, 0.9, 0.8, 0.3, 0.6, 0.1])
+    days = np.array([1, 0, 2, 1, 5, 4])  # b peaks on its failure day, a two days before
+    labels, drive_scores, lead = drive_view(drives, y, scores, days, lead_min_days=1)
+    ref_labels, ref_scores = drive_level_table(drives, y, scores)
+    np.testing.assert_array_equal(labels, ref_labels)
+    np.testing.assert_allclose(drive_scores, ref_scores)
+    np.testing.assert_allclose(lead, [0.8, 0.2, 0.6])  # a, b, c
+    m = view_metrics((labels, drive_scores, lead), 0.7, cost_ratio=10)
+    assert (m["caught_drive_count"], m["caught_with_lead_count"]) == (2, 1)
+    assert m["false_alarm_drive_count"] == 0 and m["cost"] == 0
+    m = view_metrics((labels, drive_scores, lead), 0.95, cost_ratio=10)
+    assert m["cost"] == 20  # two misses
+
+
+def test_fit_second_stage_reuses_given_scores_and_caps_early_stopping_rows(tmp_path):
+    from src.models.two_stage import out_of_fold_scores, tree_count
+
+    model, report, stage1, (x_val, val_s1) = _fit_real_two_stage(tmp_path)
+    x_train, y_train, train_drives = _split(1, 900, tmp_path, "tr")
+    from src.models.two_stage import lightgbm_fitter
+
+    fit = lightgbm_fitter(
+        {"n_estimators": 200, "min_child_samples": 20, "learning_rate": 0.1},
+        positive_weight_power=0.5,
+        early_stopping_rounds=20,
+    )
+    oof = out_of_fold_scores(
+        fit, np.asarray(x_train), y_train, train_drives, n_estimators=tree_count(stage1)
+    )
+    again, again_report, _, _ = _fit_real_two_stage(tmp_path, train_stage1_scores=oof)
+    assert again_report["candidates"] == report["candidates"]
+    np.testing.assert_allclose(again.final_scores(x_val, val_s1), model.final_scores(x_val, val_s1))
+    capped, capped_report, _, _ = _fit_real_two_stage(
+        tmp_path, early_stopping_max_negatives=10, stage2_params={"min_child_samples": 30}
+    )
+    c = capped_report["candidates"]
+    assert c["early_stopping_rows"] == c["validation_positive_rows"] + min(
+        10, c["validation_rows"] - c["validation_positive_rows"]
+    )
+
+
+def test_net_summary_groups_reports_by_candidate_recall():
+    from pipelines.experiment_model import summarize_two_stage_nets, two_stage_tables
+
+    def run(net, seed, p2):
+        def row(p):
+            return {"target_recall": 0.1, "threshold": 0.5, "test": {"precision": p, "recall": 0.1}}
+
+        two = row(p2)
+        two["paired_test"] = {"difference": p2 - 0.4, "difference_ci": [p2 - 0.45, p2 - 0.35]}
+        return {
+            "status": "ok",
+            "candidate_recall": net,
+            "seed": seed,
+            "candidates": {"train_rows": 10, "train_positive_share": 0.5},
+            "ceiling": {"test_recall": 0.5},
+            "stage1": [row(0.4)],
+            "two_stage": [two],
+        }
+
+    nets = summarize_two_stage_nets([run(0.5, 0, 0.5), run(0.9, 0, 0.3), run(0.5, 1, 0.5)])
+    assert [n["candidate_recall"] for n in nets] == [0.5, 0.9]
+    narrow, wide = nets
+    assert narrow["seeds_trained"] == 2 and narrow["levels"][0]["ci_above_zero_seeds"] == 2
+    assert wide["levels"][0]["ci_below_zero_seeds"] == 1
+    settings = {
+        "work_dir": "w",
+        "horizon_days": 30,
+        "git_commit": "abc",
+        "seeds": 2,
+        "lead_min_days": 1,
+        "cost_ratio": 20.0,
+        "n_boot": 10,
+    }
+    table = two_stage_tables(nets, settings)
+    assert "## Net 50%" in table and "## Net 90%" in table
 
 
 def test_anomaly_stage_experiment_reports_every_comparison(tmp_path):
@@ -324,5 +447,73 @@ def test_load_two_stage_raises_when_the_settings_are_unreadable(tmp_path):
             mlflow.log_text("not json", TWO_STAGE_ARTIFACT)
         with pytest.raises(TwoStageLoadError, match=run.info.run_id):
             load_two_stage(run.info.run_id, object())
+    finally:
+        mlflow.set_tracking_uri("")
+
+
+def test_two_stage_results_log_to_mlflow_once_and_are_not_a_model(tmp_path):
+    import json
+
+    import mlflow
+    from pipelines.experiment_model import (
+        log_two_stage_to_mlflow,
+        summarize_two_stage_nets,
+        two_stage_mlflow_metrics,
+    )
+    from src.models.trained_thresholds import latest_run_id_for_horizon
+
+    def row(p):
+        return {"target_recall": 0.6, "threshold": 0.5, "test": {"precision": p, "recall": 0.6}}
+
+    two = row(0.3)
+    two["paired_test"] = {"difference": 0.1, "difference_ci": [0.02, 0.18]}
+    runs = [
+        {
+            "status": "ok",
+            "candidate_recall": 0.7,
+            "seed": 0,
+            "candidates": {"train_rows": 100},
+            "ceiling": {"test_recall": 0.7},
+            "stage1": [row(0.2)],
+            "two_stage": [two],
+        }
+    ]
+    settings = {
+        "horizon_days": 30,
+        "git_commit": "abc",
+        "git_dirty": True,
+        "work_dir": "w",
+        "candidate_recalls": [0.7],
+        "seeds": 1,
+    }
+    out = tmp_path / "out"
+    out.mkdir()
+    results = {"settings": settings, "runs": runs, "summary": summarize_two_stage_nets(runs)}
+    (out / "experiment_two_stage.json").write_text(json.dumps(results))
+    (out / "tables.md").write_text("# t\n")
+    names = {name for name, _, _ in two_stage_mlflow_metrics(results)}
+    assert {
+        "net70_r60_test_precision_cascade",
+        "net70_r60_gap",
+        "net70_test_ceiling",
+        "net70_r60_mean_bootstrap_gap_mean",
+    } <= names
+
+    uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    try:
+        run_id = log_two_stage_to_mlflow(out, tracking_uri=uri, experiment_name="exp")
+        run = mlflow.get_run(run_id)
+        assert run.data.tags["run_kind"] == "experiment"
+        assert run.data.tags["git_commit"] == "abc"
+        assert run.data.params["horizon_days"] == "30"
+        assert run.data.metrics["net70_r60_gap"] == 0.1
+        artifacts = {a.path for a in mlflow.MlflowClient().list_artifacts(run_id)}
+        assert {"experiment_two_stage.json", "tables.md"} <= artifacts
+        assert json.loads((out / "mlflow_run.json").read_text())["run_id"] == run_id
+        with pytest.raises(SystemExit):
+            log_two_stage_to_mlflow(out, tracking_uri=uri, experiment_name="exp")
+        # It logs horizon_days but no model: never the model behind predictions.
+        with pytest.raises(RuntimeError):
+            latest_run_id_for_horizon("exp", 30)
     finally:
         mlflow.set_tracking_uri("")

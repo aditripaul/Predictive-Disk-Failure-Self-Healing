@@ -1,7 +1,11 @@
 import numpy as np
 
 from src.models.access_log import count_test_accesses, record_test_access
-from src.models.uncertainty import drive_level_bootstrap_ci, paired_difference_ci
+from src.models.uncertainty import (
+    drive_level_bootstrap_ci,
+    paired_difference_ci,
+    paired_flag_difference_ci,
+)
 
 
 def _drives(seed: int, n_drives: int = 400, days: int = 5):
@@ -37,6 +41,18 @@ def test_identical_variants_have_zero_difference():
     out = paired_difference_ci(ids, y, s, s, 0.5, 0.5, n_boot=100)
     assert out["difference"] == 0.0
     assert out["difference_ci"] == [0.0, 0.0]
+
+
+def test_flag_difference_is_positive_when_b_catches_one_more_drive():
+    labels = np.array([1, 1, 1, 0, 0, 0, 0, 0])
+    a = np.array([1, 0, 0, 1, 0, 0, 0, 0], dtype=bool)
+    b = np.array([1, 1, 0, 1, 0, 0, 0, 0], dtype=bool)
+    out = paired_flag_difference_ci(labels, a, b, n_boot=200)
+    np.testing.assert_allclose(out["difference"], 2 / 3 - 1 / 2)
+    np.testing.assert_allclose(out["recall_difference"], 1 / 3)
+    assert out["recall_difference_ci"][0] >= 0
+    same = paired_flag_difference_ci(labels, a, a, n_boot=50)
+    assert same["difference_ci"] == [0.0, 0.0] and same["recall_difference"] == 0.0
 
 
 def test_access_log_appends_and_counts(tmp_path):

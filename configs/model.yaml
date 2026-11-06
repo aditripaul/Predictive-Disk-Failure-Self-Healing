@@ -45,6 +45,32 @@ model:
     # like the ones it will meet in use.
     n_folds: 3
     seed: 0
+    # Second-stage LightGBM overrides. min_child_samples 50 was set for a
+    # pool of ~10k candidate rows (the 0.5 net); a wider net gives the second
+    # stage up to millions of rows, where 50 is weaker regularisation than
+    # the first stage's 200.
+    stage2_params:
+      min_child_samples: 50
+    # The second stage early-stops on every positive validation candidate
+    # row plus at most this many negatives (as the first stage does above).
+    # Changes nothing at the 0.5 net (~20k candidates); bounds memory for a
+    # wide one.
+    early_stopping_max_negatives: 1500000
+    # Defaults of `make experiment-model EXPERIMENT_ARGS="--two-stage ..."`:
+    # the wide-net comparison (docs/model_status_and_runbook.md section 4.12).
+    # Every net is compared with the first model alone at each recall level
+    # up to the net, paired within each seed.
+    experiment:
+      candidate_recalls: [0.5, 0.7, 0.8, 0.9]
+      recall_levels: [0.05, 0.10, 0.20, 0.35, 0.50, 0.60, 0.70, 0.80]
+      seeds: 3
+      # A failing drive also counts as caught "with lead" only when a row at
+      # least this many days before its failure clears the threshold.
+      lead_min_days: 1
+      # Cost of a missed failure over a false alarm. An illustration (from a
+      # 1000:50 example), not a measured cost.
+      cost_ratio: 20
+      n_boot: 1000
   params:
     objective: binary
     num_leaves: 31

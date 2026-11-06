@@ -203,3 +203,29 @@ def test_guardrail_violations_carry_no_enum_into_checkpointed_state():
     assert any(s == GuardrailSeverity.HARD for s in severities), (
         "str Enum comparison must still hold against the plain string"
     )
+
+
+def test_latest_run_skips_runs_that_trained_no_model(tmp_path):
+    """`make train-merged` and `make experiment-model` runs log horizon_days
+    too; the newest of them must not become the model behind predictions."""
+    import mlflow
+    from src.models.trained_thresholds import latest_run_id_for_horizon
+
+    mlflow.set_tracking_uri(f"sqlite:///{tmp_path / 'mlflow.db'}")
+    try:
+        mlflow.set_experiment("lookup-test")
+        with mlflow.start_run() as trained:
+            mlflow.log_params({"horizon_days": 30, "objective": "binary"})
+        with mlflow.start_run():
+            mlflow.log_params({"horizon_days": 60, "objective": "binary"})
+        with mlflow.start_run():  # newer, horizon 30, no model
+            mlflow.log_params({"horizon_days": 30, "work_dir": "w"})
+        assert latest_run_id_for_horizon("lookup-test", 30) == trained.info.run_id
+
+        mlflow.set_experiment("only-experiments")
+        with mlflow.start_run():
+            mlflow.log_params({"horizon_days": 30})
+        with pytest.raises(RuntimeError, match="No MLflow runs"):
+            latest_run_id_for_horizon("only-experiments", 30)
+    finally:
+        mlflow.set_tracking_uri("")

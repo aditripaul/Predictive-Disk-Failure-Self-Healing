@@ -1707,6 +1707,32 @@ approximates the loop's per-cycle hysteresis. Late hits (warned, failing 31 to 6
 after the last warning) are 222 of 2,808 on validation but 12 of 1,041 on test, where only
 warnings before 2026-05-01 have 60 days of follow-up, so the test figure is not comparable.
 
+### 4.12 A wide Stage 1 net for the cascade (run 2026-11-06)
+
+The second stage only reaches recall levels up to its net (`candidate_recall`,
+0.5), so the 60% warn region has always been Stage 1 alone. This run compares
+nets of 0.5, 0.7, 0.8 and 0.9 against Stage 1 alone at 5-80% recall, paired
+across 3 seeds with a drive bootstrap. On validation, a 95% net would pass 56% of
+healthy drives and enrich the candidate pool only 2.5x, so it was not run. The
+method, the decision rule fixed before the results, reproducibility and threats
+to validity are in `docs/cascade_wide_net.md`; results are in its Section 9.
+
+**Result** (test, per drive, 3 seeds, MLflow `c05a109a`):
+
+| Recall level | Stage 1 alone | Net 50% (current) | Net 70% | Net 80% |
+|---|---|---|---|---|
+| 10% | 59.4% | 61.7% (+2.3) | 64.5% (+5.1, 3/3 seeds) | 64.3% (+4.8) |
+| 35% | 46.2% | 47.9% (+1.7) | 50.9% (+4.7, 3/3) | 49.7% (+3.5, 3/3) |
+| 60% | 22.8%, R 64.5% | (not reached) | 23.8%, R 64.2% | 24.8%, R 64.3% (+1.9, 3/3) |
+
+- A wider net helps both at 60% recall and at the strict levels.
+- Past about 70% recall it hurts, because the pool is mostly healthy drives.
+- At 60% recall every net catches slightly fewer failing drives (2-16 out of
+  1,479; not significant). The decision rule fixed in advance required recall
+  not to drop, so **`candidate_recall` stays 0.5**.
+- The 80% net is the candidate for a confirmatory run on unused data.
+- Goal still unmet.
+
 ## 5. What we learned
 
 ### 5.1 Evaluation is per drive, not per drive-day

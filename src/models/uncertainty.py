@@ -79,24 +79,53 @@ def paired_difference_ci(
     rather than comparing two independent intervals."""
     labels, sa = drive_level_table(drive_ids, y_true, scores_a)
     _, sb = drive_level_table(drive_ids, y_true, scores_b)
-    fa = (sa >= threshold_a).astype(np.int64)
-    fb = (sb >= threshold_b).astype(np.int64)
-    failing = (labels == 1).astype(np.int64)
-    n = len(labels)
+    return paired_flag_difference_ci(
+        labels, sa >= threshold_a, sb >= threshold_b, n_boot=n_boot, seed=seed, alpha=alpha
+    )
+
+
+def paired_flag_difference_ci(
+    labels: np.ndarray,
+    flagged_a: np.ndarray,
+    flagged_b: np.ndarray,
+    *,
+    n_boot: int = 1000,
+    seed: int = 0,
+    alpha: float = 0.05,
+) -> dict[str, Any]:
+    """`paired_difference_ci` on drive-level arrays already built (one entry
+    per drive, aligned): precision(B) - precision(A) and recall(B) - recall(A)
+    on the same resampled drives. A caller comparing many thresholds builds
+    the drive tables once instead of once per comparison. The same `seed` and
+    drive count give the same resamples, so comparisons sharing a seed are
+    paired with each other too."""
+    failing = (np.asarray(labels) == 1).astype(np.int64)
+    fa = np.asarray(flagged_a).astype(np.int64)
+    fb = np.asarray(flagged_b).astype(np.int64)
+    n = len(failing)
     if n == 0 or failing.sum() == 0:
         raise ValueError("bootstrap needs at least one failing drive")
 
     rng = np.random.default_rng(seed)
     diffs = np.empty(n_boot)
+    recall_diffs = np.empty(n_boot)
     for b in range(n_boot):
         counts = np.bincount(rng.integers(0, n, size=n), minlength=n)
-        pa = _precision(counts, fa, failing)
-        pb = _precision(counts, fb, failing)
-        diffs[b] = pb - pa
+        diffs[b] = _precision(counts, fb, failing) - _precision(counts, fa, failing)
+        failing_total = float((counts * failing).sum())
+        recall_diffs[b] = (
+            float((counts * (fb - fa) * failing).sum()) / failing_total if failing_total else 0.0
+        )
     low, high = 100 * alpha / 2, 100 * (1 - alpha / 2)
+    failing_count = int(failing.sum())
     return {
         "difference": _precision_point(fb, failing) - _precision_point(fa, failing),
         "difference_ci": [float(np.percentile(diffs, low)), float(np.percentile(diffs, high))],
+        "recall_difference": float(((fb - fa) * failing).sum()) / failing_count,
+        "recall_difference_ci": [
+            float(np.percentile(recall_diffs, low)),
+            float(np.percentile(recall_diffs, high)),
+        ],
         "n_boot": n_boot,
         "confidence": 1 - alpha,
     }
