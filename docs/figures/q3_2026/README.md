@@ -1,8 +1,9 @@
 # Figures of the Q1+Q2 2026 -> Q3 2026 runs
 
-Copies of local outputs that are not committed, so the runbook
-(`docs/model_status_and_runbook.md` section 1.1.4) and
-`docs/q3_horizon_and_cascade_run.md` can show them. All are drive-level, on the
+Copies of the figures in the committed result folders
+(`data/audit/cascade_q3_h<H>/figures/`, `data/audit/horizon_q3/figures/`), placed
+here so the runbook (`docs/model_status_and_runbook.md` section 1.1.4) and
+`docs/q3_horizon_and_cascade_run.md` can embed them next to the text. All are drive-level, on the
 Q3 2026 test set, drawn by `src/reporting/evaluation_figures.py` (curves thinned
 to about 2,000 points before drawing; marker values are exact).
 

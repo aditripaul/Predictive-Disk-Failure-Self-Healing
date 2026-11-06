@@ -339,7 +339,8 @@ way.
 | Frozen bundles | `frozen_runs/<run id>/` (spec, tiers, two-stage settings, model card, figures, both stages, SHA256SUMS) |
 | Cascade experiments (MLflow, `run_kind=experiment`) | `f760b06de7e3405ab1ee6723109090ef` (30), `a4f74561227b46e483863bb1d7baf892` (44), `cabc3023e9944a31b6633f59ec3f39bc` (60) |
 | Figures (committed copies) | `docs/figures/q3_2026/` (README lists the source of each) |
-| Saved outputs (local, not committed) | `data/audit/cascade_q3_h<H>/`, `data/audit/horizon_q3/`, `data/audit/plots/train/h<H>_q1q2_q3/`, score tables `data/tmp/lightgbm_scores_h<H>_h<H>_q1q2_q3.parquet` (SHA-256 in each bundle's README) |
+| Saved outputs (committed) | `data/audit/cascade_q3_h<H>/` (experiment JSON, `tables.md`, `code.patch`, MLflow run id, seed-0 figures), `data/audit/horizon_q3/`, and the training reports `data/audit/data_quality_reports/model_evaluation_report_h<H>_q1q2_q3.json` and `action_tiers_h<H>_q1q2_q3.json` |
+| Saved outputs (local, not committed) | the test-access log `data/audit/test_access_log.jsonl`, the per-run plots `data/audit/plots/train/h<H>_q1q2_q3/` (identical to `frozen_runs/<run id>/figures/`), and the score tables `data/tmp/lightgbm_scores_h<H>_h<H>_q1q2_q3.parquet` (SHA-256 in each bundle's README) |
 | Label table | `data/audit/dataset_versions/20261106T091944670108Z.json` |
 | Test accesses | `data/audit/test_access_log.jsonl` lines 114-116 (training), 117 (horizon comparison), 118-126 (cascade, 3 seeds x 3 horizons) |
 | Wall times | labels 20 min; each training run about 25-30 min; horizon comparison 3 min; each cascade experiment about 25 min (Stage 1 and out-of-fold scores about 4 min per seed, each net 1-2 min) |
