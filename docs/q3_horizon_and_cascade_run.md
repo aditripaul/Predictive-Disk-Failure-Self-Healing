@@ -87,8 +87,8 @@ split logic in `pipelines/train_model.py::_split_period_predicate`,
   - the 44- and 60-day horizons, prompted by "false alarms" that failed 31-60
     days later (runbook 4.3, 4.11).
 
-  Q3 results for these are **descriptive**. Section 6 fixes the rules a later
-  sealed quarter must confirm them by.
+  Q3 results for these are **descriptive**. Section 6 fixes the rules later data
+  must confirm them by.
 - **Thresholds are never re-chosen on test.** The primary threshold, the action
   tiers, the Stage 1 candidate threshold and Stage 2's early stopping all come
   from the validation holdout.
@@ -162,33 +162,37 @@ marked, and drive confusion matrices at each operating point, for train
 (`src/reporting/evaluation_figures.py`; `data/audit/plots/train/<tag>/` and the
 MLflow run's `figures/`).
 
-## 6. Pre-registration for Q4 2026
+## 6. What is not confirmed
 
-Q4 2026 (2026-10-01 to 12-31) is the next sealed quarter. Before it is
-ingested, the model to be frozen for it is chosen from the Q3 results below and
-named in runbook 1.4, and it is then scored on Q4 once. These rules are fixed
-now, before the Q3 results exist.
+No later quarter exists to test on, so the Q3 results are the last data these
+choices were examined on, and nothing here is confirmed:
 
-1. **0.8 net.** Confirmed if, on Q4 and over 3 seeds, the 0.8 cascade's
-   precision at 60% recall is above Stage 1 alone in every seed, the paired
-   interval excludes 0 in at least 2 of 3 seeds, and the paired recall interval
-   at 60% includes 0 or lies above it.
-2. **Survival Stage 2.** Cox or AFT replaces the LightGBM Stage 2 only if it
-   has higher precision than the LightGBM Stage 2 at the 10% and 20% recall
-   levels in every seed, with the paired interval above 0 in at least 2 of 3
-   seeds, and is not lower at 35%.
-3. **Horizon.** A horizon longer than 30 days becomes primary only if its drive
-   AUROC and its recall at a 0.1% false-alarm rate, both scored against the
-   **30-day** labels, are not lower than the 30-day model's (paired interval
-   includes 0 or lies above it), and its median warning lead time is longer.
-   A precision gain alone does not qualify, since it follows from the base
-   rate.
-4. **90-day horizon.** Not testable on Q3 or on Q4 alone: a 90-day label is
-   observed only 90 days after the row, so a 90-day test window on Q4 rows needs
-   Q1 2027 data. It is added as an exploratory arm, reported in ROC terms, once
-   that data exists.
-5. Before Q4 is scored, `pipelines/evaluate_frozen.py` gets the date cap it
-   lacks (the last day of data minus the horizon).
+- the 0.8 Stage 1 net,
+- a survival Stage 2 (Cox or AFT) in place of the LightGBM one,
+- a horizon longer than 30 days.
+
+Each was chosen or examined on Q3 or on the 2026-04/05 test window, so Q3
+numbers for them are descriptive. A claim about any of them needs data none of
+these runs has seen. When such data exists, the rules below are the ones to
+apply, fixed here before it does:
+
+1. **0.8 net.** The 0.8 cascade's precision at 60% recall is above Stage 1
+   alone in every seed, the paired interval excludes 0 in at least 2 of 3
+   seeds, and the paired recall interval at 60% includes 0 or lies above it.
+2. **Survival Stage 2.** Cox or AFT has higher precision than the LightGBM
+   Stage 2 at the 10% and 20% recall levels in every seed, with the paired
+   interval above 0 in at least 2 of 3 seeds, and is not lower at 35%.
+3. **Horizon.** A horizon longer than 30 days becomes primary only if its
+   drive AUROC and its recall at a 0.1% false-alarm rate, both scored against
+   the **30-day** labels, are not lower than the 30-day model's (paired
+   interval includes 0 or lies above it), and its median warning lead time is
+   longer by more than the paired interval. A precision gain alone does not
+   qualify, since it follows from the base rate.
+4. A 90-day horizon is not testable on this data: a 90-day label is observed
+   only 90 days after the row.
+5. `pipelines/evaluate_frozen.py` reads the sealed split without a date cap;
+   it needs one (the last day of data minus the horizon) before any quarter is
+   sealed again.
 
 ## 7. Results
 
