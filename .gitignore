@@ -30,6 +30,15 @@ data/audit/**/*.pkl
 data/audit/**/*.pt
 data/audit/**/*.pth
 data/audit/**/*.joblib
+# Logs that contain the repository's absolute path (warnings, uv and MLflow
+# messages) break the no-absolute-paths rule, so they stay local. Logs without
+# such paths are tracked.
+data/audit/agent_models_h30_seed0/*.log
+data/audit/cascade_logs/cascade_wide_net_h30.log
+data/audit/q3_logs/cascade_h*.log
+data/audit/q3_logs/train_h*.log
+data/audit/q3_logs/deep_dive*.log
+data/audit/q3_logs/cluster_policy_validation.log
 
 # ML experiment tracking artifacts
 mlflow/*

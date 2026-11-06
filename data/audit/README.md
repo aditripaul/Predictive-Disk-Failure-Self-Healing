@@ -18,12 +18,16 @@ The only ignored files are model binaries (`*.npz`, `*.pkl`, `*.pt`, `*.pth`,
 today) and `*.sqlite*`. The test-access log is tracked too; `.gitattributes`
 merges it with `merge=union` because it is append-only.
 
-**Logs.** The `*.log` files in `q3_logs/`, `cascade_logs/` and
-`agent_models_h30_seed0/` (and the stack logs, from which one line was removed)
-contain the repository's absolute path in warnings and `uv` messages, so they are
-not committed until that prefix is scrubbed; the launchers, results and tables
-beside them are. Each run folder's per-run training plots are tracked here as
-well as in `frozen_runs/<run id>/figures/`.
+**Logs.** A log is tracked only if it has no absolute path in it. Fifteen logs do
+(warnings, `uv` and MLflow messages print the repository root): the
+`agent_models_h30_seed0/*.log`, `q3_logs/cascade_h*.log`, `train_h*.log`,
+`deep_dive*.log`, `cluster_policy_validation.log` and
+`cascade_logs/cascade_wide_net_h30.log`. They stay local and are ignored by
+name in `.gitignore`; regenerate them with the command of the folder that wrote
+them. The stack logs in `stack_q3_logs/` are tracked after one such line was
+deleted from each (see its README). The other logs are tracked as they are.
+Each run folder's per-run training plots are tracked here as well as in
+`frozen_runs/<run id>/figures/`.
 
 ## Files directly in `data/audit/`
 
