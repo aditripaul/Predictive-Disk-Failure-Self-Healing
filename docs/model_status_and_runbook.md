@@ -668,6 +668,17 @@ the stack catches more than that model):
 | 60 | 500 | 276.0 | 284.7 | 287.3 | 3 / 3 | 3 / 3 |
 | 60 | 1,000 | 413.3 | 409.3 | 414.3 | 1 / 3 | 1 / 3 |
 
+![Failing drives caught at the same number of drives flagged, Cox and the stack against the LightGBM Stage 2, three seeds per horizon](figures/q3_2026/stack_topk_caught.png)
+
+*Q3 2026 test, 0.8 net. Each dot is one seed, the difference being taken within
+the seed against the LightGBM Stage 2; the line is the mean over the 3 seeds. The
+K drives are the highest-scored of each model, so no threshold is involved.
+Drawn by `scripts/plot_stack_topk.py` from the saved `top_k` results of the three
+stack folders; no new look at the test set.* Up to K = 500 the stack is above zero
+in every seed in all three horizons (9 of 9 seed-and-K points each, +1 to +14);
+Cox is above zero in 25 of 27, with a larger spread (up to +26 in a seed); from
+K = 1,000 the differences are mixed in sign (stack -6 to +13, Cox -21 to +13).
+
 **Reading.**
 - **A small, consistent strict-end gain over LightGBM.** Flagging the same
   number of drives, the stack catches more failing drives than LightGBM at K =
@@ -705,11 +716,21 @@ the stack catches more than that model):
 **Figures** (seed 0 only; the table above averages three seeds; copies of
 `data/audit/stack_q3_h<H>/figures/cascade_*_seed0.png` in `docs/figures/q3_2026/`,
 named `stack_h<H>_*.png`). The precision-recall curves of Stage 1 alone, the 0.5
-and 0.8 LightGBM nets, Cox and the stack coincide above about 35% recall and differ below it (the 60-day
-Cox and the 0.8 LightGBM curves lie highest at 15-25% recall); the
+and 0.8 LightGBM nets, Cox and the stack coincide above about 35% recall; the
 markers are the 10% and 60% recall levels, with thresholds from validation, so
 each model's marker lands at a different test recall. The confusion matrices
-give the counts behind each marker.
+give the counts behind each marker, and are exact.
+
+**These curves cannot show the strict end, where the stack differs.** The figure
+code draws about 2,000 of the roughly 360,000 points of each drive-level curve,
+evenly spaced, so the highest-scored 500 drives, the region of the matched-budget
+table below, are drawn with about three points and appear as straight segments
+(the 60-day 0.8 LightGBM curve is one: its own 10% marker lies about 25 points
+below it). Do not read differences below about 30% recall from them. Marker colours
+follow matplotlib's cycle, not the curve they belong to (a green marker is not on
+the green curve). Redrawing them needs the per-drive scores, which these runs did
+not save. The matched-budget figure after the table uses the saved top-K counts
+instead.
 
 | 30-day | 44-day | 60-day |
 |---|---|---|
