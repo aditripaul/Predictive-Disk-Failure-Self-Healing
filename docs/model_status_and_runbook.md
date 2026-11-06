@@ -170,6 +170,15 @@ are committed. Nothing loads from that folder: `score-fleet` and
 
 ### 1.1.3 Current status of every model and blend (2026-11-05; cascade added 2026-11-06)
 
+Every table in this section is generated from saved outputs, with no test-split access:
+
+    make merged-tables REPORT=frozen_runs/fb58d9576c6146ba94c13389005fa15b/merged_evaluation_report.json \
+        TABLES_ARGS="--status --recall-policy data/audit/recall_policy_h30_seed0_v2/summary.json \
+        --cascade data/audit/cascade_wide_net_h30/experiment_two_stage.json"
+
+The two `data/audit` inputs are local and not committed. The rows below match that output
+verbatim (checked 2026-11-06).
+
 Test window 2026-04-01 to 2026-05-31, **1,479 failing drives**. Each model's threshold was
 chosen on validation, as the highest drive-level precision with at least 10% recall (the
 `threshold.target_recall_range` floor in `configs/model.yaml`). "Missed" is the failing drives the

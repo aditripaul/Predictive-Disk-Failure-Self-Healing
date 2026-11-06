@@ -94,3 +94,115 @@ def agent_table(
             f"| {run['sent_to_human_review']} |"
         )
     return "\n".join(lines)
+
+
+def _count(value: float) -> str:
+    return f"{value:,.0f}"
+
+
+def _status_row(label: str, caught: float, failing: float, false_alarms: float) -> str:
+    """One `Precision | Recall | Caught | Missed | Missed % | False alarms` row."""
+    flagged = caught + false_alarms
+    recall = caught / failing if failing else 0.0
+    return (
+        f"| {label} | {_pct(caught / flagged if flagged else 0.0)} | {_pct(recall)} "
+        f"| {_count(caught)} | {_count(failing - caught)} | {_pct(1 - recall)} "
+        f"| {_count(false_alarms)} |"
+    )
+
+
+STATUS_HEADER = [
+    "| Model | Precision | Recall | Caught | Missed | Missed % | False alarms |",
+    "|---|---|---|---|---|---|---|",
+]
+
+
+def status_table(report: dict[str, Any], split: str = "test") -> str:
+    """Runbook 1.1.3's status table for a `train-merged` report: each model and
+    blend at its validation-chosen threshold, on `split` ("test" or "validation"),
+    with the failing drives it missed."""
+    ensembles = report.get("ensembles", {})
+    lines = list(STATUS_HEADER)
+    for name, result in report["models"].items():
+        m = result[f"{split}_drive_level"]
+        lines.append(
+            _status_row(
+                model_label(name, ensembles),
+                m["caught_drive_count"],
+                m["failing_drive_count"],
+                m["false_alarm_drive_count"],
+            )
+        )
+    return "\n".join(lines)
+
+
+def recall_policy_table(summary: dict[str, Any], split: str = "test", k: str = "1") -> str:
+    """Runbook 1.1.3's recall-first table from `scripts/run_recall_policy.py`'s
+    `summary.json`: the warn net and each escalation tier, for hysteresis `k`.
+    A catch there means warned at least `lead_min` days before the failure."""
+    result = summary["results"][split][k]
+    failing = result["failing_drives_judged"]
+    lines = list(STATUS_HEADER)
+    lines[0] = lines[0].replace("| Model |", "| Tier |")
+    caught = result["caught_drives"]
+    lines.append(_status_row("Warn", caught, failing, result["warned_drives"] - caught))
+    for tier, entry in result["tiers"].items():
+        lines.append(
+            _status_row(
+                tier.capitalize(),
+                entry["caught"],
+                failing,
+                entry["escalated"] - entry["caught"],
+            )
+        )
+    return "\n".join(lines)
+
+
+def cascade_table(
+    results: dict[str, Any],
+    *,
+    levels: tuple[float, ...] = (0.10, 0.60),
+    production_net: float | None = None,
+) -> str:
+    """Runbook 1.1.3's cascade table from `make experiment-model --two-stage`'s
+    `experiment_two_stage.json`: at each recall level, Stage 1 alone and the
+    cascade of every net that reaches the level (means over seeds; test).
+
+    A net narrower than the level cannot change it (its cascade equals Stage 1
+    there), so those nets are named on the Stage 1 row instead."""
+    nets = sorted(results["summary"], key=lambda n: n["candidate_recall"])
+    lines = [
+        "| Model | Recall level | Precision | Recall | Caught | Missed % | False alarms |",
+        "|---|---|---|---|---|---|---|",
+    ]
+
+    def net_name(net: float) -> str:
+        name = f"{net * 100:.0f}% net"
+        return f"{name} (production setting)" if production_net == net else name
+
+    def row(label: str, level: float, entry: dict[str, Any], side: str) -> str:
+        recall = entry[f"{side}_recall"]
+        return (
+            f"| {label} | {level * 100:.0f}% | {_pct(entry[f'{side}_precision'])} "
+            f"| {_pct(recall)} | {_count(entry[f'{side}_caught_drive_count'])} "
+            f"| {_pct(1 - recall)} | {_count(entry[f'{side}_false_alarm_drive_count'])} |"
+        )
+
+    for level in levels:
+        reaching = [
+            (net["candidate_recall"], entry)
+            for net in nets
+            if net["candidate_recall"] > level + 1e-9
+            for entry in net["levels"]
+            if abs(entry["target_recall"] - level) < 1e-9
+        ]
+        if not reaching:
+            continue
+        narrower = [n["candidate_recall"] for n in nets if n["candidate_recall"] <= level + 1e-9]
+        stage1_label = "Stage 1 alone"
+        if narrower:
+            stage1_label += f" (= {', '.join(f'{n * 100:.0f}% net' for n in narrower)})"
+        lines.append(row(stage1_label, level, reaching[0][1], "stage1"))
+        for net, entry in reaching:
+            lines.append(row(f"Cascade, {net_name(net)}", level, entry, "two_stage"))
+    return "\n".join(lines)

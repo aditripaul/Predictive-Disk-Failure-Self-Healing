@@ -105,3 +105,69 @@ def test_precomputed_scores_accept_an_explicit_thresholds_file(tmp_path) -> None
     # without it, the paired agent_thresholds_* file is required and absent
     with pytest.raises(FileNotFoundError):
         load_precomputed_scores(tmp_path / "merged_scores_h30_x.parquet", fallback)
+
+
+def test_status_table_reproduces_runbook_1_1_3() -> None:
+    from src.reporting.merged_tables import status_table
+
+    report = json.loads(FROZEN_REPORT.read_text())
+    test_rows = status_table(report, "test").splitlines()
+    assert test_rows[0].startswith("| Model | Precision | Recall | Caught | Missed |")
+    assert test_rows[2] == "| LightGBM two-stage | 57.1% | 12.0% | 178 | 1,301 | 88.0% | 134 |"
+    assert test_rows[-1] == (
+        "| Blend LightGBM + LSTM + AFT + TCN | 69.7% | 12.6% | 186 | 1,293 | 87.4% | 81 |"
+    )
+    val_rows = status_table(report, "validation").splitlines()
+    assert val_rows[5] == "| LSTM | 44.3% | 13.1% | 147 | 977 | 86.9% | 185 |"
+
+
+def test_recall_policy_table_counts_false_alarms_per_tier() -> None:
+    from src.reporting.merged_tables import recall_policy_table
+
+    summary = {
+        "results": {
+            "test": {
+                "1": {
+                    "failing_drives_judged": 1479,
+                    "warned_drives": 3431,
+                    "caught_drives": 925,
+                    "tiers": {"cordon": {"escalated": 2499, "caught": 837}},
+                }
+            }
+        }
+    }
+    lines = recall_policy_table(summary).splitlines()
+    assert lines[0].startswith("| Tier |")
+    assert lines[2] == "| Warn | 27.0% | 62.5% | 925 | 554 | 37.5% | 2,506 |"
+    assert lines[3] == "| Cordon | 33.5% | 56.6% | 837 | 642 | 43.4% | 1,662 |"
+
+
+def test_cascade_table_lists_only_nets_that_reach_each_level() -> None:
+    from src.reporting.merged_tables import cascade_table
+
+    def entry(level: float, s1: float, two: float) -> dict:
+        return {
+            "target_recall": level,
+            "stage1_precision": s1,
+            "stage1_recall": level,
+            "stage1_caught_drive_count": 100.0,
+            "stage1_false_alarm_drive_count": 50.0,
+            "two_stage_precision": two,
+            "two_stage_recall": level,
+            "two_stage_caught_drive_count": 99.0,
+            "two_stage_false_alarm_drive_count": 40.0,
+        }
+
+    results = {
+        "summary": [
+            {"candidate_recall": 0.8, "levels": [entry(0.1, 0.5, 0.6), entry(0.6, 0.2, 0.25)]},
+            {"candidate_recall": 0.5, "levels": [entry(0.1, 0.5, 0.55)]},
+        ]
+    }
+    lines = cascade_table(results, production_net=0.5).splitlines()
+    assert lines[2] == "| Stage 1 alone | 10% | 50.0% | 10.0% | 100 | 90.0% | 50 |"
+    assert lines[3].startswith("| Cascade, 50% net (production setting) | 10% | 55.0%")
+    assert lines[4].startswith("| Cascade, 80% net | 10% | 60.0%")
+    assert lines[5] == "| Stage 1 alone (= 50% net) | 60% | 20.0% | 60.0% | 100 | 40.0% | 50 |"
+    assert lines[6].startswith("| Cascade, 80% net | 60% | 25.0%")
+    assert len(lines) == 7
