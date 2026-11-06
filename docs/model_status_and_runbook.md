@@ -330,6 +330,28 @@ moves with the label definition, not the model:
 | 44-day labels | 0.264% | 44.8% | 30.1% |
 | 60-day labels | 0.309% | 49.0% | 30.9% |
 
+Figures (drive precision-recall curves for the three models on the same
+drives, and confusion matrices at the 0.1% false-alarm rate; `docs/figures/q3_2026/`).
+The curves overlap: no horizon dominates.
+
+*Scored against the 30-day labels (777 failing drives)*
+
+| Precision-recall | Confusion matrices at 0.1% false alarms |
+|---|---|
+| ![All three models against the 30-day labels: precision-recall](figures/q3_2026/horizon_labels_30d_precision_recall.png) | ![Confusion matrices against the 30-day labels](figures/q3_2026/horizon_labels_30d_confusion.png) |
+
+*Scored against the 44-day labels (952 failing drives)*
+
+| Precision-recall | Confusion matrices at 0.1% false alarms |
+|---|---|
+| ![All three models against the 44-day labels: precision-recall](figures/q3_2026/horizon_labels_44d_precision_recall.png) | ![Confusion matrices against the 44-day labels](figures/q3_2026/horizon_labels_44d_confusion.png) |
+
+*Scored against the 60-day labels (1,117 failing drives)*
+
+| Precision-recall | Confusion matrices at 0.1% false alarms |
+|---|---|
+| ![All three models against the 60-day labels: precision-recall](figures/q3_2026/horizon_labels_60d_precision_recall.png) | ![Confusion matrices against the 60-day labels](figures/q3_2026/horizon_labels_60d_confusion.png) |
+
 **Decision: 30 days stays the primary horizon.** No longer horizon ranks
 drives better, catches more at a matched false-alarm rate, or warns earlier
 (14-15 days median lead for all three). Section 2.4's hypothesis is answered.
@@ -429,6 +451,28 @@ horizon's `experiment_two_stage.json`; 10%, 35% and 60% levels):
 | Cascade, 80% net (production setting) | 60% | 27.9% | 49.6% | 554 | 50.4% | 1,431 |
 | Cascade, 80% net, Cox Stage 2 | 60% | 26.5% | 51.5% | 575 | 48.5% | 1,600 |
 | Cascade, 80% net, AFT Stage 2 | 60% | 23.2% | 54.7% | 611 | 45.3% | 2,019 |
+
+Figures (seed 0 of each experiment; the tables above average three seeds;
+`docs/figures/q3_2026/`). The curves of Stage 1 alone and every Stage 2 kind
+coincide above about 30% recall; the markers are the 10% and 60% recall levels
+(thresholds from validation, so a survival model's marker lands at a different
+recall on test). The confusion matrices give the counts behind each marker.
+
+| 30-day | 44-day | 60-day |
+|---|---|---|
+| ![Cascade precision-recall, 30-day](figures/q3_2026/cascade_h30_precision_recall.png) | ![Cascade precision-recall, 44-day](figures/q3_2026/cascade_h44_precision_recall.png) | ![Cascade precision-recall, 60-day](figures/q3_2026/cascade_h60_precision_recall.png) |
+
+*30-day, confusion matrices at the 10% and 60% recall levels*
+
+![Cascade confusion matrices, 30-day](figures/q3_2026/cascade_h30_confusion.png)
+
+*44-day, confusion matrices at the 10% and 60% recall levels*
+
+![Cascade confusion matrices, 44-day](figures/q3_2026/cascade_h44_confusion.png)
+
+*60-day, confusion matrices at the 10% and 60% recall levels*
+
+![Cascade confusion matrices, 60-day](figures/q3_2026/cascade_h60_confusion.png)
 
 Looks at test: `data/audit/test_access_log.jsonl` lines 114-126 (3 training
 runs, 1 horizon comparison, 9 cascade seeds).

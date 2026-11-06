@@ -251,6 +251,9 @@ that rises with the horizon in section 7.1 is the base rate:
 | 44-day labels | 0.264% | 44.8% | 30.1% |
 | 60-day labels | 0.309% | 49.0% | 30.9% |
 
+Figures: `docs/figures/q3_2026/horizon_labels_<H>d_*.png` (shown in runbook
+1.1.4); the three precision-recall curves overlap.
+
 **Answer:** no. Matched on the same drives and false-alarm rate, the three
 models catch the same share of failing drives and warn at the same time
 (14-15 days median lead). Under section 6 rule 3 no longer horizon qualifies.
@@ -297,8 +300,9 @@ C-index on the test candidates (per drive) is 0.901 / 0.880 / 0.864 for Stage
   seeds). Its validation thresholds land at the wrong recall on test (the
   "10%" row catches 16-21%), so it is not a candidate.
 
-The runbook's generated cascade tables for all three horizons are in section
-1.1.4 of `docs/model_status_and_runbook.md`.
+The runbook's generated cascade tables for all three horizons, and the seed-0
+figures (`docs/figures/q3_2026/cascade_h<H>_*.png`), are in section 1.1.4 of
+`docs/model_status_and_runbook.md`.
 
 ### 7.4 Decisions
 
@@ -334,6 +338,7 @@ way.
 | Training runs (MLflow, experiment `disk-failure-prediction`) | `c459046e4f1645169151e7be25ff064d` (h30_q1q2_q3), `a2cd06d53e624c09b0d12f81076def8a` (h44_q1q2_q3), `804a20cec10048abb1bc3ccf510f96e1` (h60_q1q2_q3) |
 | Frozen bundles | `frozen_runs/<run id>/` (spec, tiers, two-stage settings, model card, figures, both stages, SHA256SUMS) |
 | Cascade experiments (MLflow, `run_kind=experiment`) | `f760b06de7e3405ab1ee6723109090ef` (30), `a4f74561227b46e483863bb1d7baf892` (44), `cabc3023e9944a31b6633f59ec3f39bc` (60) |
+| Figures (committed copies) | `docs/figures/q3_2026/` (README lists the source of each) |
 | Saved outputs (local, not committed) | `data/audit/cascade_q3_h<H>/`, `data/audit/horizon_q3/`, `data/audit/plots/train/h<H>_q1q2_q3/`, score tables `data/tmp/lightgbm_scores_h<H>_h<H>_q1q2_q3.parquet` (SHA-256 in each bundle's README) |
 | Label table | `data/audit/dataset_versions/20261106T091944670108Z.json` |
 | Test accesses | `data/audit/test_access_log.jsonl` lines 114-116 (training), 117 (horizon comparison), 118-126 (cascade, 3 seeds x 3 horizons) |
