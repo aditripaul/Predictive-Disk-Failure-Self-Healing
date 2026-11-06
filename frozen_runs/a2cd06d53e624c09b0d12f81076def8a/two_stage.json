@@ -1,0 +1,217 @@
+{
+  "stage1_trees": 225,
+  "candidate_recall": 0.8,
+  "n_folds": 3,
+  "seed": 0,
+  "candidate_threshold": 0.257407504506964,
+  "candidates": {
+    "train_rows": 154715,
+    "train_positive_rows": 36997,
+    "train_positive_share": 0.23913001325016967,
+    "validation_rows": 208579,
+    "validation_positive_rows": 9405,
+    "early_stopping_rows": 208579
+  },
+  "stage2_trees": 201,
+  "status": "ok",
+  "stage1_precision_at_recall": [
+    {
+      "target_recall": 0.05,
+      "threshold": 0.9837682512305187,
+      "validation": {
+        "failing_drive_count": 454,
+        "healthy_drive_count": 70518,
+        "caught_drive_count": 31,
+        "false_alarm_drive_count": 8,
+        "precision": 0.7948717948717948,
+        "recall": 0.06828193832599119,
+        "false_alarm_rate": 0.00011344621231458635,
+        "fleet_failure_rate": 0.006396888913937891,
+        "lift": 124.25912120185247,
+        "precision_at_failure_rate": {
+          "0.15": 0.9906729962516152,
+          "0.5": 0.9983413177207733
+        },
+        "auprc": 0.4340603728931736,
+        "auroc": 0.9190977171698468,
+        "positive_likelihood_ratio": 601.8882158590309
+      },
+      "test": {
+        "failing_drive_count": 1106,
+        "healthy_drive_count": 363685,
+        "caught_drive_count": 76,
+        "false_alarm_drive_count": 45,
+        "precision": 0.628099173553719,
+        "recall": 0.06871609403254973,
+        "false_alarm_rate": 0.00012373345065097544,
+        "fleet_failure_rate": 0.0030318730451135032,
+        "lift": 207.16539386965164,
+        "precision_at_failure_rate": {
+          "0.15": 0.9898993950667733,
+          "0.5": 0.9982025891816598
+        },
+        "auprc": 0.30270773791983235,
+        "auroc": 0.9251702839040035,
+        "positive_likelihood_ratio": 555.3558368495077
+      }
+    },
+    {
+      "target_recall": 0.1,
+      "threshold": 0.9798165114081626,
+      "validation": {
+        "failing_drive_count": 454,
+        "healthy_drive_count": 70518,
+        "caught_drive_count": 50,
+        "false_alarm_drive_count": 14,
+        "precision": 0.78125,
+        "recall": 0.11013215859030837,
+        "false_alarm_rate": 0.0001985308715505261,
+        "fleet_failure_rate": 0.006396888913937891,
+        "lift": 122.12968061674007,
+        "precision_at_failure_rate": {
+          "0.15": 0.9898882175068259,
+          "0.5": 0.998200583423172
+        },
+        "auprc": 0.4340603728931736,
+        "auroc": 0.9190977171698468,
+        "positive_likelihood_ratio": 554.7356828193832
+      },
+      "test": {
+        "failing_drive_count": 1106,
+        "healthy_drive_count": 363685,
+        "caught_drive_count": 125,
+        "false_alarm_drive_count": 80,
+        "precision": 0.6097560975609756,
+        "recall": 0.11301989150090416,
+        "false_alarm_rate": 0.00021997057893506744,
+        "fleet_failure_rate": 0.0030318730451135032,
+        "lift": 201.11531336832357,
+        "precision_at_failure_rate": {
+          "0.15": 0.9890912810713571,
+          "0.5": 0.9980574810416143
+        },
+        "auprc": 0.30270773791983235,
+        "auroc": 0.9251702839040035,
+        "positive_likelihood_ratio": 513.7954905063291
+      }
+    },
+    {
+      "target_recall": 0.2,
+      "threshold": 0.9705396203592356,
+      "validation": {
+        "failing_drive_count": 454,
+        "healthy_drive_count": 70518,
+        "caught_drive_count": 105,
+        "false_alarm_drive_count": 52,
+        "precision": 0.6687898089171974,
+        "recall": 0.23127753303964757,
+        "false_alarm_rate": 0.0007374003800448113,
+        "fleet_failure_rate": 0.006396888913937891,
+        "lift": 104.54922977636858,
+        "precision_at_failure_rate": {
+          "0.15": 0.9822531608693994,
+          "0.5": 0.9968217546639081
+        },
+        "auprc": 0.4340603728931736,
+        "auroc": 0.9190977171698468,
+        "positive_likelihood_ratio": 313.639020670959
+      },
+      "test": {
+        "failing_drive_count": 1106,
+        "healthy_drive_count": 363685,
+        "caught_drive_count": 238,
+        "false_alarm_drive_count": 207,
+        "precision": 0.5348314606741573,
+        "recall": 0.21518987341772153,
+        "false_alarm_rate": 0.000569173872994487,
+        "fleet_failure_rate": 0.0030318730451135032,
+        "lift": 176.40298677286304,
+        "precision_at_failure_rate": {
+          "0.15": 0.9852330848251052,
+          "0.5": 0.9973619930188717
+        },
+        "auprc": 0.30270773791983235,
+        "auroc": 0.9251702839040035,
+        "positive_likelihood_ratio": 378.0740536904544
+      }
+    },
+    {
+      "target_recall": 0.35,
+      "threshold": 0.9579953089367628,
+      "validation": {
+        "failing_drive_count": 454,
+        "healthy_drive_count": 70518,
+        "caught_drive_count": 159,
+        "false_alarm_drive_count": 84,
+        "precision": 0.654320987654321,
+        "recall": 0.3502202643171806,
+        "false_alarm_rate": 0.0011911852293031567,
+        "fleet_failure_rate": 0.006396888913937891,
+        "lift": 102.28737695110675,
+        "precision_at_failure_rate": {
+          "0.15": 0.9810907255619433,
+          "0.5": 0.9966102833847887
+        },
+        "auprc": 0.4340603728931736,
+        "auroc": 0.9190977171698468,
+        "positive_likelihood_ratio": 294.0099118942731
+      },
+      "test": {
+        "failing_drive_count": 1106,
+        "healthy_drive_count": 363685,
+        "caught_drive_count": 349,
+        "false_alarm_drive_count": 430,
+        "precision": 0.44801026957637996,
+        "recall": 0.3155515370705244,
+        "false_alarm_rate": 0.0011823418617759875,
+        "fleet_failure_rate": 0.0030318730451135032,
+        "lift": 147.76683024325246,
+        "precision_at_failure_rate": {
+          "0.15": 0.9792089788524653,
+          "0.5": 0.9962670811668091
+        },
+        "auprc": 0.30270773791983235,
+        "auroc": 0.9251702839040035,
+        "positive_likelihood_ratio": 266.88688548719455
+      }
+    }
+  ],
+  "stage1_flag_rate": {
+    "validation": {
+      "drives": 70972,
+      "passing_drives": 4629,
+      "share": 0.06522290480752974,
+      "threshold": 0.257407504506964
+    },
+    "test": {
+      "drives": 364791,
+      "passing_drives": 22573,
+      "share": 0.06187926785474422,
+      "threshold": 0.257407504506964
+    }
+  },
+  "matched_recall": {
+    "two_stage_recall": 0.09855334538878843,
+    "stage1_at_matched_recall": {
+      "recall_level": 0.09855334538878843,
+      "reachable": true,
+      "threshold": 0.9808987371174465,
+      "precision": 0.615819209039548,
+      "recall": 0.09855334538878843
+    },
+    "paired_precision_difference_ci": {
+      "difference": 0.010617572569647349,
+      "difference_ci": [
+        -0.04969389562996768,
+        0.06893394913186336
+      ],
+      "recall_difference": 0.0,
+      "recall_difference_ci": [
+        -0.013158183540501824,
+        0.01315876267185113
+      ],
+      "n_boot": 1000,
+      "confidence": 0.95
+    }
+  }
+}

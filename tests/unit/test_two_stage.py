@@ -517,3 +517,126 @@ def test_two_stage_results_log_to_mlflow_once_and_are_not_a_model(tmp_path):
             latest_run_id_for_horizon("exp", 30)
     finally:
         mlflow.set_tracking_uri("")
+
+
+def _toy_survival_bounds(n_drives: int = 900, days: int = 10):
+    """Bounds matching `_split`: a failing drive fails the day after its last
+    row (its positives are days 5-9), the rest are censored at the cutoff."""
+    rng = np.random.default_rng(1)
+    failing = np.repeat(rng.random(n_drives) < 0.15, days)
+    to_failure = np.tile(np.arange(days, 0, -1), n_drives).astype(np.float32)
+    lower = np.where(failing, to_failure, to_failure + 30).astype(np.float32)
+    upper = np.where(failing, to_failure, np.inf).astype(np.float32)
+    return lower, upper
+
+
+@pytest.mark.parametrize("kind", ["cox", "aft"])
+def test_survival_stage2_keeps_the_cascade_score_form(tmp_path, kind):
+    """A Cox or AFT Stage 2 trains on the candidates only and leaves the
+    combined score's form unchanged: Stage 1 below the threshold, a score in
+    [threshold, 1] above it."""
+    model, report, _, (x_val, val_s1) = _fit_real_two_stage(
+        tmp_path,
+        stage2_kind=kind,
+        train_survival_bounds=_toy_survival_bounds(),
+        horizon_days=30,
+    )
+    assert report["status"] == "ok", report
+    assert report["stage2_kind"] == kind and report["stage2_trees"] >= 1
+    final = model.final_scores(x_val, val_s1)
+    below = val_s1 < model.candidate_threshold
+    np.testing.assert_allclose(final[below], val_s1[below])
+    assert ((final[~below] >= model.candidate_threshold) & (final[~below] <= 1.0)).all()
+
+
+def test_survival_stage2_needs_its_bounds(tmp_path):
+    with pytest.raises(ValueError, match="train_survival_bounds"):
+        _fit_real_two_stage(tmp_path, stage2_kind="cox")
+    with pytest.raises(ValueError, match="stage2_kind"):
+        _fit_real_two_stage(tmp_path, stage2_kind="forest")
+
+
+def _ids(drives, y, start="2026-01-01"):
+    """Ids with dates, event types and days to failure matching `_split`:
+    10 days per drive, a failing drive fails the day after its last row."""
+    import polars as pl
+
+    days = 10
+    n = len(drives) // days
+    failing = np.repeat(y.reshape(n, days).any(axis=1), days)
+    day = np.tile(np.arange(days), n)
+    return pl.DataFrame(
+        {
+            "drive_id": drives,
+            "date": np.datetime64(start) + day.astype("timedelta64[D]"),
+            "event_type": np.where(failing, "confirmed_failure", "still_active"),
+            "days_to_event": np.where(failing, days - day, np.nan),
+        }
+    )
+
+
+def test_two_stage_experiment_compares_stage2_kinds(tmp_path):
+    x_train, y_train, train_drives = _split(1, 900, tmp_path, "tr")
+    x_val, y_val, val_drives = _split(2, 500, tmp_path, "va")
+    x_test, y_test, test_drives = _split(3, 500, tmp_path, "te")
+    data = {
+        "horizon_days": 30,
+        "x_train": np.asarray(x_train),
+        "y_train": y_train,
+        "train_drives": train_drives,
+        "train_ids": _ids(train_drives, y_train),
+        "x_val": x_val,
+        "y_val": y_val,
+        "val_drives": val_drives,
+        "x_test": x_test,
+        "y_test": y_test,
+        "test_drives": test_drives,
+        "test_ids": _ids(test_drives, y_test, start="2026-07-01"),
+        "es_idx": early_stopping_subset(y_val),
+    }
+    reports = two_stage_experiment(
+        data,
+        candidate_recalls=(0.5, 0.8),
+        recall_levels=(0.10, 0.50, 0.60),
+        stage2_kinds=("lightgbm", "cox", "aft"),
+        survival_nets=(0.8,),
+        n_boot=30,
+        top_k=(10, 50),
+        observation_end="2026-09-30",
+        figure_dir=tmp_path / "figures",
+    )
+    keys = [(r["candidate_recall"], r["stage2_kind"]) for r in reports]
+    assert keys == [(0.5, "lightgbm"), (0.8, "lightgbm"), (0.8, "cox"), (0.8, "aft")]
+    for report in reports:
+        assert report["status"] == "ok", report
+        assert [row["k"] for row in report["top_k"]["cascade"]] == [10, 50]
+        c = report["c_index"]["cascade"]
+        assert c["drives"] > 0 and 0.0 <= c["c_index"] <= 1.0
+        if report["stage2_kind"] != "lightgbm":
+            assert any("paired_vs_lightgbm" in row for row in report["two_stage"])
+    assert (tmp_path / "figures" / "cascade_precision_recall_seed0.png").exists()
+    assert (tmp_path / "figures" / "cascade_confusion_seed0.png").exists()
+
+    from pipelines.experiment_model import (
+        summarize_two_stage_nets,
+        two_stage_mlflow_metrics,
+        two_stage_tables,
+    )
+
+    nets = summarize_two_stage_nets(reports)
+    assert [(n["candidate_recall"], n["stage2_kind"]) for n in nets] == keys
+    settings = {
+        "work_dir": "w",
+        "horizon_days": 30,
+        "git_commit": "abc",
+        "seeds": 1,
+        "lead_min_days": 1,
+        "cost_ratio": 20.0,
+        "n_boot": 30,
+    }
+    tables = two_stage_tables(nets, settings)
+    assert "## Net 80% cox" in tables and "Survival Stage 2 against the LightGBM" in tables
+    assert "C-index on the test candidates" in tables and "Top K drives" in tables
+    names = {name for name, _, _ in two_stage_mlflow_metrics({"runs": reports, "summary": nets})}
+    assert "net80_cox_c_index_cascade" in names and "net80_c_index_cascade" in names
+    assert any(name.startswith("net80_aft_r60_mean_vs_lightgbm") for name in names)

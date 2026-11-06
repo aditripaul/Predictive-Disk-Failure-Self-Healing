@@ -41,7 +41,7 @@ sources:
 # is a real default; pick whichever fits and fill it in yourself):
 #   1. An explicit list:      quarters: ["Q1_2026", "Q2_2026"]
 #   2. An inclusive range:    start_quarter: "Q1_2026"
-#                             end_quarter:   "Q4_2026"
+#                             end_quarter:   "Q3_2026"
 # `quarters` takes priority if both are set. Either can be overridden
 # per-run without editing this file: --quarters / --start-quarter+--end-quarter.
 download:

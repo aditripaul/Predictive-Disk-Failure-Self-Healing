@@ -46,7 +46,7 @@ model:
     # pre-registered rule of docs/cascade_wide_net.md section 9.3 it failed
     # only criterion 3 (a recall dip of 3-10 of 1,479 drives, not
     # statistically established) and gained +1.9 precision points at 60%
-    # recall and +4.8 at 10%. Q4 2026 confirms or rejects it
+    # recall and +4.8 at 10%. Not confirmed on data it was not chosen on
     # (docs/q3_horizon_and_cascade_run.md section 6).
     candidate_recall: 0.8
     # Train rows get their first-stage score from a model that never saw
@@ -70,7 +70,24 @@ model:
     # Every net is compared with the first model alone at each recall level
     # up to the net, paired within each seed.
     experiment:
-      candidate_recalls: [0.5, 0.7, 0.8, 0.9]
+      # [0.5, 0.7, 0.8, 0.9] for the wide-net comparison (runbook 4.12); the
+      # Q1+Q2 -> Q3 run compares the old and the adopted net.
+      candidate_recalls: [0.5, 0.8]
+      # Stage 2 models compared per net (docs/q3_horizon_and_cascade_run.md):
+      # the shipped LightGBM classifier and two survival models on censored
+      # time to failure. The survival kinds run only at survival_nets.
+      stage2_kinds: [lightgbm, cox, aft]
+      survival_nets: [0.8]
+      # Survival Stage 2 overrides of src/models/survival.py's COX_PARAMS /
+      # AFT_PARAMS: shallower trees and smaller leaves for a candidate pool of
+      # ~10^5 rows, from the proposal this was checked against (depth 3-5,
+      # learning rate 0.01-0.05, min_child_weight 5-10).
+      survival_params:
+        max_depth: 4
+        learning_rate: 0.03
+        min_child_weight: 10
+        subsample: 0.8
+        colsample_bytree: 0.7
       recall_levels: [0.05, 0.10, 0.20, 0.35, 0.50, 0.60, 0.70, 0.80]
       seeds: 3
       # A failing drive also counts as caught "with lead" only when a row at
@@ -221,7 +238,7 @@ splits:
   # Q3 WAS the sealed quarter for frozen run 839d92bc. Its single-shot
   # evaluation was skipped by decision on 2026-11-06 and Q3 is used here as
   # an ordinary test set (test_split: sealed), so it is no longer sealed.
-  # Q4 2026 is the next sealed quarter (runbook 1.4).
+  # No later quarter is available yet, so nothing is sealed (runbook 1.4).
   #
   # The previous window (Q4 2025 + Q1 2026 train/validation, Q2 2026 test,
   # 2026-02-14 / 2026-03-31 / 2026-05-31 with the 30-day purge) is recorded

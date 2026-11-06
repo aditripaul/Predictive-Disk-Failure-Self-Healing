@@ -643,11 +643,20 @@ The original target was precision ≥ 95% at recall 35–50%, per drive. It was
 later set to 90% precision at ≥ 10% recall (`configs/model.yaml`
 `threshold`). **Neither is met on real data.**
 
-### Measured Result (Backblaze Q1 + Q2 2026, 30-day horizon, per drive, test)
+### Measured Result (Backblaze, 30-day horizon, per drive, test)
+
+**Current model (2026-11-06):** trained on Q1+Q2 2026 and tested on Q3 2026, a
+quarter it never saw: **59.0% precision at 12.5% recall** (95% CI 52.3-65.5%),
+138 of 1,105 failing drives caught with 96 false alarms; the warn tier catches
+60.9% at 17.3% precision. Frozen run `c459046e`
+(`frozen_runs/c459046e4f1645169151e7be25ff064d/`); the runbook section 1.1.4
+and `docs/q3_horizon_and_cascade_run.md` hold the full results, including the
+44- and 60-day horizons (no better than 30 days once the base rate is removed)
+and the survival Stage 2 comparison (no gain).
 
 From the previous model of record, a frozen run retired on
-2026-11-06 (its artifacts are not available to this repository, and the sealed
-quarter, Q3 2026, is now a test set; see `docs/q3_horizon_and_cascade_run.md`):
+2026-11-06 (its artifacts are not available to this repository; the 2026-04/05
+window, Q2 2026 as test):
 
 | Operating point | Precision on the real fleet (0.18% of drives fail) | Same alerts, test set with 15% failing |
 |---|---|---|
@@ -943,8 +952,9 @@ Known gaps worth knowing before you rely on any of it:
   endpoint, and nothing sweeps the approval queue for reviews that have
   missed their SLA.
 - SMART-Z has a split reserved for it but has not been evaluated, and the
-  sealed quarter has not been scored, so neither cross-vendor nor
-  across-time stability has been measured.
+  sealed quarter (Q3 2026) was used as a test set, not scored once against a
+  frozen run, so cross-vendor stability is unmeasured and across-time stability
+  rests on one further period (the LightGBM two-stage model held up on Q3).
 
 The full list, with the reasoning behind each, is in
 `docs/developer_guide.md` §13.

@@ -36,14 +36,15 @@ quarters are downloaded:
 sources:
   backblaze:
     start_date: "2025-10-01"      # Q4 2025 onwards (the repo default)
-    end_date: "2026-06-30"        # through Q2 2026; "2026-03-31" for Q1 only
+    end_date: "2026-09-30"        # through Q3 2026 (the test set); "2026-03-31" for Q1 only
 download:
   backblaze:
-    quarters: ["Q3_2025", "Q4_2025", "Q1_2026", "Q2_2026"]
+    quarters: ["Q3_2025", "Q4_2025", "Q1_2026", "Q2_2026", "Q3_2026"]
 ```
 
 The download list is deliberately wider than what is ingested: Q3 2025 is on
-disk for the parked 60-day horizon experiment but `start_date` excludes it.
+disk but `start_date` excludes it (it was for the 60-day horizon experiment,
+run on 2026-11-06 on the Q1+Q2 -> Q3 window).
 Bronze reflects whatever was last ingested and `make build-silver` reads
 Bronze rather than the raw CSVs, so narrowing `start_date` does not narrow
 what the pipeline sees until Bronze is rebuilt (`rm -rf
@@ -56,22 +57,32 @@ test period must end at least 30 days before the last day of data, because a
 ```yaml
 splits:
   strategy: chronological
-  train_end: "2026-02-14"         # the repo default: Q4 2025 + Q1 2026 train
-  validation_end: "2026-03-31"    # and validate, Q2 2026 tests
-  test_end: "2026-05-31"
-  sealed_start: "2026-07-01"      # read only by `make evaluate-frozen`
+  train_start: "2026-01-01"       # the repo default (2026-11-06): Q1+Q2 2026
+  train_end: "2026-05-01"         # train, validation = a 20% drive holdout
+  validation_end: "2026-05-01"    # over the same dates (holdout_fraction)
+  test_end: "2026-08-31"
+  observation_end: "2026-09-30"   # test stops at observation_end - horizon
+  test_split: sealed              # test on the sealed-labelled rows (Q3 2026)
+  sealed_start: "2026-07-01"
+  holdout_fraction: 0.2
+  purge_label_window: false
+  validation_after_train_only: false
 ```
 
-`sealed_start` holds a final window back from every modelling choice. Set it
-to a date your data actually reaches (or `null` to disable it); rows from
-there on are labelled `split=sealed` and are scored once, later, by
-`make evaluate-frozen` (section 2.5).
+`sealed_start` labels rows from there on `split=sealed` and is the cutoff of
+the fleet-wide feature statistics. With `test_split: sealed` those rows are the
+test set and `make evaluate-frozen` refuses them; without it (the earlier
+window), test is the rows after `validation_end` up to `test_end`, and the
+sealed rows are scored once, later, by `make evaluate-frozen` (section 2.5).
 
-`make train` applies these dates when it extracts each split: training uses
-rows dated at least one horizon (30 days) before `train_end`, validation uses
-only dates after `train_end`, and test stops at `test_end`
-(`splits.purge_label_window` and `splits.validation_after_train_only`, both
-`true`; see `docs/model_status_and_runbook.md` section 4.4).
+`make train` applies these dates when it extracts each split: train and
+validation start at `train_start`; with `purge_label_window: true` training
+stops one horizon before `train_end`, with `validation_after_train_only: true`
+validation uses only dates after `train_end` (both for a chronological
+validation period; see `docs/model_status_and_runbook.md` section 4.4); test
+stops at `min(test_end, observation_end - horizon)`, so runs of several
+horizons share one config. `holdout_fraction` is the share of drives
+`make build-labels` moves from train to validation.
 
 One quarter is too short for the 30-day default: after the purge, training
 would have about three weeks of data. For Q1 only, set
@@ -436,8 +447,9 @@ Options for `EXPERIMENT_ARGS` and `FULL_EXPERIMENT_ARGS`:
 | `--two-stage-seeds N` | With `--two-stage`: repeats it with N seeds and prints the mean, the range of the precision gain, and in how many seeds the two-stage model was better on both precision and recall. Use it to tell a real gain from chance; each seed takes a few minutes. |
 | `--candidate-recalls R ...` | With `--two-stage`: the Stage 1 nets to compare (the validation recall the candidate threshold keeps). One Stage 1 per seed is shared by every net. Default `model.two_stage.experiment.candidate_recalls` (0.5 0.7 0.8 0.9). Method: `docs/cascade_wide_net.md`. |
 | `--recall-levels R ...` | With `--two-stage`: recall levels to compare at; each net uses the levels up to itself. Default from the same config block (5% to 80%). |
+| `--stage2-kinds K ...` | With `--two-stage`: Stage 2 models to compare per net, from `lightgbm`, `cox`, `aft` (XGBoost survival models on the candidates' censored time to failure, `src/models/survival.py`). Survival kinds are paired against the LightGBM Stage 2 of the same net and run only at `--survival-nets R ...` (default every net). Each report adds a per-drive C-index on the test candidates and precision/recall at `evaluation.top_k`; seed 0 writes `figures/`. Defaults `model.two_stage.experiment.stage2_kinds` / `survival_nets` / `survival_params`. Method and results: `docs/q3_horizon_and_cascade_run.md`. |
 | `--lead-min-days N`, `--cost-ratio X`, `--n-boot N` | With `--two-stage`: a catch "with lead" needs a row at least N days before the failure; illustrative cost = misses x X + false alarms; paired drive-bootstrap resamples for the precision gap. Defaults from the config block. Without that block `--two-stage-seeds` defaults to 1, with it to `seeds` (3). |
-| `--two-stage-out DIR` | Where `experiment_two_stage.json`, `tables.md` and (if the tree has uncommitted changes) `code.patch` go. Default `data/audit/cascade_wide_net_h<horizon>`. Refuses to overwrite without `--overwrite`. |
+| `--two-stage-out DIR` | Where `experiment_two_stage.json`, `tables.md`, `figures/` and (if the tree has uncommitted changes) `code.patch` go. Default `data/audit/cascade_wide_net_h<horizon>`. Refuses to overwrite without `--overwrite`. |
 | `--no-mlflow` | With `--two-stage`: skip logging the results as one MLflow run. By default the run goes to the pipeline's experiment with tag `run_kind=experiment`, settings as params, per-seed metrics (step = seed) and summary metrics named `net<N>_r<L>_...`, and every output file as an artifact; its id goes to `mlflow_run.json`. It has no model, so `score-fleet` and the agent never pick it. `uv run python scripts/log_two_stage_experiment.py DIR [--artifact LOG]` logs an existing output directory later. |
 | `--anomaly-stage` | Fits an isolation forest on healthy train rows and reports the anomaly score alone, an anomaly-filter-then-classify cascade, and the score as an extra feature, each against the pooled model. |
 | `--per-model [N]` | Trains one model per drive family for the N families with the most failing validation drives (default 3), each compared with the pooled model on the same test drives. |
@@ -457,6 +469,28 @@ failure; `reg_spw_old_features`, `reg_spw_no_lifetime` and
 `reg_spw_no_secondary` remove feature groups. A kept work directory made
 before 2026-10-06 lacks the columns the survival variants need; rebuild it
 with `make train TRAIN_ARGS=--keep-work-dir`.
+
+### Horizon comparison (`scripts/compare_horizons.py`)
+
+```bash
+uv run python scripts/compare_horizons.py \
+    --scores 30=data/tmp/lightgbm_scores_h30_h30_q1q2_q3.parquet \
+             44=data/tmp/lightgbm_scores_h44_h44_q1q2_q3.parquet \
+             60=data/tmp/lightgbm_scores_h60_h60_q1q2_q3.parquet
+```
+
+Takes each run's saved test scores (`make train TRAIN_ARGS="--save-scores"`)
+and the gold labels of every horizon, keeps the window every horizon can
+observe (`splits.sealed_start` to `splits.observation_end` minus the longest
+horizon), and scores each model against each label definition on the same
+drive-days: drive AUROC, recall and precision at matched false-alarm rates
+(`--budgets`, default 0.1% and 0.5% of healthy drives), precision/recall at
+`evaluation.top_k`, and warning lead time, with paired drive bootstraps against
+the shortest horizon. A longer label raises precision through the base rate
+alone, so horizons are compared on recall at a matched false-alarm rate, not
+on precision. Writes `horizon_comparison.json`, `tables.md` and `figures/` to
+`--out` (default `data/audit/horizon_q3`; refuses to overwrite without
+`--overwrite`) and records one test-split look.
 
 ### Whole pipeline
 

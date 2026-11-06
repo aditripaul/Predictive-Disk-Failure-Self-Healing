@@ -239,3 +239,96 @@ def train_cox(
         verbose_eval=False,
     )
     return CoxModel(booster)
+
+
+# --- Concordance --------------------------------------------------------------
+
+
+def concordance_index(time: np.ndarray, event: np.ndarray, risk: np.ndarray) -> float | None:
+    """Harrell's C: of the comparable pairs, the share the risk orders the
+    right way round (higher risk, earlier failure); ties in risk count half.
+
+    A pair (i, j) is comparable when i failed (`event[i]`) and either
+    `time[i] < time[j]`, or the times are equal and j is censored (j was still
+    running when i failed). Returns None when no pair is comparable.
+
+    O(n log n): times are visited from latest to earliest, keeping a Fenwick
+    tree of the risk ranks of the rows still at risk."""
+    t = np.asarray(time, dtype=np.float64)
+    e = np.asarray(event).astype(bool)
+    r = np.asarray(risk, dtype=np.float64)
+    n = len(t)
+    if n == 0:
+        return None
+    ranks = np.unique(r, return_inverse=True)[1] + 1  # 1-based, equal risks share a rank
+    size = int(ranks.max())
+    tree = np.zeros(size + 1, dtype=np.int64)
+
+    def add(i: int) -> None:
+        while i <= size:
+            tree[i] += 1
+            i += i & -i
+
+    def prefix(i: int) -> int:
+        total = 0
+        while i > 0:
+            total += int(tree[i])
+            i -= i & -i
+        return total
+
+    order = np.argsort(-t, kind="stable")
+    concordant = 0.0
+    comparable = 0
+    inserted = 0
+    start = 0
+    while start < n:
+        stop = start
+        while stop < n and t[order[stop]] == t[order[start]]:
+            stop += 1
+        group = order[start:stop]
+        censored, failed = group[~e[group]], group[e[group]]
+        for j in censored:
+            add(int(ranks[j]))
+            inserted += 1
+        for i in failed:
+            below = prefix(int(ranks[i]) - 1)
+            equal = prefix(int(ranks[i])) - below
+            concordant += below + 0.5 * equal
+            comparable += inserted
+        for i in failed:
+            add(int(ranks[i]))
+            inserted += 1
+        start = stop
+    return concordant / comparable if comparable else None
+
+
+def drive_concordance(
+    drive_ids: np.ndarray,
+    dates: np.ndarray,
+    event_types: np.ndarray,
+    days_to_event: np.ndarray,
+    risk: np.ndarray,
+    *,
+    observation_end: np.datetime64,
+) -> dict[str, Any]:
+    """C-index per DRIVE: each drive's latest row in `drive_ids`, with its time
+    to failure counted from that row's date and censored at `observation_end`
+    (a failure after it, or none, is censored). One row per drive, because a
+    drive's rows are near-copies and would weight each drive by its row count
+    and add arbitrary ties."""
+    order = np.lexsort((np.asarray(dates).astype("datetime64[D]"), np.asarray(drive_ids)))
+    ids_sorted = np.asarray(drive_ids)[order]
+    last = order[np.r_[ids_sorted[1:] != ids_sorted[:-1], True]]
+    lower, upper = survival_bounds(
+        np.asarray(dates).astype("datetime64[D]")[last],
+        np.asarray(event_types)[last],
+        np.asarray(days_to_event, dtype=np.float64)[last],
+        cutoff_date=observation_end,
+        horizon_days=0,
+    )
+    observed = np.isfinite(upper)
+    return {
+        "c_index": concordance_index(lower, observed, np.asarray(risk)[last]),
+        "drives": len(last),
+        "failures": int(observed.sum()),
+    }

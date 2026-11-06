@@ -1,0 +1,10 @@
+diff --git a/.gitignore b/.gitignore
+index c6ac046..7793b18 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -39,3 +39,5 @@ tests/golden/golden_dataset.parquet
+ # Audit database and test-access log (local state, never committed)
+ data/audit/*.sqlite*
+ data/audit/*.jsonl
++
++delme/

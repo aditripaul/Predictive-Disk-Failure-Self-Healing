@@ -133,7 +133,7 @@ whether a system can act safely on predictions that are uncertain.
 | An agent figure that can be quoted | measured point-in-time | **Met.** 23.4% precision at 29.3% recall at cordon and above, pooled over nine weekly snapshots (Sections 7.3, 8.5) |
 | Failures among false alarms over a longer horizon | measured | **Met.** 19.2% of the alerts the 30-day label counts as false went on to fail (Section 8.6) |
 | Second data source (SMART-Z) | evaluated | **Ready, pending data.** Supported in code, with a split reserved for it |
-| A final period held back from every modelling choice | yes | **Met.** Q3 2026 is sealed and has not been read; it is scored once, against the frozen run |
+| A final period held back from every modelling choice | yes | **Not met since 2026-11-06.** Q3 2026 was sealed; its single-shot evaluation was skipped by decision and it became the test set of the Q1+Q2 -> Q3 runs (runbook 1.1.4). No untouched period remains until new data arrives |
 
 ---
 
@@ -402,10 +402,13 @@ reported beside it.*
   second stage is judged by a paired interval on shared drives rather than
   by comparing two point estimates - which is precisely how its earlier,
   stronger-sounding claim came to be revised (Section 9).
-- **A final period is sealed.** Q3 2026 is labelled `sealed` and is read by no
-  training, validation or test step. It is scored once, against a model frozen
-  before it arrived, so there is one untouched period left to test stability
-  over time.
+- **A final period was sealed, and has been used.** Q3 2026 is labelled
+  `sealed` and was read by no training, validation or test step until
+  2026-11-06, when the single-shot evaluation of the frozen run was skipped by
+  decision and Q3 became the test set of the Q1+Q2 -> Q3 runs (runbook 1.1.4).
+  `make evaluate-frozen` now refuses it. Nothing is sealed at present; the
+  rules a future untouched period must apply are in
+  `docs/q3_horizon_and_cascade_run.md` section 6.
 - **Precision is reported with its failure rate.** Precision depends on how
   common failures are among the drives judged. For catch rate *r*,
   false-alarm rate *f* and failure rate *p*,
@@ -548,7 +551,7 @@ a 0.6/1.0 vendor split and `recency_factor` pinned near 0.6065, which were
 model *inputs*; scoring that run against the rebuilt data would feed it
 three features far outside what it was trained on, silently, since every
 one of its expected feature columns still exists in the new, 246-column
-frame. It may not be used for the sealed quarter or SMART-Z.
+frame. It may not be scored on any held-out period or on SMART-Z.
 
 **The breakdown that follows** - drive counts, action tiers and warning lead
 time - comes from that earlier, now-void run, on an earlier 212-feature
@@ -834,8 +837,9 @@ ensemble, with the 95% paired drive-level bootstrap interval.*
 **How far to take it.** The intervals resample the same test drives, so the
 five rows are not independent evidence, and the blend weight was both chosen
 and judged around the same test period. The blend is the strongest candidate
-for the next model of record, and the sealed quarter is where it is read once,
-cleanly, before it is relied on.
+for the next model of record. It has not been read on Q3 2026 or any other
+untouched period (Q3 became the test set of the LightGBM-only runs of runbook
+1.1.4), so it is still to be confirmed.
 
 ---
 
@@ -863,7 +867,10 @@ drives.
 | 15 | Per-family recalibration (a shrunk score offset per drive model) | Same as the raw score: within 0.6 points at five of six budgets, -1.4 at the sixth |
 | 16 | 7- and 14-day horizons beside 30, same data and splits | AUROC flat (0.925, 0.924, 0.923); 7 days is less precise near 10% recall (46% against 57%) |
 | 17 | LSTM over each drive's raw 30-day history | Close behind LightGBM: AUROC 0.915 against 0.923; recall at a 1-in-1,000 false-alarm rate 20.1% against 26.8% |
-| 18 | **LSTM blended with LightGBM** (rank average, weight chosen on validation) | **Gain:** +0.5 to +3.4 recall points across four seeds at matched false-alarm rates, AUROC unchanged; to be read once on the sealed quarter |
+| 18 | **LSTM blended with LightGBM** (rank average, weight chosen on validation) | **Gain:** +0.5 to +3.4 recall points across four seeds at matched false-alarm rates, AUROC unchanged; not yet read on an untouched period |
+| 19 | 44- and 60-day horizons beside 30, identical training rows, tested on Q3 2026 | No gain once the base rate is removed: AUROC +0.002 to +0.003, recall at a matched false-alarm rate within 1.3 points (every interval includes 0), median lead 14-15 days for all; precision rises with the label (40% to 49%) |
+| 20 | Cox and AFT survival models as Stage 2 on the 0.8 net's candidates | Cox matches the LightGBM Stage 2 within about 1 point; AFT is 2-8 points worse (3 of 3 seeds) |
+| 21 | Stage 1 net widened from 0.5 to 0.8, run on Q3 2026 | +5.1 points at 10% recall for 30 days (1 of 3 seeds above 0), none at 44 or 60 days; above 20% recall no gain; not worse than 0.5; not confirmed |
 
 **Item 11 is reported at the strength of its current evidence, and how that
 changed is itself a finding.** A five-seed repeat
@@ -1050,7 +1057,10 @@ same claim, and this project had, for a time, only checked the first one.
   weeks and the point-in-time evaluation to nine weekly snapshots. The
   bootstrap interval covers sampling across drives and the five-seed test
   covers training randomness; neither shows how results would vary in another
-  period. The sealed quarter exists to answer that and has not been scored.
+  period. Q3 2026 gave a second period for the LightGBM two-stage model (59.0%
+precision at 12.5% recall, against 57.1% at 12.0% on April-May: held up), but
+the other models and the blend were not rerun on it, and there is no further
+untouched period.
 - **No cross-vendor result.** SMART-Z has a split reserved for it and the
   harmonization code to read it, but it has not been evaluated, so
   generalization beyond Backblaze is unmeasured.
@@ -1059,7 +1069,7 @@ same claim, and this project had, for a time, only checked the first one.
   the current freeze.
 - **The test period has been read many times.** Every test-split computation
   is logged, and the LSTM blend was both chosen and judged around the same
-  test period; the sealed quarter is where it is read once, cleanly.
+  test period, and has not been read on an untouched period.
 - **Sections 8.4 to 8.7 use the quarter-aligned window**, not the frozen model
   of record, and are labelled so; Figures 1 to 4 are drawn from that run's
   reports.
@@ -1080,19 +1090,27 @@ same claim, and this project had, for a time, only checked the first one.
    score-fleet`); the 3,973 proposals on record all predate the fix in
    Section 7.2 and could not have reached migrate or drain regardless of
    score.
-2. Settle the second-stage question with the decisive experiment that is
-   already built but not yet run: a multi-seed paired comparison, which
-   separates the gain from seed variance instead of reporting one paired
-   test or one seed average.
+2. ~~Settle the second-stage question with a multi-seed paired comparison~~:
+   done on 2026-11-06 (runbook 4.12 and 1.1.4, three horizons, three seeds).
+   The second stage helps only at the strict end (about 10% recall); above 20%
+   recall no Stage 2 kind (LightGBM, Cox, AFT) beats Stage 1 alone by more
+   than about a point.
 3. Drive the live agent from the trained model, with the trained tier
    thresholds and real topology data for the fleet-safety guardrails.
-4. Score the sealed quarter against the frozen run, once, to test stability
-   over time - and read the LSTM blend there, once, as the candidate for the
-   next model of record.
+4. Read the LSTM blend on an untouched period, once, as the candidate for the
+   next model of record. The sealed quarter that was to hold this was used as
+   a test set on 2026-11-06, so it needs new data.
 5. Credit early warnings where they are useful: a cost model per action, so
    that an alert 30 to 60 days ahead counts for the mild tiers (Section 8.6).
-   The 60-day horizon run is set up but not run: the data is downloaded, and
-   resuming needs a config change and a rebuild.
+   The 44- and 60-day horizons were run on 2026-11-06 (runbook 1.1.4): they
+   rank drives no better than 30 days and warn no earlier; the precision gain
+   is the base rate.
+6a. Untested ideas for the 60-80% recall band, from the 2026-11-06 review: a
+   cohort feature (recent failure rate of the drive's batch or vault, a cheap
+   validation-only screen first) and a sequence-model third stage on the Stage
+   1 suspects. Expected gain is a few points of precision at most; SVM or
+   autoencoder stages and a longer-window PatchTST were judged unlikely to add
+   information.
 6. Feed the LSTM's score to the second stage, with out-of-fold scores for the
    training rows so the second stage never sees the LSTM's memorized ones.
 7. Add signals beyond daily SMART: I/O latency, error logs and workload.
@@ -1127,7 +1145,7 @@ on to fail, at 87 to 254 times the background rate, and counting those raises
 precision at every action tier. A sequence model adds a second view of the
 same telemetry: it catches partly different drives, and blended with LightGBM
 it catches more failing drives for the same number of false alarms, a gain
-consistent across every seed and ready to be confirmed on the sealed quarter.
+consistent across every seed and still to be confirmed on an untouched period.
 
 The safety design held when tested against real data. A defect in one of its
 two independent pre-action checks made it impossible to pass for drives scored
@@ -1235,7 +1253,7 @@ section 1.1 is the record for it.
 | Horizon | 30 days |
 | Splits, frozen run | training rows the first 75 days of Q1 and Q2 2026, validation the 25 days after the 30-day purge, test the following 21 days |
 | Splits, quarter-aligned run | training rows the first 107 days of Q4 2025 to Q2 2026, validation the last 45 days of Q1, test the first 61 days of Q2 |
-| Sealed window | Q3 2026 until 2026-11-06, now a test set; Q4 2026 is the next sealed quarter |
+| Sealed window | Q3 2026 until 2026-11-06, now a test set; nothing is sealed at present |
 | Frozen run | retired 2026-11-06 (dataset version `20261009T051152748998Z`) |
 | Features | 246 (212 before the sixth priority attribute and the confidence-formula fixes) |
 | First stage | LightGBM, 31 leaves, at least 200 rows per leaf, L2 10, learning rate 0.05 (tree count for this specific run not recorded in the runbook) |

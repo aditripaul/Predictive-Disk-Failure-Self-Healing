@@ -1,0 +1,51 @@
+# Model Card
+
+Generated: 2026-11-06T09:45:32.519119+00:00
+
+## Model Details
+- Type: lightgbm
+- Version: 1
+- Primary horizon: 30 days
+- Params: {'objective': 'binary', 'num_leaves': 31, 'learning_rate': 0.05, 'n_estimators': 1000, 'min_child_samples': 200, 'reg_lambda': 10.0, 'max_delta_step': 1.0, 'feature_fraction': 0.7, 'bagging_fraction': 0.8, 'bagging_freq': 1}
+- Stages: two. Rows scoring >= 0.2350 on the first model (the validation threshold catching 80% of failing drives) are re-ranked by a second model (74 trees) trained on 121612 candidate train rows (24818 positive). Every figure below is for the combined score.
+  - first model alone, recall >= 5%: test precision 58.9% at recall 5.1% (56 caught, 39 false alarms)
+  - first model alone, recall >= 10%: test precision 56.1% at recall 9.5% (105 caught, 82 false alarms)
+  - first model alone, recall >= 20%: test precision 52.3% at recall 20.6% (228 caught, 208 false alarms)
+  - first model alone, recall >= 35%: test precision 41.5% at recall 36.0% (398 caught, 560 false alarms)
+
+## Intended Use
+- Purpose: Predict the probability of disk failure within the configured horizon, driving a MAPE-K self-healing agent's action-tier decisions (monitor/warn/cordon/migrate/drain).
+- Out of scope: Not validated for drive models/vendors outside the training distribution until the external SMART-Z validation split (split=external_smartz) shows acceptable cross-vendor generalization; not a substitute for guardrail or human review on destructive actions.
+
+## Training Data
+- Dataset version: 20261106T091944670108Z
+- Feature registry version: 1
+- Feature count: 246
+- Training rows: 4997704
+
+## Evaluation
+- Threshold policy: {'threshold': 0.9190186791560645, 'precision': 0.75, 'recall': 0.10047846889952153, 'target_met': False, 'level': 'drive', 'target_precision': 0.9, 'target_recall_range': [0.1, 0.5], 'recall_floor_met': True, 'precision_gap_to_target': 0.15000000000000002}
+- Validation metrics: {'auprc': 0.18823523704151066, 'precision': np.float64(0.5293159609120521), 'recall': np.float64(0.036656891495601175), 'false_positive_rate': np.float64(3.504771643511121e-05), 'false_negative_rate': np.float64(0.9633431085043989), 'true_positives': 325, 'false_positives': 289, 'true_negatives': 8245612, 'false_negatives': 8541, 'calibration': {'expected_calibration_error': 0.02920461141607548, 'brier_score': 0.005348419647576648, 'bins': [{'bin_lower': 0.0, 'bin_upper': 0.1, 'count': 7824191, 'mean_predicted_probability': 0.017633795657585816, 'observed_fraction_positive': 0.0002645640935912735}, {'bin_lower': 0.1, 'bin_upper': 0.2, 'count': 206165, 'mean_predicted_probability': 0.14594931155894134, 'observed_fraction_positive': 0.0017849780515606431}, {'bin_lower': 0.2, 'bin_upper': 0.30000000000000004, 'count': 84562, 'mean_predicted_probability': 0.24445087913464517, 'observed_fraction_positive': 0.004765734017643859}, {'bin_lower': 0.30000000000000004, 'bin_upper': 0.4, 'count': 82693, 'mean_predicted_probability': 0.3377944222792987, 'observed_fraction_positive': 0.010182240334732081}, {'bin_lower': 0.4, 'bin_upper': 0.5, 'count': 24175, 'mean_predicted_probability': 0.4430379552604952, 'observed_fraction_positive': 0.026142709410548085}, {'bin_lower': 0.5, 'bin_upper': 0.6000000000000001, 'count': 10431, 'mean_predicted_probability': 0.545620949019459, 'observed_fraction_positive': 0.056274566196913046}, {'bin_lower': 0.6000000000000001, 'bin_upper': 0.7000000000000001, 'count': 8198, 'mean_predicted_probability': 0.6449185213009357, 'observed_fraction_positive': 0.09331544279092462}, {'bin_lower': 0.7000000000000001, 'bin_upper': 0.8, 'count': 7124, 'mean_predicted_probability': 0.7525738945441929, 'observed_fraction_positive': 0.1372824256035935}, {'bin_lower': 0.8, 'bin_upper': 0.9, 'count': 5491, 'mean_predicted_probability': 0.8448917657458795, 'observed_fraction_positive': 0.2502276452376616}, {'bin_lower': 0.9, 'bin_upper': 1.0, 'count': 1737, 'mean_predicted_probability': 0.9150571267317985, 'observed_fraction_positive': 0.48762233736327}]}, 'precision_at_top_1pct': 0.06718515288074817, 'precision_at_top_5pct': 0.016392965997800057, 'precision_at_top_10pct': 0.008770686524276266}
+- Test metrics: {'auprc': 0.12003265043731833, 'precision': np.float64(0.3771029954862536), 'recall': np.float64(0.04762645107794362), 'false_positive_rate': np.float64(6.833238637309969e-05), 'false_negative_rate': np.float64(0.9523735489220564), 'true_positives': 919, 'false_positives': 1518, 'true_negatives': 22213424, 'false_negatives': 18377, 'calibration': {'expected_calibration_error': 0.036585145630432206, 'brier_score': 0.007275594090362297, 'bins': [{'bin_lower': 0.0, 'bin_upper': 0.1, 'count': 20520179, 'mean_predicted_probability': 0.01984959422911425, 'observed_fraction_positive': 0.00020136276589010263}, {'bin_lower': 0.1, 'bin_upper': 0.2, 'count': 902377, 'mean_predicted_probability': 0.14148923067942829, 'observed_fraction_positive': 0.0018650741319869632}, {'bin_lower': 0.2, 'bin_upper': 0.30000000000000004, 'count': 298310, 'mean_predicted_probability': 0.24474720470038785, 'observed_fraction_positive': 0.003050517917602494}, {'bin_lower': 0.30000000000000004, 'bin_upper': 0.4, 'count': 303706, 'mean_predicted_probability': 0.3337539198009345, 'observed_fraction_positive': 0.0058115414249306895}, {'bin_lower': 0.4, 'bin_upper': 0.5, 'count': 82651, 'mean_predicted_probability': 0.44395533527781267, 'observed_fraction_positive': 0.017204873504252823}, {'bin_lower': 0.5, 'bin_upper': 0.6000000000000001, 'count': 40537, 'mean_predicted_probability': 0.5463972950005325, 'observed_fraction_positive': 0.026617657942126945}, {'bin_lower': 0.6000000000000001, 'bin_upper': 0.7000000000000001, 'count': 32816, 'mean_predicted_probability': 0.6467618773068288, 'observed_fraction_positive': 0.03766455387615797}, {'bin_lower': 0.7000000000000001, 'bin_upper': 0.8, 'count': 26733, 'mean_predicted_probability': 0.7506799001614011, 'observed_fraction_positive': 0.06695844087831519}, {'bin_lower': 0.8, 'bin_upper': 0.9, 'count': 20075, 'mean_predicted_probability': 0.8449500686572387, 'observed_fraction_positive': 0.15138231631382315}, {'bin_lower': 0.9, 'bin_upper': 1.0, 'count': 6854, 'mean_predicted_probability': 0.91541854542746, 'observed_fraction_positive': 0.32681645754304056}]}, 'precision_at_top_1pct': 0.04942386053916939, 'precision_at_top_5pct': 0.012871139287873118, 'precision_at_top_10pct': 0.007048588123542788}
+- Drive-level metrics: {'validation': {'failing_drive_count': 418, 'healthy_drive_count': 70559, 'caught_drive_count': 42, 'false_alarm_drive_count': 14, 'precision': 0.75, 'recall': 0.10047846889952153, 'false_alarm_rate': 0.00019841551042390056, 'fleet_failure_rate': 0.005889231722952506, 'lift': 127.35107655502392, 'precision_at_failure_rate': {'0.15': 0.9889338256477979, '0.5': 0.9980291850350078}, 'auprc': 0.42251294839401393, 'auroc': 0.9223413999929883, 'positive_likelihood_ratio': 506.4043062200957}, 'test': {'failing_drive_count': 1105, 'healthy_drive_count': 367583, 'caught_drive_count': 138, 'false_alarm_drive_count': 96, 'precision': 0.5897435897435898, 'recall': 0.1248868778280543, 'false_alarm_rate': 0.0002611655054776744, 'fleet_failure_rate': 0.0029971140910471728, 'lift': 196.7704838148277, 'precision_at_failure_rate': {'0.15': 0.9882885561667106, '0.5': 0.9979131475129688}, 'auprc': 0.2884384874696752, 'auroc': 0.9255726330063443, 'positive_likelihood_ratio': 478.19055429864255}}
+- Drive-level precision at recall (threshold from validation, measured on test). The first precision is at the fleet's own failure rate; the figures after the semicolon restate the same alerts for test sets with more failures, as most published results use:
+  - recall >= 5%: test precision 59.0% at recall 12.5% (138/1105 failing drives, 96 false alarms; 98.8% at 15% failing, 99.8% at 50% failing)
+  - recall >= 10%: test precision 59.0% at recall 12.5% (138/1105 failing drives, 96 false alarms; 98.8% at 15% failing, 99.8% at 50% failing)
+  - recall >= 20%: test precision 51.4% at recall 27.1% (299/1105 failing drives, 283 false alarms; 98.4% at 15% failing, 99.7% at 50% failing)
+  - recall >= 35%: test precision 42.8% at recall 35.7% (394/1105 failing drives, 526 false alarms; 97.8% at 15% failing, 99.6% at 50% failing)
+- Action tiers (drive level; threshold chosen on validation for the precision target):
+  - warn: score >= 0.6533 (target precision 33%) -> validation precision 33.3% recall 63.6%; test precision 17.3% recall 60.9% (673/1105 failing drives, 3208 false alarms)
+  - cordon: score >= 0.8361 (target precision 56%) -> validation precision 55.7% recall 44.7%; test precision 34.8% recall 42.4% (469/1105 failing drives, 877 false alarms)
+  - migrate: score >= 0.9264 (target precision 89%) -> validation precision 100.0% recall 0.5%; test precision 33.3% recall 0.2% (2/1105 failing drives, 4 false alarms)
+  - drain: score >= 0.9264 (target precision 100%) -> validation precision 100.0% recall 0.5%; test precision 33.3% recall 0.2% (2/1105 failing drives, 4 false alarms)
+- Test warning lead time: {'mean_lead_time_days': 27.589595375722542, 'median_lead_time_days': 20.0, 'min_lead_time_days': 1.0, 'max_lead_time_days': 87.0, 'warned_drive_count': 173, 'total_failed_drive_count': 1130, 'warning_coverage': 0.15309734513274337}
+- Logistic Regression sanity baseline: {'validation_auprc': 0.12148443771917473, 'test_auprc': 0.06762063808270236, 'train_row_count': 1000000}
+- SMOTE comparison: None
+
+## Explainability
+- SHAP skipped for this run (configs/model.yaml diagnostics.shap_enabled: false)
+
+## Limitations and Risks
+- Trained primarily on Backblaze data; SMART-Z is an external validation split, never part of training, so cross-vendor performance is only as good as that split's evaluation shows.
+- Destructive actions (cordon/migrate/drain) additionally require feature_confidence, feature_maturity == MATURE, non-stale telemetry, and guardrail checks to pass - this model's p_fail alone never gates execution.
+- The precision/recall targets (>=95% precision, 35-50% recall) are tuned on the validation split; the test-split metrics above are the more honest read of generalization.

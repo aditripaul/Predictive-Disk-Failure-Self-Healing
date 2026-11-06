@@ -9,7 +9,7 @@ call refuses, because a second look at the same split is another comparison.
 
     uv run python pipelines/evaluate_frozen.py --run-id <mlflow run id> --split sealed
 
-Known gap, to fix before the next sealed quarter (Q4 2026): the sealed split
+Known gap, to fix before any new quarter is sealed: the sealed split
 is read without a date cap. Rows whose horizon runs past the last day of data
 keep a positive label when the drive fails but have no label (and are
 dropped) when it does not, so the last `horizon` days add failing drives with

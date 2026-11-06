@@ -384,3 +384,53 @@ def test_extract_stage_applies_the_split_dates_end_to_end(tmp_path, monkeypatch)
     assert {"event_type", "days_to_event"} <= set(
         pl.read_parquet(work_dir / "train_ids.parquet").columns
     )
+
+
+def _brute_c_index(time, event, risk):
+    concordant = comparable = 0.0
+    for i in range(len(time)):
+        if not event[i]:
+            continue
+        for j in range(len(time)):
+            if i == j:
+                continue
+            if time[i] < time[j] or (time[i] == time[j] and not event[j]):
+                comparable += 1
+                concordant += 1.0 if risk[i] > risk[j] else 0.5 if risk[i] == risk[j] else 0.0
+    return concordant / comparable if comparable else None
+
+
+def test_concordance_index_matches_brute_force_with_ties():
+    import numpy as np
+
+    from src.models.survival import concordance_index
+
+    rng = np.random.default_rng(3)
+    for _ in range(20):
+        n = 60
+        time = rng.integers(1, 15, n).astype(float)  # many tied times
+        event = rng.random(n) < 0.4
+        risk = rng.integers(0, 6, n).astype(float)  # many tied risks
+        assert concordance_index(time, event, risk) == pytest.approx(
+            _brute_c_index(time, event, risk)
+        )
+    assert concordance_index([1.0, 2.0], [False, False], [0.1, 0.2]) is None
+    assert concordance_index([1.0, 2.0, 3.0], [True, True, False], [3.0, 2.0, 1.0]) == 1.0
+
+
+def test_drive_concordance_uses_each_drives_latest_row():
+    import numpy as np
+
+    from src.models.survival import drive_concordance
+
+    d = np.datetime64
+    result = drive_concordance(
+        np.array(["a", "a", "b", "c"]),
+        np.array([d("2026-07-01"), d("2026-07-10"), d("2026-07-10"), d("2026-07-10")]),
+        np.array(["confirmed_failure", "confirmed_failure", "still_active", "confirmed_failure"]),
+        np.array([20.0, 11.0, np.nan, 60.0]),  # c fails after observation_end: censored
+        np.array([0.0, 0.9, 0.5, 0.1]),  # a's earlier row would rank it wrong
+        observation_end=d("2026-08-31"),
+    )
+    assert result["drives"] == 3 and result["failures"] == 1
+    assert result["c_index"] == 1.0
