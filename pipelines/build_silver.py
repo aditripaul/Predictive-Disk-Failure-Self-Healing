@@ -249,7 +249,9 @@ def _stage_finalize(
     t0 = time.perf_counter()
     maturity_cfg = config["feature_maturity"]
     drive_metadata = build_drive_metadata(
-        pl.scan_parquet(drive_day_path), min_history_days=maturity_cfg["min_history_days"]
+        pl.scan_parquet(drive_day_path),
+        min_history_days=maturity_cfg["min_history_days"],
+        partitions=int(config.get("resource_limits", {}).get("drive_metadata_partitions", 1)),
     )
     drive_metadata.write_parquet(metadata_path, compression="zstd")
     _log_stage("drive_metadata_built", t0, row_count=drive_metadata.height)

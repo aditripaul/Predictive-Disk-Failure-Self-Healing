@@ -113,3 +113,54 @@ def test_imbalance_reporting():
     assert report[0]["positive_count"] == 1
     assert report[0]["negative_count"] == 2
     assert report[0]["censored_count"] == 1
+
+
+def test_holdout_set_does_not_change_when_sealed_window_drives_arrive(tmp_path, monkeypatch):
+    """The drive holdout is a fixed-seed draw from the sorted drive list, so adding
+    drives to that list reshuffles which ones are held out. Ingesting Q3 2026 moved
+    about half of them. The pool must be only the drives seen before `sealed_start`."""
+    import datetime as dt
+    import json
+
+    import polars as pl
+    import yaml
+
+    from pipelines import build_labels
+
+    silver, gold = tmp_path / "silver", tmp_path / "gold"
+    (gold / "features").mkdir(parents=True)
+    (silver / "drive_metadata").mkdir(parents=True)
+    pl.DataFrame({"drive_id": ["x"], "date": [dt.date(2026, 1, 1)]}).write_parquet(
+        gold / "features" / "part.parquet"
+    )
+    data_cfg = tmp_path / "data.yaml"
+    data_cfg.write_text(yaml.safe_dump({"silver_dir": str(silver), "gold_dir": str(gold)}))
+    model_cfg = tmp_path / "model.yaml"
+    model_cfg.write_text(yaml.safe_dump({"splits": {"sealed_start": "2026-07-01"}}))
+    monkeypatch.setattr(build_labels, "DATA_CONFIG_PATH", data_cfg)
+    monkeypatch.setattr(build_labels, "MODEL_CONFIG_PATH", model_cfg)
+    monkeypatch.setattr(build_labels, "apply_memory_limit_from_config", lambda: None)
+
+    old = [f"d{i:04d}" for i in range(1000)]
+    new = [f"a{i:04d}" for i in range(400)]  # sort before the old ids, shifting the list
+
+    def held_out(drives: list[str], first_seen: list[dt.date]) -> list[str]:
+        pl.DataFrame({"drive_id": drives, "first_seen_date": first_seen}).write_parquet(
+            silver / "drive_metadata" / "part.parquet"
+        )
+        out = tmp_path / f"tmp{len(drives)}"
+        out.mkdir()
+        build_labels._stage_prepare(out)
+        return json.loads((out / build_labels.PREPARE_MANIFEST_NAME).read_text())[
+            "holdout_drive_ids"
+        ]
+
+    before = held_out(old, [dt.date(2026, 2, 1)] * len(old))
+    after = held_out(
+        old + new, [dt.date(2026, 2, 1)] * len(old) + [dt.date(2026, 7, 15)] * len(new)
+    )
+    assert before == after and len(before) == 100
+    assert not set(after) & set(new)
+    # Without the pool restriction the same data does reshuffle the draw.
+    plain = build_labels.sample_holdout_drive_ids(old + new)
+    assert set(plain) != set(before)

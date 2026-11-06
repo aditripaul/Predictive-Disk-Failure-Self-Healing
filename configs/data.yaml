@@ -19,8 +19,14 @@ sources:
     # start_date excludes it. Bronze reflects whatever was last ingested and
     # `make build-silver` reads Bronze rather than the raw CSVs, so narrowing
     # this does not narrow what the pipeline sees until Bronze is rebuilt.
+    # Q3 2026 (2026-07-01 to 09-30) ingested 2026-11-06: it is the SEALED
+    # split (configs/model.yaml splits.sealed_start), labeled split=sealed,
+    # read by no training, validation or test step, and scored once by
+    # `make evaluate-frozen` (runbook 1.4). Before that ingest the cap was
+    # 2026-06-30; bronze/silver/gold from then are backed up in
+    # data/tmp/backup_pre_q3_20261106/.
     start_date: "2025-10-01"
-    end_date: "2026-06-30"
+    end_date: "2026-09-30"
   smartz:
     raw_glob: "data/raw/smartz/*.csv"
     bronze_path: "data/bronze/smartz"
@@ -80,6 +86,13 @@ resource_limits:
   # on whole drives, so it never changes the resulting features (see
   # pipelines/build_gold_features.py::_write_wide_batches).
   feature_batch_target_rows: 1000000
+  # `make build-silver` builds drive_metadata (one row per drive) with a
+  # group_by over every drive-day. With Q3 2026 (~157M drive-days) one pass
+  # exceeded max_memory_gb, so the drives are aggregated in this many groups
+  # by hash of drive_id. Every drive falls in one group with its rows in
+  # order, so the metadata does not depend on this number
+  # (src/preprocess/feature_maturity.py::build_drive_metadata).
+  drive_metadata_partitions: 8
   # `make train` joins the gold feature table to the label table in
   # row-count-bounded batches rather than all at once. In the normal
   # path (gold features read via its own existing per-batch row groups -

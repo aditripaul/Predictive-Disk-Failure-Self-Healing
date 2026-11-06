@@ -21,6 +21,7 @@ def build_drive_metadata(
     *,
     min_history_days: int = DEFAULT_MIN_HISTORY_DAYS,
     as_of_date: dt.date | None = None,
+    partitions: int = 1,
 ) -> pl.DataFrame:
     """`telemetry_df` must be at the drive-day grain (already deduplicated
     across SMART attributes) and must carry `stale_telemetry_flag`,
@@ -32,13 +33,32 @@ def build_drive_metadata(
     fleet-scale `telemetry_df` (e.g. scanned lazily from an on-disk
     Parquet file rather than held in memory - see
     pipelines/build_silver.py) never needs to materialize it just to call
-    this."""
+    this.
+
+    `partitions` > 1 aggregates the drives in that many groups by hash of
+    `drive_id` and concatenates the results: every drive's rows land in one
+    group, in their original order, so the metadata is the same (up to row
+    order) at about 1/`partitions` of the group_by's peak memory. Q3 2026 took
+    the fleet past what one pass fits in under `resource_limits.max_memory_gb`."""
     lf = telemetry_df.lazy() if isinstance(telemetry_df, pl.DataFrame) else telemetry_df
     columns = lf.collect_schema().names()
     if as_of_date is not None:
         as_of = as_of_date
     else:
         as_of = lf.select(pl.col("date").max()).collect().item()
+    if partitions > 1:
+        bucket = pl.col("drive_id").hash(seed=0) % partitions
+        return pl.concat(
+            [
+                build_drive_metadata(
+                    lf.filter(bucket == k),
+                    min_history_days=min_history_days,
+                    as_of_date=as_of,
+                )
+                for k in range(partitions)
+            ],
+            how="vertical",
+        )
 
     agg_exprs = [
         pl.col("date").min().alias("first_seen_date"),

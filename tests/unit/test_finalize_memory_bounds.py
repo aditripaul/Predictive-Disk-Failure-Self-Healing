@@ -123,3 +123,32 @@ def test_run_all_checks_still_returns_every_check():
         "failure_date_after_date",
     ]
     assert all(r["passed"] for r in results)
+
+
+def test_drive_metadata_is_the_same_in_hash_partitions():
+    """Partitioning by drive must not change any drive's row: not the
+    first/last-row values, nor the fleet-wide as-of date that decides who is
+    DECOMMISSIONED (a partition holding only short-lived drives would see an
+    earlier max date if it computed its own)."""
+    start = dt.date(2025, 7, 1)
+    rows = []
+    for i in range(60):
+        days = 3 + (i * 7) % 20  # drives of 3..22 days, ending on different dates
+        for d in range(days):
+            rows.append(
+                {
+                    "drive_id": f"d{i:03d}",
+                    "date": start + dt.timedelta(days=d),
+                    "model_family": f"F{(i + d) % 3}",  # first() must be the first row's
+                    "capacity_gb": 1000.0 * (1 + i % 4),
+                    "stale_telemetry_flag": d == days - 1
+                    and (i % 5 == 0 or i == 17),  # last() matters
+                    "failure_date": start + dt.timedelta(days=days) if i % 6 == 0 else None,
+                }
+            )
+    frame = pl.DataFrame(rows, schema_overrides={"failure_date": pl.Date})
+    whole = build_drive_metadata(frame.lazy(), min_history_days=10).sort("drive_id")
+    for k in (2, 8):
+        split = build_drive_metadata(frame.lazy(), min_history_days=10, partitions=k)
+        assert split.sort("drive_id").equals(whole), k
+    assert set(whole["feature_maturity"]) >= {"DECOMMISSIONED", "MATURE", "STALE"}

@@ -46,6 +46,7 @@ given the same precomputed set.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import math
 import shutil
@@ -128,7 +129,20 @@ def _stage_prepare(tmp_dir: Path) -> None:
 
     t0 = time.perf_counter()
     drive_metadata = pl.read_parquet(metadata_path)
-    holdout_drive_ids = sample_holdout_drive_ids(drive_metadata["drive_id"])
+    # Sample the holdout from the drives seen BEFORE the sealed window. The
+    # sample is a fixed-seed draw from the sorted drive list, so adding drives
+    # to that list reshuffles which ones are held out: ingesting Q3 2026 moved
+    # about half of them, swapping ~4M train/validation rows of the frozen
+    # window. Drives first seen in the sealed window can only have sealed rows,
+    # which no holdout assignment touches.
+    _, model_config = _load_configs()
+    sealed_start = model_config.get("splits", {}).get("sealed_start")
+    holdout_pool = drive_metadata
+    if sealed_start:
+        holdout_pool = drive_metadata.filter(
+            pl.col("first_seen_date") < dt.date.fromisoformat(str(sealed_start))
+        )
+    holdout_drive_ids = sample_holdout_drive_ids(holdout_pool["drive_id"])
     _log_stage(
         "holdout_drive_ids_sampled",
         t0,
