@@ -48,6 +48,7 @@ eager object anywhere in this pipeline.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import gc
 import json
 import math
@@ -98,6 +99,8 @@ DEFAULT_BATCH_TARGET_ROWS = 2_000_000
 #: boundary.
 PREPARE_MANIFEST_NAME = "prepare_manifest.json"
 FINALIZE_RESULT_NAME = "finalize_result.json"
+EXPECTED_ATTRIBUTES_NAME = "expected_by_model.parquet"
+MODEL_CONFIG_PATH = Path("configs/model.yaml")
 
 logger = get_logger(__name__)
 
@@ -146,8 +149,29 @@ def _require_silver_inputs(data_config: dict) -> tuple[Path, Path]:
     return canonical_path, drive_day_path
 
 
-def build_gold_features(wide: pl.DataFrame, features_config: dict) -> pl.DataFrame:
+def sealed_start() -> dt.date | None:
+    """First date of the sealed split (configs/model.yaml splits.sealed_start).
+
+    Fleet-wide statistics that feed the features (model-family z-score
+    mean/std, each model's expected SMART attributes) are computed on rows
+    BEFORE this date only. Without that, appending a quarter of sealed data
+    shifted the feature values of every earlier row, so the sealed window
+    leaked into training features and a rebuilt table no longer reproduced
+    the frozen runs. None (no sealed split configured) means all rows."""
+    value = yaml.safe_load(MODEL_CONFIG_PATH.read_text()).get("splits", {}).get("sealed_start")
+    return dt.date.fromisoformat(str(value)) if value else None
+
+
+def build_gold_features(
+    wide: pl.DataFrame,
+    features_config: dict,
+    expected_by_model: pl.DataFrame | None = None,
+) -> pl.DataFrame:
     """Computes every feature family for one batch of whole drives.
+
+    `expected_by_model` is the fleet-wide table of which attributes each
+    model reports (`_stage_expected`). Without it the table is computed from
+    this batch alone, which is what a single-frame caller or test wants.
 
     Does *not* add the model-family z-scores: those are the one feature
     that depends on other drives, so they are applied once, globally, after
@@ -213,11 +237,10 @@ def build_gold_features(wide: pl.DataFrame, features_config: dict) -> pl.DataFra
     # lacking another vendor's attribute (docs/adr/0002). Needs drive_model,
     # which the real gold frame carries from drive_day; a narrow frame without
     # it falls back to the global denominator.
-    expected_by_model = (
-        model_expected_attributes(gold.lazy(), available_attributes)
-        if "drive_model" in gold.columns
-        else None
-    )
+    if "drive_model" not in gold.columns:
+        expected_by_model = None
+    elif expected_by_model is None:
+        expected_by_model = model_expected_attributes(gold.lazy(), available_attributes)
     gold = add_feature_confidence(
         gold,
         available_attributes,
@@ -388,7 +411,30 @@ def _stage_pivot_batch(tmp_dir: Path, batch_index: int, wide_batch_path: Path) -
     )
 
 
-def _stage_batch(wide_batch_path: Path, gold_batch_path: Path) -> None:
+def _stage_expected(wide_batch_paths: list[Path], out_path: Path) -> None:
+    """Subprocess stage: which attributes each drive model reports, over the
+    whole fleet and only on rows before the sealed split. Computed once here
+    rather than inside each batch, because a batch holds a different random
+    subset of drives, so the per-batch tables differed from each other and
+    from the whole-fleet answer, and moved when batching moved."""
+    configure_logging()
+    apply_memory_limit_from_config()
+    _, features_config = _load_configs()
+    attributes, _, _ = resolve_feature_plan(
+        pl.scan_parquet(wide_batch_paths[0]).collect_schema().names(), features_config
+    )
+    t0 = time.perf_counter()
+    source = pl.concat([pl.scan_parquet(p) for p in wide_batch_paths], how="vertical")
+    cutoff = sealed_start()
+    if cutoff is not None:
+        source = source.filter(pl.col("date") < cutoff)
+    model_expected_attributes(source, attributes).write_parquet(out_path)
+    _log_stage("expected_attributes_computed", t0, attribute_count=len(attributes))
+
+
+def _stage_batch(
+    wide_batch_path: Path, gold_batch_path: Path, expected_path: Path | None = None
+) -> None:
     """Subprocess stage: computes every feature family for one batch of
     whole drives. Deliberately one process per batch, not one process for
     the whole loop - see the module docstring for why reusing a single
@@ -400,7 +446,8 @@ def _stage_batch(wide_batch_path: Path, gold_batch_path: Path) -> None:
 
     t0 = time.perf_counter()
     batch = pl.read_parquet(wide_batch_path)
-    gold_batch = build_gold_features(batch, features_config)
+    expected = pl.read_parquet(expected_path) if expected_path is not None else None
+    gold_batch = build_gold_features(batch, features_config, expected)
     gold_batch.write_parquet(gold_batch_path, compression="zstd")
     _log_stage(
         "gold_batch_built",
@@ -439,14 +486,13 @@ def _stage_finalize(tmp_dir: Path, gold_batch_paths: list[Path], out_path: Path)
     t0 = time.perf_counter()
     batch_columns = pl.scan_parquet(gold_batch_paths[0]).collect_schema().names()
     zscore_plan = model_family_zscore_plan(batch_columns, attributes, windows_days=windows_days)
-    zscore_stats = (
-        model_family_zscore_stats(
-            pl.concat([pl.scan_parquet(p) for p in gold_batch_paths], how="vertical"),
-            zscore_plan,
-        )
-        if zscore_plan
-        else None
-    )
+    # Statistics use rows before the sealed split only (see `sealed_start`);
+    # the z-score is still APPLIED to every row, sealed ones included.
+    zscore_source = pl.concat([pl.scan_parquet(p) for p in gold_batch_paths], how="vertical")
+    cutoff = sealed_start()
+    if cutoff is not None:
+        zscore_source = zscore_source.filter(pl.col("date") < cutoff)
+    zscore_stats = model_family_zscore_stats(zscore_source, zscore_plan) if zscore_plan else None
     _log_stage(
         "model_family_zscore_stats_computed",
         t0,
@@ -513,7 +559,11 @@ def _run_stage(*args: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--stage", choices=["prepare", "pivot_batch", "batch", "finalize"])
+    parser.add_argument(
+        "--stage", choices=["prepare", "pivot_batch", "expected", "batch", "finalize"]
+    )
+    parser.add_argument("--wide-batch-paths", type=Path, nargs="*")
+    parser.add_argument("--expected-path", type=Path)
     parser.add_argument("--tmp-dir", type=Path)
     parser.add_argument("--batch-index", type=int)
     parser.add_argument("--wide-batch-path", type=Path)
@@ -528,8 +578,11 @@ def main() -> None:
     if args.stage == "pivot_batch":
         _stage_pivot_batch(args.tmp_dir, args.batch_index, args.wide_batch_path)
         return
+    if args.stage == "expected":
+        _stage_expected(args.wide_batch_paths, args.expected_path)
+        return
     if args.stage == "batch":
-        _stage_batch(args.wide_batch_path, args.gold_batch_path)
+        _stage_batch(args.wide_batch_path, args.gold_batch_path, args.expected_path)
         return
     if args.stage == "finalize":
         _stage_finalize(args.tmp_dir, args.gold_batch_paths, args.out_path)
@@ -572,6 +625,16 @@ def main() -> None:
                 batch_count=n_batches,
             )
 
+        expected_path = tmp_dir / EXPECTED_ATTRIBUTES_NAME
+        _run_stage(
+            "--stage",
+            "expected",
+            "--wide-batch-paths",
+            *[str(p) for p in wide_batch_paths],
+            "--expected-path",
+            str(expected_path),
+        )
+
         gold_batch_paths = []
         for index, wide_batch_path in enumerate(wide_batch_paths):
             gold_batch_path = tmp_dir / f"gold_batch_{index}.parquet"
@@ -582,6 +645,8 @@ def main() -> None:
                 str(wide_batch_path),
                 "--gold-batch-path",
                 str(gold_batch_path),
+                "--expected-path",
+                str(expected_path),
             )
             gold_batch_paths.append(gold_batch_path)
             logger.info(

@@ -188,3 +188,41 @@ def test_reingesting_a_day_with_more_columns_replaces_rows_instead_of_duplicatin
     df = pl.read_parquet(bronze / "**" / "*.parquet")
     assert df.height == 1
     assert df["smart_9_raw"].to_list() == [123.0]
+
+
+def test_fleet_statistics_ignore_sealed_window_rows(tmp_path, monkeypatch):
+    """Appending sealed-window rows must not move the expected-attribute table
+    (`_stage_expected`) or the model-family z-score statistics: both are
+    computed on rows before `splits.sealed_start`, so a rebuilt table keeps its
+    earlier rows' feature values when a new quarter arrives."""
+    import pipelines.build_gold_features as bgf
+
+    model_cfg = tmp_path / "model.yaml"
+    model_cfg.write_text(yaml.safe_dump({"splits": {"sealed_start": "2028-01-01"}}))
+    monkeypatch.setattr(bgf, "MODEL_CONFIG_PATH", model_cfg)
+
+    before = _wide(600)  # 1,200 drive-days (> the 1,000 a model needs), all before sealed start
+    sealed = _wide(1500).with_columns(
+        pl.col("date") + pl.duration(days=800),
+        # The sealed rows report nothing at all for a model that used to.
+        pl.lit(None, dtype=pl.Float64).alias("seek_error_rate"),
+        pl.lit(None, dtype=pl.Float64).alias("reallocated_sector_count"),
+    )
+    paths = {}
+    for name, frame in (("before", before), ("both", pl.concat([before, sealed]))):
+        wide_path = tmp_path / f"wide_{name}.parquet"
+        frame.write_parquet(wide_path)
+        paths[name] = wide_path
+
+    tables = {}
+    for name, wide_path in paths.items():
+        out = tmp_path / f"expected_{name}.parquet"
+        bgf._stage_expected([wide_path], out)
+        tables[name] = pl.read_parquet(out)
+    assert tables["both"].equals(tables["before"])
+    assert bgf.sealed_start() == dt.date(2028, 1, 1)
+    # Guard against a vacuous pass: with sealed rows included the table would differ.
+    unfiltered = bgf.model_expected_attributes(
+        pl.scan_parquet(paths["both"]), ["reallocated_sector_count"]
+    )
+    assert not unfiltered.equals(tables["both"].select(unfiltered.columns))
