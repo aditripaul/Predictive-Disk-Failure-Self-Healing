@@ -168,7 +168,7 @@ sequence score archives are over GitHub's file limit, so only their checksums
 are committed. Nothing loads from that folder: `score-fleet` and
 `evaluate-frozen` read MLflow, which is local.
 
-### 1.1.3 Current status of every model and blend (2026-11-05)
+### 1.1.3 Current status of every model and blend (2026-11-05; cascade added 2026-11-06)
 
 Test window 2026-04-01 to 2026-05-31, **1,479 failing drives**. Each model's threshold was
 chosen on validation, as the highest drive-level precision with at least 10% recall (the
@@ -226,6 +226,32 @@ above, which allow any flag inside the warning window.
 The tiers nest: a cordon drive is always a warn drive. Warn is non-disruptive, so its 2,506 false
 alarms cost a watchlist entry each; the 1,662 false cordons are real actions. The goal (90%
 precision at 10% or more recall) is still not met at any operating point in this section.
+
+**The cascade with a wider Stage 1 net** (2026-11-06, Section 4.12 and
+`docs/cascade_wide_net.md`, MLflow `c05a109a`). Test, means over 3 seeds. Stage 1 is refitted
+in each seed rather than taken from the frozen model, so its 10% row (59.4%, 171 caught) differs
+slightly from the production LightGBM row above. Compare these rows with each other, not with the
+first table. **No net was adopted**: production keeps the 50% net (`candidate_recall: 0.5`),
+because every wider net caught slightly fewer drives at 60% recall, and the decision rule fixed
+before the run required recall not to drop.
+
+| Model | Recall level | Precision | Recall | Caught | Missed % | False alarms |
+|---|---|---|---|---|---|---|
+| Stage 1 alone | 10% | 59.4% | 11.5% | 171 | 88.5% | 117 |
+| Cascade, 50% net (production setting) | 10% | 61.7% | 14.2% | 210 | 85.8% | 131 |
+| Cascade, 70% net | 10% | 64.5% | 13.0% | 192 | 87.0% | 106 |
+| Cascade, 80% net | 10% | 64.3% | 11.9% | 177 | 88.1% | 99 |
+| Cascade, 90% net | 10% | 64.0% | 12.5% | 185 | 87.5% | 104 |
+| Stage 1 alone (= 50% net) | 60% | 22.8% | 64.5% | 953 | 35.5% | 3,228 |
+| Cascade, 70% net | 60% | 23.8% | 64.2% | 950 | 35.8% | 3,038 |
+| Cascade, 80% net | 60% | 24.8% | 64.3% | 951 | 35.7% | 2,894 |
+| Cascade, 90% net | 60% | 24.7% | 63.8% | 943 | 36.2% | 2,873 |
+
+- At 60% recall, the 80% net removes about 330 false alarms per test window for 2 fewer drives
+  caught. It is the candidate for a confirmatory run on unused data.
+- A failing drive here counts as caught if it is flagged inside its 30-day window. As in the
+  first table, positive rows run from 1 to 30 days before failure, so every catch had at least a
+  day's notice.
 
 ### 1.2 The two-stage gain is not established
 
