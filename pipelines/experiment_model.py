@@ -39,9 +39,10 @@ from src.models.evaluation import (
     drive_level_metrics,
     drive_level_table,
     precision_at_recall_table,  # noqa: I001
+    top_k_from_drive_table,
 )
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
-from src.models.survival import AftModel, survival_bounds, train_aft
+from src.models.survival import AftModel, drive_concordance, survival_bounds, train_aft
 from src.models.threshold import tune_drive_level_threshold
 from src.models.training import (
     PREDICT_CHUNK_ROWS,
@@ -49,6 +50,7 @@ from src.models.training import (
     predict_proba_positive,
 )
 from src.models.two_stage import (  # noqa: F401
+    STAGE2_KINDS,
     drive_folds,
     fit_second_stage,
     lightgbm_fitter,
@@ -58,6 +60,14 @@ from src.models.two_stage import (  # noqa: F401
 )
 from src.models.uncertainty import paired_flag_difference_ci
 from src.outputs import refuse_overwrite
+from src.reporting.evaluation_figures import (
+    OperatingPoint,
+    operating_point,
+    plot_confusion_matrices,
+    plot_precision_recall,
+    pr_curve,
+)
+from src.reporting.plots import save_figure
 from src.resource_limits import apply_memory_limit_from_config
 
 logger = get_logger(__name__)
@@ -682,8 +692,23 @@ def two_stage_experiment(
     n_boot: int = 1000,
     stage2_params: dict[str, Any] | None = None,
     early_stopping_max_negatives: int | None = None,
+    stage2_kinds: tuple[str, ...] = ("lightgbm",),
+    survival_nets: tuple[float, ...] | None = None,
+    survival_params: dict[str, Any] | None = None,
+    top_k: tuple[int, ...] = (),
+    observation_end: str | None = None,
+    figure_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Does a second model trained only on the hard cases beat the pooled model?
+
+    `stage2_kinds` adds survival Stage 2 models ("cox", "aft") beside the
+    LightGBM one, at the nets in `survival_nets` (every net when None); each
+    (net, kind) is its own report, paired against Stage 1 alone and, for the
+    survival kinds, against the LightGBM Stage 2 of the same net. With
+    `top_k`, precision and recall at K flagged drives; with `observation_end`
+    and the test ids, the per-drive C-index of the cascade and of Stage 1 on
+    the test candidates (`src/models/survival.py::drive_concordance`); with
+    `figure_dir`, precision-recall curves and confusion matrices.
 
     Uses the same code `make train TRAIN_ARGS=--two-stage` runs
     (src/models/two_stage.py): Stage 1 is the pooled model; Stage 2 is trained
@@ -702,7 +727,12 @@ def two_stage_experiment(
     record_test_access(
         variant="two_stage_experiment",
         purpose="experiment_model two-stage test scoring",
-        extra={"seed": seed, "candidate_recalls": list(candidate_recalls)},
+        extra={
+            "seed": seed,
+            "candidate_recalls": list(candidate_recalls),
+            "stage2_kinds": list(stage2_kinds),
+            "horizon_days": data.get("horizon_days"),
+        },
     )
     model_cfg = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["model"]
     fit = lightgbm_fitter(
@@ -744,8 +774,28 @@ def two_stage_experiment(
     s1_val, s1_test = view("val", val_s1), view("test", test_s1)
     stage1_rows = {r: level_row(r, s1_val, s1_test, cost_ratio) for r in recall_levels}
 
+    survival_bounds_train = (
+        _train_survival_bounds(data) if set(stage2_kinds) & {"cox", "aft"} else None
+    )
+    test_ids = data.get("test_ids")
+    concordance_inputs = (
+        observation_end is not None
+        and test_ids is not None
+        and {"date", "event_type", "days_to_event"} <= set(test_ids.columns)
+    )
+    s1_top_k = top_k_from_drive_table(s1_test[0], s1_test[1], top_k) if top_k else []
+    figure_curves = [pr_curve("Stage 1 alone", s1_test[0], s1_test[1])]
+    figure_points: list[OperatingPoint] = []
+
     reports: list[dict[str, Any]] = []
-    for net in candidate_recalls:
+    lightgbm_rows: dict[float, dict[float, dict[str, Any]]] = {}
+    jobs = [
+        (net, kind)
+        for net in candidate_recalls
+        for kind in stage2_kinds
+        if kind == "lightgbm" or survival_nets is None or net in survival_nets
+    ]
+    for net, kind in jobs:
         t1 = time.perf_counter()
         levels = [r for r in recall_levels if r <= net + 1e-9]
         model, report = fit_second_stage(
@@ -764,7 +814,12 @@ def two_stage_experiment(
             train_stage1_scores=train_oof,
             stage2_params=stage2_params,
             early_stopping_max_negatives=early_stopping_max_negatives,
+            stage2_kind=kind,
+            train_survival_bounds=survival_bounds_train,
+            horizon_days=data.get("horizon_days"),
+            survival_params=survival_params,
         )
+        report["stage2_kind"] = kind
         report["stage1"] = [stage1_rows[r] for r in levels]
         if model is None:
             reports.append(report)
@@ -784,15 +839,16 @@ def two_stage_experiment(
             "validation_drive_share": float((s1_val[1] >= threshold).mean()),
             "test_drive_share": float((s1_test[1] >= threshold).mean()),
         }
+        test_final = model.final_scores(data["x_test"], test_s1)
         c_val = view("val", model.final_scores(data["x_val"], val_s1))
-        c_test = view("test", model.final_scores(data["x_test"], test_s1))
+        c_test = view("test", test_final)
         report["two_stage"] = []
         for r in levels:
             row = level_row(r, c_val, c_test, cost_ratio)
             first = stage1_rows[r]
             if row["threshold"] is not None and first["threshold"] is not None:
-                # Same seed, same drive count: every net and level of this seed
-                # sees the same resampled drives.
+                # Same seed, same drive count: every net, kind and level of this
+                # seed sees the same resampled drives.
                 row["paired_test"] = paired_flag_difference_ci(
                     s1_test[0],
                     s1_test[1] >= first["threshold"],
@@ -800,17 +856,83 @@ def two_stage_experiment(
                     n_boot=n_boot,
                     seed=seed,
                 )
+            reference = lightgbm_rows.get(net, {}).get(r)
+            if kind != "lightgbm" and reference and row["threshold"] is not None:
+                row["paired_vs_lightgbm"] = paired_flag_difference_ci(
+                    s1_test[0],
+                    reference["flags"],
+                    c_test[1] >= row["threshold"],
+                    n_boot=n_boot,
+                    seed=seed,
+                )
+            if kind == "lightgbm" and row["threshold"] is not None:
+                lightgbm_rows.setdefault(net, {})[r] = {"flags": c_test[1] >= row["threshold"]}
             report["two_stage"].append(row)
+        if top_k:
+            report["top_k"] = {
+                "stage1": s1_top_k,
+                "cascade": top_k_from_drive_table(c_test[0], c_test[1], top_k),
+            }
+        if concordance_inputs and test_ids is not None:
+            rows = np.flatnonzero(test_candidates)
+            candidate_ids = (
+                data["test_drives"][rows],
+                test_ids["date"].to_numpy()[rows],
+                test_ids["event_type"].to_numpy()[rows],
+                test_ids["days_to_event"].to_numpy().astype(np.float64)[rows],
+            )
+            end = np.datetime64(str(observation_end))
+            report["c_index"] = {
+                "cascade": drive_concordance(*candidate_ids, test_final[rows], observation_end=end),
+                "stage1": drive_concordance(*candidate_ids, test_s1[rows], observation_end=end),
+            }
+        if figure_dir is not None:
+            label = f"net {net:.0%} {kind}"
+            figure_curves.append(pr_curve(label, c_test[0], c_test[1]))
+            for r in (0.10, 0.60):
+                at_level = [x for x in report["two_stage"] if x["target_recall"] == r]
+                if at_level and at_level[0]["threshold"] is not None:
+                    figure_points.append(
+                        operating_point(
+                            f"{label}, {r:.0%}", c_test[0], c_test[1], at_level[0]["threshold"]
+                        )
+                    )
+        del test_final
         report["seconds"] = round(time.perf_counter() - t1)
-        logger.info("two_stage_net_done", seed=seed, net=net, seconds=report["seconds"])
+        logger.info("two_stage_net_done", seed=seed, net=net, kind=kind, seconds=report["seconds"])
         reports.append(report)
+
+    if figure_dir is not None:
+        title = f"Cascade on test, seed {seed}, {data.get('horizon_days', '?')}-day"
+        for r in (0.10, 0.60):
+            stage1_row = stage1_rows.get(r)
+            if stage1_row is not None and stage1_row["threshold"] is not None:
+                figure_points.insert(
+                    0,
+                    operating_point(
+                        f"Stage 1, {r:.0%}", s1_test[0], s1_test[1], stage1_row["threshold"]
+                    ),
+                )
+        save_figure(
+            plot_precision_recall(
+                figure_curves,
+                points=[(p.name, p.precision, p.recall) for p in figure_points],
+                base_rate=float(np.mean(s1_test[0])),
+                title=title,
+            ),
+            figure_dir / f"cascade_precision_recall_seed{seed}.png",
+        )
+        if figure_points:
+            save_figure(
+                plot_confusion_matrices(figure_points, title=title),
+                figure_dir / f"cascade_confusion_seed{seed}.png",
+            )
     return reports
 
 
 def _print_two_stage(report: dict[str, Any]) -> None:
     print(
-        f"\n#### TWO STAGE (net {report['candidate_recall']:.0%}) - TEST, drive level"
-        f" - seed {report['seed']}"
+        f"\n#### TWO STAGE (net {_net_label(report)}) - TEST, drive level - seed {report['seed']}"
     )
     print(f"  stage 1 trees={report['stage1_trees']}  candidates={report.get('candidates')}")
     if report["status"] != "ok":
@@ -886,6 +1008,15 @@ def summarize_two_stage_seeds(reports: list[dict[str, Any]]) -> list[dict[str, A
             entry["bootstrap_gap_mean"] = float(np.mean([p["difference"] for p in paired]))
             entry["ci_above_zero_seeds"] = sum(p["difference_ci"][0] > 0 for p in paired)
             entry["ci_below_zero_seeds"] = sum(p["difference_ci"][1] < 0 for p in paired)
+        versus = [two["paired_vs_lightgbm"] for _, two in rows if "paired_vs_lightgbm" in two]
+        if versus:
+            entry["vs_lightgbm_gap_mean"] = float(np.mean([p["difference"] for p in versus]))
+            entry["vs_lightgbm_ci_above_zero_seeds"] = sum(
+                p["difference_ci"][0] > 0 for p in versus
+            )
+            entry["vs_lightgbm_ci_below_zero_seeds"] = sum(
+                p["difference_ci"][1] < 0 for p in versus
+            )
         summary.append(entry)
     return summary
 
@@ -893,10 +1024,10 @@ def summarize_two_stage_seeds(reports: list[dict[str, Any]]) -> list[dict[str, A
 def summarize_two_stage_nets(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """`summarize_two_stage_seeds` per net, plus each net's mean candidate
     pool and ceiling over the seeds that trained it."""
-    nets = sorted({r["candidate_recall"] for r in reports})
+    keys = sorted({_net_key(r) for r in reports}, key=lambda k: (k[0], STAGE2_KINDS.index(k[1])))
     out = []
-    for net in nets:
-        group = [r for r in reports if r["candidate_recall"] == net]
+    for net, kind in keys:
+        group = [r for r in reports if _net_key(r) == (net, kind)]
         usable = [r for r in group if r.get("status") == "ok"]
 
         def mean(path: tuple[str, str], usable: list = usable) -> float | None:
@@ -917,9 +1048,50 @@ def summarize_two_stage_nets(reports: list[dict[str, Any]]) -> list[dict[str, An
                 "test_ceiling_with_lead": mean(("ceiling", "test_recall_with_lead")),
                 "test_drive_share": mean(("ceiling", "test_drive_share")),
                 "levels": summarize_two_stage_seeds(group),
+                "stage2_kind": kind,
+                **_c_index_means(usable),
+                "top_k": _top_k_means(usable),
             }
         )
     return out
+
+
+def _net_key(report: dict[str, Any]) -> tuple[float, str]:
+    """A report's (net, Stage 2 kind); reports before survival kinds existed
+    are LightGBM."""
+    return report["candidate_recall"], report.get("stage2_kind", "lightgbm")
+
+
+def _net_label(net: dict[str, Any] | dict) -> str:
+    kind = net.get("stage2_kind", "lightgbm")
+    return f"{net['candidate_recall']:.0%}" + ("" if kind == "lightgbm" else f" {kind}")
+
+
+def _c_index_means(usable: list[dict[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for side in ("cascade", "stage1"):
+        values = [
+            r["c_index"][side]["c_index"]
+            for r in usable
+            if r.get("c_index") and r["c_index"][side]["c_index"] is not None
+        ]
+        out[f"c_index_{side}"] = float(np.mean(values)) if values else None
+    return out
+
+
+def _top_k_means(usable: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mean precision and recall at each K over the seeds, Stage 1 and cascade."""
+    with_top = [r for r in usable if r.get("top_k")]
+    if not with_top:
+        return []
+    rows = []
+    for i, first in enumerate(with_top[0]["top_k"]["cascade"]):
+        row: dict[str, Any] = {"k": first["k"]}
+        for side in ("stage1", "cascade"):
+            for key in ("precision", "recall"):
+                row[f"{side}_{key}"] = float(np.mean([r["top_k"][side][i][key] for r in with_top]))
+        rows.append(row)
+    return rows
 
 
 def _print_two_stage_summary(summary: list[dict[str, Any]]) -> None:
@@ -960,8 +1132,9 @@ def two_stage_tables(nets: list[dict[str, Any]], settings: dict[str, Any]) -> st
         "",
         "## Candidate pools (means over seeds)",
         "",
-        "| Net | Seeds trained | Train candidate rows | Positive share | Validation candidate "
-        "rows | Test candidate rows | Ceiling (test recall at T1) | Ceiling with lead | "
+        "| Net (Stage 2) | Seeds trained | Train candidate rows | Positive share | "
+        "Validation candidate rows | Test candidate rows | Ceiling (test recall at T1) | "
+        "Ceiling with lead | "
         "Test drives passing Stage 1 |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
@@ -969,7 +1142,7 @@ def two_stage_tables(nets: list[dict[str, Any]], settings: dict[str, Any]) -> st
         rows = [net[k] for k in ("train_rows", "validation_rows", "test_rows")]
         counts = ["-" if v is None else f"{v:,.0f}" for v in rows]
         lines.append(
-            f"| {net['candidate_recall']:.0%} | {net['seeds_trained']}/{net['seeds_run']} | "
+            f"| {_net_label(net)} | {net['seeds_trained']}/{net['seeds_run']} | "
             f"{counts[0]} | {_pct(net['train_positive_share'])} | {counts[1]} | {counts[2]} | "
             f"{_pct(net['test_ceiling'])} | {_pct(net['test_ceiling_with_lead'])} | "
             f"{_pct(net['test_drive_share'])} |"
@@ -977,7 +1150,7 @@ def two_stage_tables(nets: list[dict[str, Any]], settings: dict[str, Any]) -> st
     for net in nets:
         lines += [
             "",
-            f"## Net {net['candidate_recall']:.0%}",
+            f"## Net {_net_label(net)}",
             "",
             "| Level | Stage 1 P / R | Cascade P / R | Gain range | Better (P and R) | Gap mean "
             "| Interval above 0 | Recall with lead S1 / cascade | False alarms S1 / cascade | "
@@ -1002,6 +1175,52 @@ def two_stage_tables(nets: list[dict[str, Any]], settings: dict[str, Any]) -> st
                 f"{row.get('two_stage_false_alarm_drive_count', 0):,.0f} | "
                 f"{row.get('stage1_cost', 0):,.0f} / {row.get('two_stage_cost', 0):,.0f} |"
             )
+    versus = [(net, row) for net in nets for row in net["levels"] if "vs_lightgbm_gap_mean" in row]
+    if versus:
+        lines += [
+            "",
+            "## Survival Stage 2 against the LightGBM Stage 2 (same net, paired)",
+            "",
+            "| Net | Level | Gap mean (survival minus LightGBM precision) | Interval above 0 "
+            "| Interval below 0 |",
+            "|---|---|---|---|---|",
+        ]
+        for net, row in versus:
+            lines.append(
+                f"| {_net_label(net)} | {row['target_recall']:.0%} | "
+                f"{row['vs_lightgbm_gap_mean']:+.1%} | "
+                f"{row['vs_lightgbm_ci_above_zero_seeds']}/{row['seeds']} | "
+                f"{row['vs_lightgbm_ci_below_zero_seeds']}/{row['seeds']} |"
+            )
+    if any(net.get("c_index_cascade") is not None for net in nets):
+        lines += [
+            "",
+            "## C-index on the test candidates (per drive, latest candidate row)",
+            "",
+            "| Net | Stage 1 | Cascade |",
+            "|---|---|---|",
+        ]
+        for net in nets:
+            c1, c2 = net.get("c_index_stage1"), net.get("c_index_cascade")
+            lines.append(
+                f"| {_net_label(net)} | {'-' if c1 is None else f'{c1:.3f}'} | "
+                f"{'-' if c2 is None else f'{c2:.3f}'} |"
+            )
+    if any(net.get("top_k") for net in nets):
+        lines += [
+            "",
+            "## Top K drives flagged over the test window (mean P / R)",
+            "",
+            "| Net | K | Stage 1 | Cascade |",
+            "|---|---|---|---|",
+        ]
+        for net in nets:
+            for row in net.get("top_k", []):
+                lines.append(
+                    f"| {_net_label(net)} | {row['k']:,} | {_pct(row['stage1_precision'])} / "
+                    f"{_pct(row['stage1_recall'])} | {_pct(row['cascade_precision'])} / "
+                    f"{_pct(row['cascade_recall'])} |"
+                )
     return "\n".join(lines) + "\n"
 
 
@@ -1015,18 +1234,18 @@ def two_stage_mlflow_metrics(results: dict[str, Any]) -> list[tuple[str, float, 
     `net<N>_r<L>_...` with N and L in percent."""
     out: list[tuple[str, float, int]] = []
 
-    def tag(net: float, level: float | None = None) -> str:
-        name = f"net{round(net * 100)}"
+    def tag(net: float, level: float | None = None, kind: str = "lightgbm") -> str:
+        name = f"net{round(net * 100)}" + ("" if kind == "lightgbm" else f"_{kind}")
         return name if level is None else f"{name}_r{round(level * 100)}"
 
     for report in results["runs"]:
         if report.get("status") != "ok":
             continue
-        seed, net = int(report["seed"]), report["candidate_recall"]
+        seed, (net, kind) = int(report["seed"]), _net_key(report)
         for one, two in zip(report["stage1"], report["two_stage"], strict=True):
             if one.get("threshold") is None or two.get("threshold") is None:
                 continue
-            prefix = tag(net, one["target_recall"])
+            prefix = tag(net, one["target_recall"], kind)
             for side, row in (("stage1", one), ("cascade", two)):
                 for key in ("precision", "recall", "recall_with_lead"):
                     if key in row["test"]:
@@ -1039,7 +1258,10 @@ def two_stage_mlflow_metrics(results: dict[str, Any]) -> list[tuple[str, float, 
                     (f"{prefix}_gap_ci_high", gap["difference_ci"][1], seed),
                 ]
     for net in results["summary"]:
+        kind = net.get("stage2_kind", "lightgbm")
         for key in (
+            "c_index_stage1",
+            "c_index_cascade",
             "seeds_trained",
             "train_rows",
             "train_positive_share",
@@ -1048,9 +1270,11 @@ def two_stage_mlflow_metrics(results: dict[str, Any]) -> list[tuple[str, float, 
             "test_drive_share",
         ):
             if net.get(key) is not None:
-                out.append((f"{tag(net['candidate_recall'])}_{key}", float(net[key]), 0))
+                out.append(
+                    (f"{tag(net['candidate_recall'], None, kind)}_{key}", float(net[key]), 0)
+                )
         for row in net["levels"]:
-            prefix = f"{tag(net['candidate_recall'], row['target_recall'])}_mean"
+            prefix = f"{tag(net['candidate_recall'], row['target_recall'], kind)}_mean"
             for key in (
                 "stage1_precision",
                 "two_stage_precision",
@@ -1059,6 +1283,8 @@ def two_stage_mlflow_metrics(results: dict[str, Any]) -> list[tuple[str, float, 
                 "bootstrap_gap_mean",
                 "ci_above_zero_seeds",
                 "two_stage_better_seeds",
+                "vs_lightgbm_gap_mean",
+                "vs_lightgbm_ci_above_zero_seeds",
             ):
                 if row.get(key) is not None:
                     out.append((f"{prefix}_{key}", float(row[key]), 0))
@@ -1103,6 +1329,8 @@ def log_two_stage_to_mlflow(
         for path in sorted(out_dir.iterdir()):
             if path.is_file():
                 mlflow.log_artifact(str(path))
+            elif path.is_dir():  # figures/
+                mlflow.log_artifacts(str(path), artifact_path=path.name)
         for path in extra_artifacts:
             mlflow.log_artifact(str(path))
         run_id = run.info.run_id
@@ -1497,6 +1725,23 @@ def main() -> None:
         help="With --two-stage: recall levels to compare the models at (each net uses the "
         "levels up to itself). Default model.two_stage.experiment.recall_levels.",
     )
+    parser.add_argument(
+        "--stage2-kinds",
+        nargs="+",
+        default=None,
+        choices=list(STAGE2_KINDS),
+        help="With --two-stage: Stage 2 models to compare per net. Survival kinds (cox, aft) "
+        "are paired against the LightGBM Stage 2 of the same net. Default "
+        "model.two_stage.experiment.stage2_kinds (lightgbm).",
+    )
+    parser.add_argument(
+        "--survival-nets",
+        type=float,
+        nargs="+",
+        default=None,
+        metavar="R",
+        help="With --two-stage: the nets the survival kinds run at (default: every net).",
+    )
     parser.add_argument("--lead-min-days", type=int, default=None)
     parser.add_argument("--cost-ratio", type=float, default=None)
     parser.add_argument("--n-boot", type=int, default=None)
@@ -1576,6 +1821,13 @@ def main() -> None:
             "n_folds": two_stage_cfg.get("n_folds", 3),
             "stage2_params": two_stage_cfg.get("stage2_params"),
             "early_stopping_max_negatives": two_stage_cfg.get("early_stopping_max_negatives"),
+            "stage2_kinds": pick(args.stage2_kinds, "stage2_kinds", ["lightgbm"]),
+            "survival_nets": pick(args.survival_nets, "survival_nets", None),
+            "survival_params": experiment_cfg.get("survival_params"),
+            "top_k": list(model_config.get("evaluation", {}).get("top_k", [])),
+            "observation_end": model_config.get("splits", {}).get("observation_end"),
+            "test_end": frame_meta.get("test_end"),
+            "test_split": frame_meta.get("test_split", "test"),
         }
         two_stage_out = args.two_stage_out or Path(f"data/audit/cascade_wide_net_h{horizon_days}")
         refuse_overwrite(
@@ -1663,6 +1915,18 @@ def main() -> None:
                 n_boot=two_stage_settings["n_boot"],
                 stage2_params=two_stage_settings["stage2_params"],
                 early_stopping_max_negatives=two_stage_settings["early_stopping_max_negatives"],
+                stage2_kinds=tuple(two_stage_settings["stage2_kinds"]),
+                survival_nets=(
+                    tuple(two_stage_settings["survival_nets"])
+                    if two_stage_settings["survival_nets"]
+                    else None
+                ),
+                survival_params=two_stage_settings["survival_params"],
+                top_k=tuple(two_stage_settings["top_k"]),
+                observation_end=two_stage_settings["observation_end"],
+                # Figures for the first seed only: the curves of the other seeds
+                # differ by sampling noise the tables already summarise.
+                figure_dir=two_stage_out / "figures" if seed == 0 else None,
             ):
                 _print_two_stage(report)
                 two_stage_reports.append(report)
@@ -1678,7 +1942,7 @@ def main() -> None:
             )
             (two_stage_out / "tables.md").write_text(two_stage_tables(nets, two_stage_settings))
         for net in summarize_two_stage_nets(two_stage_reports):
-            print(f"\n== net {net['candidate_recall']:.0%}")
+            print(f"\n== net {_net_label(net)}")
             _print_two_stage_summary(net["levels"])
         print(f"\nTwo-stage results saved to {two_stage_out}")
         if not args.no_mlflow:
