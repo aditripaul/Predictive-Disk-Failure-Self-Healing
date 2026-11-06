@@ -80,6 +80,12 @@ figure to compare with the literature (Amram et al., 2021, used about 15%
 positives). The model and its alerts are identical either way; only the mix
 of drives it is judged on changes.
 
+**The current model (2026-11-06)** is the 30-day run trained on Q1+Q2 2026 and
+tested on Q3 2026, frozen as `c459046e`: 59.0% precision at 12.5% recall on a
+quarter it never saw (runbook 1.1.4, `docs/q3_horizon_and_cascade_run.md`).
+Longer label horizons (44, 60 days) and survival Stage 2 models (Cox, AFT) were
+compared on the same drives and gave no gain once the base rate is removed.
+
 **The previous model of record**, a frozen training run, was **retired on
 2026-11-06**: its artifacts
 are not available to this repository, so it can never be scored on the sealed

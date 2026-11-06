@@ -1228,7 +1228,12 @@ is judged on the fleet figure only.
    `early_stopping_max_negatives` negatives). `fit_second_stage` also accepts
    precomputed out-of-fold train scores (`train_stage1_scores`), so several
    nets can share one Stage 1; `make experiment-model --two-stage` does this
-   (`docs/cascade_wide_net.md`).
+   (`docs/cascade_wide_net.md`). `stage2_kind="cox"` or `"aft"` fits an XGBoost
+   survival model instead (`src/models/survival.py`), given the train rows'
+   time-to-failure bounds (`train_survival_bounds`) and the horizon; the
+   combined score keeps the same form. Compared, not shipped
+   (`docs/q3_horizon_and_cascade_run.md` section 7.3): only a LightGBM Stage 2
+   can be logged for scoring.
 4. One combined score: a non-candidate keeps its Stage 1 score; a candidate
    scores `threshold + (1 - threshold) * stage2`. Tiers needing more recall
    than `candidate_recall` therefore behave exactly as with Stage 1 alone.

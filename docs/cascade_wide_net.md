@@ -345,3 +345,14 @@ sealed Q3 data (runbook 1.4).
   larger pool, and a negative result does not rule out a re-regularised Stage 2.
 - **Assumed cost ratio.** The 20:1 ratio is illustrative. The counts of caught
   drives and false alarms are reported, so any other ratio can be applied.
+
+## 11. Addendum (2026-11-06): the 0.8 net adopted post hoc and run on Q3 2026
+
+The 0.8 net was adopted on 2026-11-06 by decision, without the confirmatory run
+section 9.3 asked for: a post-hoc choice, recorded as such. It was then run on
+the Q1+Q2 -> Q3 window at three horizons with LightGBM, Cox and AFT Stage 2
+models (`docs/q3_horizon_and_cascade_run.md` section 7.3; runbook 1.1.4). On Q3
+the strict-end gain is weaker than here (+5.1 points at 10% recall for 30 days,
+1 of 3 seeds above 0; none at 44 or 60 days), the 60% gap is -0.2, and the 0.5
+net loses 2.5 points at 35% recall. The 0.8 net stays, not confirmed; these
+numbers are descriptive.

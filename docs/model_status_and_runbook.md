@@ -1,8 +1,9 @@
 # Model status, results and runbook
 
-> **Current state (2026-11-06).** Read Section 1 first. There is no model of
-> record until the Q1+Q2 -> Q3 runs (`docs/q3_horizon_and_cascade_run.md`) are
-> reported; Sections 1.1.1 to 1.1.3 hold the most recent frozen runs. Section 4 is the
+> **Current state (2026-11-06).** Read Section 1 first. The current model is
+> the 30-day Q1+Q2 -> Q3 run of Section 1.1.4 (frozen run `c459046e`), tested
+> on Q3 2026; Sections 1.1.1 to 1.1.3 hold the earlier frozen runs on the
+> 2026-04/05 window. Section 4 is the
 > measurement record in the order it was produced; Section 5 holds the
 > lessons from the earlier Q1-only, 14-day work, which still apply. For a
 > shorter overview see `docs/system_summary.md`.
@@ -224,6 +225,178 @@ before the run required recall not to drop.
   first table, positive rows run from 1 to 30 days before failure, so every catch had at least a
   day's notice.
 
+### 1.1.4 Q1+Q2 2026 to Q3 2026: three horizons, cascade and survival Stage 2 (2026-11-06)
+
+Three LightGBM two-stage runs trained on identical rows (80% of drives,
+2026-01-01 to 05-01; the other 20% of drives are the validation holdout over the
+same dates) and tested on Q3 2026, a quarter nothing in the pipeline had seen.
+Each horizon tests up to the last day its label is observed (`observation_end`
+minus the horizon). The method was written before the runs
+(`docs/q3_horizon_and_cascade_run.md`, sections 1-6); the results below are its
+section 7. The three runs are frozen in `frozen_runs/<run id>/` with spec,
+tiers, both stages, figures and checksums.
+
+**Training reports** (test, per drive, thresholds chosen on validation; each
+model against its own labels, so the columns are not a like-for-like comparison):
+
+| | 30-day (`c459046e`) | 44-day (`a2cd06d5`) | 60-day (`804a20ce`) |
+|---|---|---|---|
+| Test window (Q3 2026) | 07-01 .. 08-31 (62 d) | 07-01 .. 08-17 (48 d) | 07-01 .. 08-01 (32 d) |
+| Failing / healthy test drives | 1,105 / 367,583 | 1,106 / 363,685 | 1,117 / 359,895 |
+| **Primary threshold: precision** [95% CI] | **59.0%** [52.3, 65.5] | **62.6%** [55.3, 69.4] | **63.3%** [55.7, 70.6] |
+| **Primary threshold: recall** [95% CI] | **12.5%** [10.5, 14.3] | **9.9%** [8.2, 11.7] | **9.0%** [7.4, 10.7] |
+| Caught / missed / false alarms | 138 / 967 / 96 | 109 / 997 / 65 | 100 / 1,017 / 58 |
+| Validation precision / recall (same point) | 75.0% / 10.0% | 81.3% / 11.5% | 83.6% / 10.6% |
+| Drive AUROC / AUPRC | 0.926 / 0.288 | 0.925 / 0.298 | 0.919 / 0.300 |
+| Recall at 0.1% false-alarm rate | 30.4% | 31.0% | 29.5% |
+| Warn tier: precision / recall | 17.3% / 60.9% | 20.2% / 58.0% | 23.7% / 53.4% |
+| Cordon tier: precision / recall | 34.8% / 42.4% | 38.8% / 40.1% | 45.0% / 33.6% |
+| Migrate = drain tier: precision / recall (drives) | 33.3% / 0.2% (6) | 70.3% / 2.4% (37) | 80.0% / 0.7% (10) |
+| Stage 1 (0.8 net) recall on test / drives passed | 79.9% / 6.3% | 81.7% / 6.2% | 78.5% / 5.2% |
+| Stage 2 gain at the primary point [95% CI] | +4.2 [-0.1, +8.5] | +1.1 [-5.0, +6.9] | -3.8 [-10.5, +3.0] |
+| Median warning lead time | 20 days | 22.5 days | 20 days |
+| Trees: Stage 1 / Stage 2 | 310 / 74 | 225 / 201 | 281 / 54 |
+
+- The stated goal (90% precision at >= 10% recall) is **not met**: 59-63% at
+  9-12.5% recall. The 30-day run is the model `score-fleet` and the agent now
+  use (`primary_horizon_days: 30`, latest run for the horizon).
+- Validation overstates precision by 15-20 points in every run: a same-period
+  drive holdout is optimistic, as earlier same-period validation was.
+- Precision at the strict operating points rises with the horizon, but the
+  paired comparison below shows that is the base rate, not the model.
+- The 0.8 Stage 1 net kept 79-82% of failing Q3 drives, as it did on
+  validation; it passes 5-6% of drives to Stage 2 (the drift signal recorded in
+  `frozen_spec.json`).
+
+Figures (drive precision-recall and confusion matrices, every run and split):
+`frozen_runs/<run id>/figures/`, e.g.
+[30-day test precision-recall](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/test_precision_recall.png)
+and [confusion matrices](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/test_confusion.png).
+
+**Horizon comparison, paired** (`scripts/compare_horizons.py`; every model
+scored on the same 361,012 drives in 2026-07-01 .. 08-01, 1,000 drive
+resamples; `data/audit/horizon_q3/`). Scored against the 30-day labels,
+777 failing drives:
+
+| Model | AUROC [gap vs 30-day, 95%] | Recall at 0.1% false alarms [gap] | Recall at 0.5% false alarms [gap] | Median lead at 0.1% |
+|---|---|---|---|---|
+| 30-day | 0.916 | 30.6% | 51.7% | 14 days |
+| 44-day | 0.918 [-0.001, +0.006] | 30.9% [-1.4, +1.9] | 52.1% [-0.9, +1.7] | 15 days |
+| 60-day | 0.919 [-0.001, +0.008] | 29.6% [-2.9, +0.6] | 52.9% [-0.3, +2.8] | 15 days |
+
+The same holds against the 44- and 60-day labels (AUROC gaps +0.002 to
++0.003, recall gaps within 1.3 points, all intervals including 0). Precision
+moves with the label definition, not the model:
+
+| 30-day model scored against | Base rate | Precision at 0.1% false alarms | Recall |
+|---|---|---|---|
+| 30-day labels | 0.215% | 40.1% | 30.6% |
+| 44-day labels | 0.264% | 44.8% | 30.1% |
+| 60-day labels | 0.309% | 49.0% | 30.9% |
+
+**Decision: 30 days stays the primary horizon.** No longer horizon ranks
+drives better, catches more at a matched false-alarm rate, or warns earlier
+(14-15 days median lead for all three). Section 2.4's hypothesis is answered.
+
+**Cascade and survival Stage 2** (`make experiment-model ... --two-stage
+--stage2-kinds lightgbm cox aft`, 3 seeds per horizon, paired drive
+bootstrap; `data/audit/cascade_q3_h<horizon>/`, MLflow `f760b06d`,
+`a4f74561`, `cabc3023`). Cascade minus Stage 1 alone, test precision points,
+mean over seeds, with the number of seeds whose 95% interval lies above / below
+0:
+
+| Horizon | Stage 2 variant (net) | 10% recall | 35% | 60% | 70% |
+|---|---|---|---|---|---|
+| 30 | LightGBM (0.5, the old net) | +3.8 (1 / 0) | -2.5 (0 / 3) | not reached | not reached |
+| 30 | **LightGBM (0.8)** | **+5.1** (1 / 0) | +0.6 (0 / 0) | -0.2 (1 / 2) | +0.2 (2 / 1) |
+| 30 | Cox (0.8) | +4.5 (0 / 0) | -0.9 (0 / 1) | +0.2 (1 / 1) | +0.5 (2 / 0) |
+| 30 | AFT (0.8) | -6.5 (0 / 2) | -6.6 (0 / 3) | -2.8 (0 / 3) | -1.7 (0 / 3) |
+| 44 | LightGBM (0.8) | -0.5 (0 / 0) | +0.6 (1 / 0) | -0.1 (1 / 1) | -0.8 (0 / 2) |
+| 44 | Cox (0.8) | +4.2 (1 / 0) | -0.1 (0 / 0) | -0.3 (1 / 1) | -0.1 (0 / 1) |
+| 44 | AFT (0.8) | -2.3 (0 / 0) | -7.6 (0 / 3) | -3.2 (0 / 3) | -1.7 (0 / 3) |
+| 60 | LightGBM (0.8) | -1.3 (0 / 1) | +1.8 (2 / 0) | +1.3 (3 / 0) | -0.8 (0 / 2) |
+| 60 | Cox (0.8) | +0.9 (0 / 0) | +0.6 (1 / 1) | -0.1 (0 / 1) | -0.3 (0 / 2) |
+| 60 | AFT (0.8) | -5.8 (0 / 1) | -6.7 (0 / 3) | -3.3 (0 / 3) | -1.8 (0 / 3) |
+
+- **Above 20% recall no Stage 2 beats Stage 1 alone by more than about 1
+  point**, in any horizon. The precision-recall curves lie on top of each other
+  past 30% recall. The 60-day LightGBM's +1.3 at 60% (3/3 seeds) loses 0.8 at
+  70% (2/3 below 0).
+- **The 0.8 net is not confirmed.** Its strict-end gain is +5.1 points at 10%
+  recall for 30 days with only 1 of 3 seeds above 0, and absent for 44 and 60
+  days. It is not worse than the 0.5 net, which loses 2.5 points at 35% recall
+  in 3 of 3 seeds. `candidate_recall` stays 0.8 (section 6 of the run document
+  gives the rule any future untouched data must apply).
+- **Cox matches the LightGBM Stage 2** within about 1 point everywhere, with no
+  consistent sign; its C-index on the test candidates equals Stage 1's (0.90).
+- **AFT is worse at every level in every horizon** (2-8 points, 3/3 seeds): its
+  validation thresholds do not carry to test. Not a candidate.
+- The ceiling held: Stage 1 at the 0.8 cutoff keeps 79-81% of failing test
+  drives, and nothing above it changes.
+
+Generated tables (same command as Section 1.1.3, `--cascade` with each
+horizon's `experiment_two_stage.json`; 10%, 35% and 60% levels):
+
+30-day:
+
+| Model | Recall level | Precision | Recall | Caught | Missed % | False alarms |
+|---|---|---|---|---|---|---|
+| Stage 1 alone | 10% | 56.5% | 11.2% | 123 | 88.8% | 97 |
+| Cascade, 50% net | 10% | 60.3% | 9.7% | 107 | 90.3% | 72 |
+| Cascade, 80% net (production setting) | 10% | 61.7% | 10.4% | 115 | 89.6% | 72 |
+| Cascade, 80% net, Cox Stage 2 | 10% | 61.0% | 15.7% | 173 | 84.3% | 113 |
+| Cascade, 80% net, AFT Stage 2 | 10% | 50.0% | 20.5% | 227 | 79.5% | 246 |
+| Stage 1 alone | 35% | 41.6% | 37.5% | 414 | 62.5% | 582 |
+| Cascade, 50% net | 35% | 39.1% | 34.8% | 384 | 65.2% | 599 |
+| Cascade, 80% net (production setting) | 35% | 42.3% | 36.3% | 401 | 63.7% | 548 |
+| Cascade, 80% net, Cox Stage 2 | 35% | 40.7% | 37.0% | 408 | 63.0% | 594 |
+| Cascade, 80% net, AFT Stage 2 | 35% | 35.0% | 41.4% | 457 | 58.6% | 849 |
+| Stage 1 alone (= 50% net) | 60% | 20.1% | 59.2% | 654 | 40.8% | 2,600 |
+| Cascade, 80% net (production setting) | 60% | 19.9% | 58.6% | 648 | 41.4% | 2,605 |
+| Cascade, 80% net, Cox Stage 2 | 60% | 20.3% | 58.3% | 644 | 41.7% | 2,528 |
+| Cascade, 80% net, AFT Stage 2 | 60% | 17.3% | 61.6% | 681 | 38.4% | 3,260 |
+
+44-day:
+
+| Model | Recall level | Precision | Recall | Caught | Missed % | False alarms |
+|---|---|---|---|---|---|---|
+| Stage 1 alone | 10% | 59.0% | 9.9% | 110 | 90.1% | 77 |
+| Cascade, 50% net | 10% | 61.7% | 7.8% | 87 | 92.2% | 54 |
+| Cascade, 80% net (production setting) | 10% | 58.4% | 15.4% | 171 | 84.6% | 121 |
+| Cascade, 80% net, Cox Stage 2 | 10% | 63.2% | 16.1% | 178 | 83.9% | 115 |
+| Cascade, 80% net, AFT Stage 2 | 10% | 56.7% | 15.6% | 173 | 84.4% | 133 |
+| Stage 1 alone | 35% | 45.2% | 33.1% | 366 | 66.9% | 443 |
+| Cascade, 50% net | 35% | 45.7% | 30.2% | 334 | 69.8% | 399 |
+| Cascade, 80% net (production setting) | 35% | 45.9% | 32.7% | 361 | 67.3% | 427 |
+| Cascade, 80% net, Cox Stage 2 | 35% | 45.1% | 35.1% | 388 | 64.9% | 472 |
+| Cascade, 80% net, AFT Stage 2 | 35% | 37.7% | 41.6% | 460 | 58.4% | 761 |
+| Stage 1 alone (= 50% net) | 60% | 23.2% | 56.2% | 622 | 43.8% | 2,062 |
+| Cascade, 80% net (production setting) | 60% | 23.1% | 55.7% | 616 | 44.3% | 2,056 |
+| Cascade, 80% net, Cox Stage 2 | 60% | 22.9% | 56.5% | 625 | 43.5% | 2,109 |
+| Cascade, 80% net, AFT Stage 2 | 60% | 20.0% | 58.7% | 650 | 41.3% | 2,603 |
+
+60-day:
+
+| Model | Recall level | Precision | Recall | Caught | Missed % | False alarms |
+|---|---|---|---|---|---|---|
+| Stage 1 alone | 10% | 69.6% | 8.4% | 94 | 91.6% | 41 |
+| Cascade, 50% net | 10% | 68.5% | 10.2% | 114 | 89.8% | 52 |
+| Cascade, 80% net (production setting) | 10% | 68.4% | 11.4% | 127 | 88.6% | 59 |
+| Cascade, 80% net, Cox Stage 2 | 10% | 70.6% | 13.4% | 150 | 86.6% | 63 |
+| Cascade, 80% net, AFT Stage 2 | 10% | 63.8% | 16.7% | 186 | 83.3% | 113 |
+| Stage 1 alone | 35% | 49.6% | 28.7% | 320 | 71.3% | 327 |
+| Cascade, 50% net | 35% | 49.2% | 28.6% | 320 | 71.4% | 332 |
+| Cascade, 80% net (production setting) | 35% | 51.5% | 28.0% | 312 | 72.0% | 296 |
+| Cascade, 80% net, Cox Stage 2 | 35% | 50.3% | 31.2% | 349 | 68.8% | 346 |
+| Cascade, 80% net, AFT Stage 2 | 35% | 43.0% | 35.8% | 399 | 64.2% | 530 |
+| Stage 1 alone (= 50% net) | 60% | 26.6% | 50.9% | 568 | 49.1% | 1,570 |
+| Cascade, 80% net (production setting) | 60% | 27.9% | 49.6% | 554 | 50.4% | 1,431 |
+| Cascade, 80% net, Cox Stage 2 | 60% | 26.5% | 51.5% | 575 | 48.5% | 1,600 |
+| Cascade, 80% net, AFT Stage 2 | 60% | 23.2% | 54.7% | 611 | 45.3% | 2,019 |
+
+Looks at test: `data/audit/test_access_log.jsonl` lines 114-126 (3 training
+runs, 1 horizon comparison, 9 cascade seeds).
+
 ### 1.2 The two-stage gain is not established
 
 Two paired bootstraps now exist, both over the same resampled drives with
@@ -271,12 +444,14 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
 
 ### 1.4 Sealed, and not yet measured
 
-- **Sealed final quarter (Q3 2026).** Rows dated on or after
-  `splits.sealed_start` (2026-07-01, `configs/model.yaml`) are labeled
-  `split=sealed`, and no training, validation or test step reads them. They
-  are scored once, by `make evaluate-frozen`, with a run frozen before the Q3
-  data arrived. The result file refuses a second evaluation of the same split
-  and run.
+- **Nothing is sealed at present.** Q3 2026 was the sealed quarter for run
+  `839d92bc`; its single-shot evaluation was skipped by decision on 2026-11-06
+  and Q3 is the test set of Section 1.1.4 (`splits.test_split: sealed`).
+  `make evaluate-frozen` refuses a sealed evaluation while that is so. Rows
+  dated on or after `splits.sealed_start` are still labeled `split=sealed`,
+  and that date is also the cutoff of the fleet-wide feature statistics. The
+  rules a future untouched quarter must apply are in
+  `docs/q3_horizon_and_cascade_run.md` section 6.
 - **Cross-vendor result: pending.** The SMART-Z split
   (`split=external_smartz`) is built by `build_labels`, and
   `make evaluate-frozen ARGS="--run-id <id> --split external_smartz"` scores
@@ -513,7 +688,12 @@ advances as drives are acted on or found permanently blocked - without
 that, the plan node's `max(drives, key=p_fail)` re-picks the same drive
 every cycle forever.
 
-### 2.4 The 60-day horizon experiment (parked 2026-10-18, never run)
+### 2.4 The 60-day horizon experiment (parked 2026-10-18; run 2026-11-06, Section 1.1.4)
+
+**Run on 2026-11-06** on the Q1+Q2 -> Q3 window, as 30 / 44 / 60 days on
+identical training rows: no horizon ranks drives better or warns earlier than
+30 days, and the precision gain is the base rate (Section 1.1.4). The setup
+below is kept as written.
 
 Set up, then parked before any result existed. Nothing in Sections 1 or 4
 comes from it. Recorded here because the setup cost a day and the reasoning
@@ -1726,7 +1906,9 @@ to validity are in `docs/cascade_wide_net.md`; results are in its Section 9.
 - At 60% recall every net catches slightly fewer failing drives (2-16 out of
   1,479; not significant). The decision rule fixed in advance required recall
   not to drop, so **`candidate_recall` stays 0.5**.
-- The 80% net is the candidate for a confirmatory run on unused data.
+- The 80% net was adopted on 2026-11-06 (post hoc) and run on Q3 2026 with
+  survival Stage 2 variants: Section 1.1.4. On Q3 its strict-end gain is
+  weaker (1 of 3 seeds) and it is not confirmed.
 - Goal still unmet.
 
 ## 5. What we learned
@@ -2193,10 +2375,15 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 | `configs/model.yaml` | `model.early_stopping_rounds` | 50 | Early stopping patience (average precision) |
 | `configs/model.yaml` | `threshold.target_precision` | 0.90 | Goal precision, at recall >= 10%, **30-day horizon** (was 0.95 at 35-50%). See Section 7: the horizon is part of the goal |
 | `configs/model.yaml` | `threshold.target_recall_range` | [0.10, 0.50] | Goal recall range |
-| `configs/model.yaml` | `splits.train_end` / `validation_end` / `test_end` | 2026-02-14 / 2026-03-31 / 2026-05-31 | Split boundaries: Q4 2025 + Q1 2026 train and validate, Q2 2026 tests (Section 2.2). The frozen run used 2026-04-15 / 2026-05-10 / 2026-05-31 |
-| `configs/model.yaml` | `splits.purge_label_window` | true | Training stops one horizon before `train_end` |
-| `configs/model.yaml` | `splits.validation_after_train_only` | true | Validation holds only dates after `train_end` |
-| `configs/model.yaml` | `splits.sealed_start` | 2026-07-01 | Rows from here on are `split=sealed`; only `make evaluate-frozen` reads them (Section 1.4) |
+| `configs/model.yaml` | `splits.train_start` / `train_end` / `validation_end` | 2026-01-01 / 2026-05-01 / 2026-05-01 | Q1+Q2 2026 train, validation a drive holdout over the same dates (Section 1.1.4). Was 2026-02-14 / 2026-03-31 with Q2 2026 as test (Section 2.2); the earlier frozen runs used 2026-04-15 / 2026-05-10 / 2026-05-31 |
+| `configs/model.yaml` | `splits.test_end` / `observation_end` / `test_split` | 2026-08-31 / 2026-09-30 / sealed | Test is the sealed-labeled window (Q3 2026) up to min(test_end, observation_end - horizon) |
+| `configs/model.yaml` | `splits.holdout_fraction` | 0.2 | Share of pre-sealed drives held out as validation (was a fixed 0.1) |
+| `configs/model.yaml` | `splits.purge_label_window` | false | Off: validation shares the training dates (was true) |
+| `configs/model.yaml` | `splits.validation_after_train_only` | false | Off: validation is the held-out drives (was true) |
+| `configs/model.yaml` | `splits.sealed_start` | 2026-07-01 | Rows from here on are `split=sealed`, now the test set; also the feature-statistics cutoff (Section 1.4) |
+| `configs/model.yaml` | `horizons_days` | [30, 44, 60] | Label horizons (was [7, 14, 30]) |
+| `configs/model.yaml` | `model.two_stage.candidate_recall` | 0.8 | Stage 1 net (was 0.5; Section 1.1.4) |
+| `configs/model.yaml` | `evaluation.top_k` | 100 .. 5000 | Precision/recall at K drives flagged, in reports and figures |
 | `configs/model.yaml` | `model.two_stage.enabled` | true | Second-stage model (Section 4.5) |
 | `configs/model.yaml` | `threshold.action_tier_lift` | 56.6 / 94.3 / 151.0 / 226.4 | Per-action lift targets (= former precision 0.15 / 0.25 / 0.40 / 0.60 at the validation rate) |
 | `configs/model.yaml` | `diagnostics.shap_enabled` | false | SHAP is slow on real data and fails its additivity check with extreme leaves |

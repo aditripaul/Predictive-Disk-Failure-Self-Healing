@@ -1,9 +1,10 @@
 # Q1+Q2 2026 to Q3 2026: horizon comparison and survival Stage 2
 
-Status: **method fixed, runs not yet started** (sections 1-6 written
-2026-11-06, before any run read Q3 2026). Sections 7-9 are filled from the
-saved outputs after the runs, never typed by hand: every number names the file
-and the MLflow run it came from.
+Status: **runs completed 2026-11-06.** Sections 1-6 were written before any
+run read Q3 2026 (commit `edeb1b3`); sections 7-9 were filled afterwards from
+the saved outputs, and every number names the file and the MLflow run it came
+from. Outcome: **30 days stays the primary horizon, the LightGBM Stage 2 stays,
+and the 0.8 net is kept but not confirmed** (section 7.4).
 
 This document is written to be cited. It records what was decided before the
 test data was read, and says which choices were made after earlier results and
@@ -196,20 +197,165 @@ apply, fixed here before it does:
 
 ## 7. Results
 
-To be filled from the saved outputs after the runs.
+All figures are per drive on the Q3 2026 test set, thresholds chosen on the
+validation holdout. The three training runs are frozen in `frozen_runs/<run id>/`.
+
+### 7.1 Prospective hold-up (question 1)
+
+| | 30-day (`c459046e`) | 44-day (`a2cd06d5`) | 60-day (`804a20ce`) |
+|---|---|---|---|
+| Test window (Q3 2026) | 07-01 .. 08-31 (62 d) | 07-01 .. 08-17 (48 d) | 07-01 .. 08-01 (32 d) |
+| Failing / healthy test drives | 1,105 / 367,583 | 1,106 / 363,685 | 1,117 / 359,895 |
+| **Primary threshold: precision** [95% CI] | **59.0%** [52.3, 65.5] | **62.6%** [55.3, 69.4] | **63.3%** [55.7, 70.6] |
+| **Primary threshold: recall** [95% CI] | **12.5%** [10.5, 14.3] | **9.9%** [8.2, 11.7] | **9.0%** [7.4, 10.7] |
+| Caught / missed / false alarms | 138 / 967 / 96 | 109 / 997 / 65 | 100 / 1,017 / 58 |
+| Validation precision / recall (same point) | 75.0% / 10.0% | 81.3% / 11.5% | 83.6% / 10.6% |
+| Drive AUROC / AUPRC | 0.926 / 0.288 | 0.925 / 0.298 | 0.919 / 0.300 |
+| Recall at 0.1% false-alarm rate | 30.4% | 31.0% | 29.5% |
+| Warn tier: precision / recall | 17.3% / 60.9% | 20.2% / 58.0% | 23.7% / 53.4% |
+| Cordon tier: precision / recall | 34.8% / 42.4% | 38.8% / 40.1% | 45.0% / 33.6% |
+| Migrate = drain tier: precision / recall (drives) | 33.3% / 0.2% (6) | 70.3% / 2.4% (37) | 80.0% / 0.7% (10) |
+| Stage 1 (0.8 net) recall on test / drives passed | 79.9% / 6.3% | 81.7% / 6.2% | 78.5% / 5.2% |
+| Stage 2 gain at the primary point [95% CI] | +4.2 [-0.1, +8.5] | +1.1 [-5.0, +6.9] | -3.8 [-10.5, +3.0] |
+| Median warning lead time | 20 days | 22.5 days | 20 days |
+| Trees: Stage 1 / Stage 2 | 310 / 74 | 225 / 201 | 281 / 54 |
+
+Source: `data/audit/data_quality_reports/model_evaluation_report_h<H>_q1q2_q3.json`
+and the runs' MLflow metrics. The 30-day model's 59.0% at 12.5% recall on a
+quarter it never saw sits beside the 57.1% at 12.0% of run `839d92bc` on the
+2026-04/05 window (runbook 1.1.1); the two are not paired, so this is "held
+up", not "improved". The goal of 90% precision at >= 10% recall is not met.
+Validation overstates test precision by 15-20 points in every run (section 2's
+same-period caveat, realised).
+
+### 7.2 Horizon (question 2)
+
+`scripts/compare_horizons.py`, 11,392,351 drive-days of 361,012 drives in
+2026-07-01 .. 08-01 (the window every horizon observes), each model against
+each label definition; `data/audit/horizon_q3/horizon_comparison.json`,
+`tables.md` and `figures/`. Against the 30-day labels (777 failing drives):
+
+| Model | AUROC [gap vs 30-day, 95%] | Recall at 0.1% false alarms [gap] | Recall at 0.5% false alarms [gap] | Median lead at 0.1% |
+|---|---|---|---|---|
+| 30-day | 0.916 | 30.6% | 51.7% | 14 days |
+| 44-day | 0.918 [-0.001, +0.006] | 30.9% [-1.4, +1.9] | 52.1% [-0.9, +1.7] | 15 days |
+| 60-day | 0.919 [-0.001, +0.008] | 29.6% [-2.9, +0.6] | 52.9% [-0.3, +2.8] | 15 days |
+
+Against the 44- and 60-day labels the gaps are the same size (AUROC +0.002 to
++0.003, recall within 1.3 points, every interval including 0). The precision
+that rises with the horizon in section 7.1 is the base rate:
+
+| 30-day model scored against | Base rate | Precision at 0.1% false alarms | Recall |
+|---|---|---|---|
+| 30-day labels | 0.215% | 40.1% | 30.6% |
+| 44-day labels | 0.264% | 44.8% | 30.1% |
+| 60-day labels | 0.309% | 49.0% | 30.9% |
+
+**Answer:** no. Matched on the same drives and false-alarm rate, the three
+models catch the same share of failing drives and warn at the same time
+(14-15 days median lead). Under section 6 rule 3 no longer horizon qualifies.
+Top-K precision and recall agree (within a few points at every K).
+
+### 7.3 Stage 2 kind and the 0.8 net (question 3)
+
+`make experiment-model EXPERIMENT_ARGS="--work-dir <kept dir> --variants
+--skip-baseline --two-stage --two-stage-out data/audit/cascade_q3_h<H>"`
+(nets 0.5 and 0.8, Stage 2 kinds lightgbm / cox / aft at the 0.8 net, 3 seeds,
+1,000-resample paired drive bootstrap). Cascade minus Stage 1 alone, test
+precision points, mean over seeds, with seeds whose interval lies above / below
+0:
+
+| Horizon | Stage 2 variant (net) | 10% recall | 35% | 60% | 70% |
+|---|---|---|---|---|---|
+| 30 | LightGBM (0.5, the old net) | +3.8 (1 / 0) | -2.5 (0 / 3) | not reached | not reached |
+| 30 | **LightGBM (0.8)** | **+5.1** (1 / 0) | +0.6 (0 / 0) | -0.2 (1 / 2) | +0.2 (2 / 1) |
+| 30 | Cox (0.8) | +4.5 (0 / 0) | -0.9 (0 / 1) | +0.2 (1 / 1) | +0.5 (2 / 0) |
+| 30 | AFT (0.8) | -6.5 (0 / 2) | -6.6 (0 / 3) | -2.8 (0 / 3) | -1.7 (0 / 3) |
+| 44 | LightGBM (0.8) | -0.5 (0 / 0) | +0.6 (1 / 0) | -0.1 (1 / 1) | -0.8 (0 / 2) |
+| 44 | Cox (0.8) | +4.2 (1 / 0) | -0.1 (0 / 0) | -0.3 (1 / 1) | -0.1 (0 / 1) |
+| 44 | AFT (0.8) | -2.3 (0 / 0) | -7.6 (0 / 3) | -3.2 (0 / 3) | -1.7 (0 / 3) |
+| 60 | LightGBM (0.8) | -1.3 (0 / 1) | +1.8 (2 / 0) | +1.3 (3 / 0) | -0.8 (0 / 2) |
+| 60 | Cox (0.8) | +0.9 (0 / 0) | +0.6 (1 / 1) | -0.1 (0 / 1) | -0.3 (0 / 2) |
+| 60 | AFT (0.8) | -5.8 (0 / 1) | -6.7 (0 / 3) | -3.3 (0 / 3) | -1.8 (0 / 3) |
+
+Means over seeds per horizon: Stage 1 at the 0.8 cutoff keeps 79.7% / 80.4% /
+79.2% of failing test drives and passes 6.3% / 5.9% / 5.6% of drives; the
+C-index on the test candidates (per drive) is 0.901 / 0.880 / 0.864 for Stage
+1 and within 0.01 of it for every Stage 2 kind.
+
+- **Above 20% recall, no Stage 2 variant beats Stage 1 alone by more than
+  about 1 point** in any horizon; the curves coincide past 30% recall
+  (`data/audit/cascade_q3_h<H>/figures/`). The cascade's value is at the
+  strict end only.
+- **0.8 net:** +5.1 points at 10% recall for 30 days (1 of 3 seeds above 0),
+  nothing for 44 and 60 days; the 0.5 net loses 2.5 points at 35% recall in 3
+  of 3 seeds. Not confirmed under section 6 rule 1 (the 60% gap is -0.2); not
+  worse than 0.5.
+- **Cox** matches the LightGBM Stage 2 within about 1 point with no consistent
+  sign; rule 2 is not met.
+- **AFT** is worse at every level in every horizon (2-8 points, 3 of 3
+  seeds). Its validation thresholds land at the wrong recall on test (the
+  "10%" row catches 16-21%), so it is not a candidate.
+
+The runbook's generated cascade tables for all three horizons are in section
+1.1.4 of `docs/model_status_and_runbook.md`.
+
+### 7.4 Decisions
+
+| Choice | Outcome on Q3 | Decision |
+|---|---|---|
+| Horizon | No longer horizon ranks better, catches more at matched false-alarm rate, or warns earlier | **30 days stays primary** |
+| Stage 2 kind | Cox = LightGBM; AFT worse | **LightGBM Stage 2 stays** |
+| Stage 1 net | 0.8 not worse than 0.5; strict-end gain weaker than on 2026-04/05 | **0.8 kept, not confirmed** |
+| Model in use | 30-day run `c459046e` is the latest run for the primary horizon | `score-fleet` and the agent use it |
+
+### 7.5 What the cascade gives, end to end (30-day, Q3)
+
+| Operating point | Precision | Recall | Caught / missed / false alarms |
+|---|---|---|---|
+| Stage 1 cutoff (filter) | 3.8% | 79.9% | 883 / 222 / 22,463 |
+| Warn tier | 17.3% | 60.9% | 673 / 432 / 3,208 |
+| Cordon tier | 34.8% | 42.4% | 469 / 636 / 877 |
+| Primary threshold | 59.0% | 12.5% | 138 / 967 / 96 |
+
+Above 60% recall false alarms outnumber catches about 4 to 1 (25 to 1 at
+80%), while under 1% of healthy drives are flagged: with 0.3% of drives
+failing, a small false-alarm rate is many false alarms. The limit is the
+information in SMART (about 20% of failing drives show no change before they
+fail), not the Stage 2 learner: three learners rank the same suspects the same
+way.
 
 ## 8. Provenance
 
-To be filled: MLflow run ids, commits, `code.patch`, test-access log lines,
-wall times.
+| Item | Value |
+|---|---|
+| Method commit (before any run read Q3) | `edeb1b3` |
+| Code for the runs | `edeb1b3` (training), `6c61e35` (30-day cascade and horizon comparison), `3bfe609` (44- and 60-day cascade); each cascade directory's `code.patch` holds the only uncommitted change, a `.gitignore` edit |
+| Training runs (MLflow, experiment `disk-failure-prediction`) | `c459046e4f1645169151e7be25ff064d` (h30_q1q2_q3), `a2cd06d53e624c09b0d12f81076def8a` (h44_q1q2_q3), `804a20cec10048abb1bc3ccf510f96e1` (h60_q1q2_q3) |
+| Frozen bundles | `frozen_runs/<run id>/` (spec, tiers, two-stage settings, model card, figures, both stages, SHA256SUMS) |
+| Cascade experiments (MLflow, `run_kind=experiment`) | `f760b06de7e3405ab1ee6723109090ef` (30), `a4f74561227b46e483863bb1d7baf892` (44), `cabc3023e9944a31b6633f59ec3f39bc` (60) |
+| Saved outputs (local, not committed) | `data/audit/cascade_q3_h<H>/`, `data/audit/horizon_q3/`, `data/audit/plots/train/h<H>_q1q2_q3/`, score tables `data/tmp/lightgbm_scores_h<H>_h<H>_q1q2_q3.parquet` (SHA-256 in each bundle's README) |
+| Label table | `data/audit/dataset_versions/20261106T091944670108Z.json` |
+| Test accesses | `data/audit/test_access_log.jsonl` lines 114-116 (training), 117 (horizon comparison), 118-126 (cascade, 3 seeds x 3 horizons) |
+| Wall times | labels 20 min; each training run about 25-30 min; horizon comparison 3 min; each cascade experiment about 25 min (Stage 1 and out-of-fold scores about 4 min per seed, each net 1-2 min) |
 
 ## 9. Threats to validity
 
-To be filled after the runs. Known in advance:
-- one test quarter, and Q3 includes summer;
-- validation shares the training dates (earlier same-period holdouts carried
-  over to test worse than a later validation period);
-- the post-hoc choices of section 3;
-- the 60-day test window is half as long as the 30-day one;
-- which failures count as "caught" depends on the label definition, which is
-  why horizons are also scored against each other's labels.
+- **One test quarter.** Q3 2026 only; a gain or loss of a point or two could
+  belong to this period. The seeds vary the training randomness, not the test
+  drives.
+- **Same-period validation.** The holdout shares the training dates and
+  overstated test precision by 15-20 points; every threshold, the Stage 1 net
+  and Stage 2's early stopping come from it.
+- **Post-hoc choices.** The 0.8 net, the survival kinds and the longer horizons
+  were chosen on earlier results; their Q3 numbers are descriptive (section 3),
+  and the fixed rules of section 6 remain untested on untouched data.
+- **Shorter test windows for longer horizons** (32 days at 60 days against 62
+  at 30), so their single-model numbers are noisier; the paired comparison
+  uses the common window only.
+- **"Caught" depends on the label definition**, which is why every model was
+  scored against every horizon's labels.
+- **Survival thresholds.** Cox and AFT thresholds chosen on validation land at
+  a different recall on test, so their rows compare at their realised recall,
+  not the nominal level.
+- **Figures are seed 0** of each experiment; the tables summarise all seeds.
