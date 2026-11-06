@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Refuse a commit message that contains an absolute path.
+exec python3 "$(git rev-parse --show-toplevel)/scripts/check_no_absolute_paths.py" --message "$1"
