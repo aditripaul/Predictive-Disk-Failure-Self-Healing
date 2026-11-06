@@ -1,0 +1,1191 @@
+{
+  "settings": {
+    "start": "2026-07-01",
+    "end": "2026-08-01",
+    "horizons": [
+      30,
+      44,
+      60
+    ],
+    "scores": {
+      "30": "data/tmp/lightgbm_scores_h30_h30_q1q2_q3.parquet",
+      "44": "data/tmp/lightgbm_scores_h44_h44_q1q2_q3.parquet",
+      "60": "data/tmp/lightgbm_scores_h60_h60_q1q2_q3.parquet"
+    },
+    "rows": 11392351,
+    "budgets": [
+      0.001,
+      0.005
+    ],
+    "top_k": [
+      100,
+      250,
+      500,
+      1000,
+      2500,
+      5000
+    ],
+    "n_boot": 1000,
+    "n_boot_auroc": 200,
+    "git_commit": "6c61e35f1f8e4d4e35f4f4d1e21c335645f062ac"
+  },
+  "result": {
+    "horizons": [
+      30,
+      44,
+      60
+    ],
+    "reference": 30,
+    "labels": {
+      "30": {
+        "drives": 361012,
+        "failing_drives": 777,
+        "base_rate": 0.0021522830266029937,
+        "row_positive_rate": 0.0009205299239814504,
+        "models": {
+          "30": {
+            "auroc": 0.9162993683570528,
+            "at_false_alarm_rate": [
+              {
+                "false_alarm_rate_budget": 0.001,
+                "reachable": true,
+                "threshold": 0.8827381569569013,
+                "recall": 0.3063063063063063,
+                "false_alarm_rate": 0.0009854678196177496,
+                "precision": 0.40134907251264756,
+                "caught": 238,
+                "false_alarms": 355,
+                "lead_time": {
+                  "caught": 238,
+                  "median_days": 14.0,
+                  "mean_days": 14.974789915966387
+                }
+              },
+              {
+                "false_alarm_rate_budget": 0.005,
+                "reachable": true,
+                "threshold": 0.7246931641753593,
+                "recall": 0.5173745173745173,
+                "false_alarm_rate": 0.004891251544130915,
+                "precision": 0.18576709796672827,
+                "caught": 402,
+                "false_alarms": 1762,
+                "lead_time": {
+                  "caught": 402,
+                  "median_days": 18.5,
+                  "mean_days": 17.818407960199004
+                }
+              }
+            ],
+            "top_k": [
+              {
+                "k": 100,
+                "flagged": 100,
+                "caught": 45,
+                "false_alarms": 55,
+                "precision": 0.45,
+                "recall": 0.05791505791505792,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 250,
+                "flagged": 250,
+                "caught": 114,
+                "false_alarms": 136,
+                "precision": 0.456,
+                "recall": 0.14671814671814673,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 500,
+                "flagged": 500,
+                "caught": 204,
+                "false_alarms": 296,
+                "precision": 0.408,
+                "recall": 0.2625482625482625,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 1000,
+                "flagged": 1000,
+                "caught": 307,
+                "false_alarms": 693,
+                "precision": 0.307,
+                "recall": 0.39510939510939513,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 2500,
+                "flagged": 2500,
+                "caught": 417,
+                "false_alarms": 2083,
+                "precision": 0.1668,
+                "recall": 0.5366795366795367,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 5000,
+                "flagged": 5000,
+                "caught": 496,
+                "false_alarms": 4504,
+                "precision": 0.0992,
+                "recall": 0.6383526383526383,
+                "failing_drives": 777,
+                "drives": 361012
+              }
+            ]
+          },
+          "44": {
+            "auroc": 0.9184924384141562,
+            "at_false_alarm_rate": [
+              {
+                "false_alarm_rate_budget": 0.001,
+                "reachable": true,
+                "threshold": 0.9211909722343519,
+                "recall": 0.3088803088803089,
+                "false_alarm_rate": 0.00099934764806307,
+                "precision": 0.4,
+                "caught": 240,
+                "false_alarms": 360,
+                "lead_time": {
+                  "caught": 240,
+                  "median_days": 15.0,
+                  "mean_days": 15.458333333333334
+                }
+              },
+              {
+                "false_alarm_rate_budget": 0.005,
+                "reachable": true,
+                "threshold": 0.7358780122981565,
+                "recall": 0.5212355212355212,
+                "false_alarm_rate": 0.004913459269643428,
+                "precision": 0.18620689655172415,
+                "caught": 405,
+                "false_alarms": 1770,
+                "lead_time": {
+                  "caught": 405,
+                  "median_days": 19.0,
+                  "mean_days": 18.101234567901233
+                }
+              }
+            ],
+            "top_k": [
+              {
+                "k": 100,
+                "flagged": 100,
+                "caught": 49,
+                "false_alarms": 51,
+                "precision": 0.49,
+                "recall": 0.06306306306306306,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 250,
+                "flagged": 250,
+                "caught": 119,
+                "false_alarms": 131,
+                "precision": 0.476,
+                "recall": 0.15315315315315314,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 500,
+                "flagged": 500,
+                "caught": 212,
+                "false_alarms": 288,
+                "precision": 0.424,
+                "recall": 0.2728442728442728,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 1000,
+                "flagged": 1000,
+                "caught": 313,
+                "false_alarms": 687,
+                "precision": 0.313,
+                "recall": 0.40283140283140284,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 2500,
+                "flagged": 2500,
+                "caught": 419,
+                "false_alarms": 2081,
+                "precision": 0.1676,
+                "recall": 0.5392535392535392,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 5000,
+                "flagged": 5000,
+                "caught": 488,
+                "false_alarms": 4512,
+                "precision": 0.0976,
+                "recall": 0.6280566280566281,
+                "failing_drives": 777,
+                "drives": 361012
+              }
+            ],
+            "versus_reference": {
+              "auroc": {
+                "difference": 0.0021930700571033412,
+                "difference_ci": [
+                  -0.0010962466288080507,
+                  0.005796991098537708
+                ],
+                "n_boot": 200
+              },
+              "at_false_alarm_rate": [
+                {
+                  "budget": 0.001,
+                  "difference": -0.0013490725126475422,
+                  "difference_ci": [
+                    -0.022752061674849767,
+                    0.018100276496076022
+                  ],
+                  "recall_difference": 0.002574002574002574,
+                  "recall_difference_ci": [
+                    -0.014177093905240105,
+                    0.01935227940956221
+                  ],
+                  "n_boot": 1000,
+                  "confidence": 0.95
+                },
+                {
+                  "budget": 0.005,
+                  "difference": 0.0004397985849958763,
+                  "difference_ci": [
+                    -0.00499120088082386,
+                    0.006319912075219187
+                  ],
+                  "recall_difference": 0.003861003861003861,
+                  "recall_difference_ci": [
+                    -0.00922699419051914,
+                    0.016722808261678917
+                  ],
+                  "n_boot": 1000,
+                  "confidence": 0.95
+                }
+              ]
+            }
+          },
+          "60": {
+            "auroc": 0.91949521046777,
+            "at_false_alarm_rate": [
+              {
+                "false_alarm_rate_budget": 0.001,
+                "reachable": true,
+                "threshold": 0.8936741250546034,
+                "recall": 0.296010296010296,
+                "false_alarm_rate": 0.0009854678196177496,
+                "precision": 0.39316239316239315,
+                "caught": 230,
+                "false_alarms": 355,
+                "lead_time": {
+                  "caught": 230,
+                  "median_days": 15.0,
+                  "mean_days": 16.056521739130435
+                }
+              },
+              {
+                "false_alarm_rate_budget": 0.005,
+                "reachable": true,
+                "threshold": 0.7755872824895862,
+                "recall": 0.528957528957529,
+                "false_alarm_rate": 0.004980082446180965,
+                "precision": 0.18639455782312925,
+                "caught": 411,
+                "false_alarms": 1794,
+                "lead_time": {
+                  "caught": 411,
+                  "median_days": 19.0,
+                  "mean_days": 18.046228710462287
+                }
+              }
+            ],
+            "top_k": [
+              {
+                "k": 100,
+                "flagged": 100,
+                "caught": 51,
+                "false_alarms": 49,
+                "precision": 0.51,
+                "recall": 0.06563706563706563,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 250,
+                "flagged": 250,
+                "caught": 110,
+                "false_alarms": 140,
+                "precision": 0.44,
+                "recall": 0.14157014157014158,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 500,
+                "flagged": 500,
+                "caught": 206,
+                "false_alarms": 294,
+                "precision": 0.412,
+                "recall": 0.2651222651222651,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 1000,
+                "flagged": 1000,
+                "caught": 303,
+                "false_alarms": 697,
+                "precision": 0.303,
+                "recall": 0.38996138996138996,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 2500,
+                "flagged": 2500,
+                "caught": 425,
+                "false_alarms": 2075,
+                "precision": 0.17,
+                "recall": 0.546975546975547,
+                "failing_drives": 777,
+                "drives": 361012
+              },
+              {
+                "k": 5000,
+                "flagged": 5000,
+                "caught": 494,
+                "false_alarms": 4506,
+                "precision": 0.0988,
+                "recall": 0.6357786357786358,
+                "failing_drives": 777,
+                "drives": 361012
+              }
+            ],
+            "versus_reference": {
+              "auroc": {
+                "difference": 0.0031958421107172175,
+                "difference_ci": [
+                  -0.0005519154035336592,
+                  0.008123660818552994
+                ],
+                "n_boot": 200
+              },
+              "at_false_alarm_rate": [
+                {
+                  "budget": 0.001,
+                  "difference": -0.008186679350254411,
+                  "difference_ci": [
+                    -0.02764028766511417,
+                    0.013071892738128615
+                  ],
+                  "recall_difference": -0.010296010296010296,
+                  "recall_difference_ci": [
+                    -0.028716806060094056,
+                    0.006253596547314575
+                  ],
+                  "n_boot": 1000,
+                  "confidence": 0.95
+                },
+                {
+                  "budget": 0.005,
+                  "difference": 0.0006274598564009748,
+                  "difference_ci": [
+                    -0.005042520211474595,
+                    0.006471875336299979
+                  ],
+                  "recall_difference": 0.011583011583011582,
+                  "recall_difference_ci": [
+                    -0.0026145504073188906,
+                    0.027935273814183537
+                  ],
+                  "n_boot": 1000,
+                  "confidence": 0.95
+                }
+              ]
+            }
+          }
+        }
+      },
+      "44": {
+        "drives": 361012,
+        "failing_drives": 952,
+        "base_rate": 0.0026370314560180824,
+        "row_positive_rate": 0.0013785565420166566,
+        "models": {
+          "30": {
+            "auroc": 0.9166791631250067,
+            "at_false_alarm_rate": [
+              {
+                "false_alarm_rate_budget": 0.001,
+                "reachable": true,
+                "threshold": 0.8764047133307229,
+                "recall": 0.3014705882352941,
+                "false_alarm_rate": 0.0009831694717547074,
+                "precision": 0.44773790951638065,
+                "caught": 287,
+                "false_alarms": 354,
+                "lead_time": {
+                  "caught": 287,
+                  "median_days": 18.0,
+                  "mean_days": 20.801393728222997
+                }
+              },
+              {
+                "false_alarm_rate_budget": 0.005,
+                "reachable": true,
+                "threshold": 0.7139614264456038,
+                "recall": 0.5210084033613446,
+                "false_alarm_rate": 0.004971393656612787,
+                "precision": 0.2169728783902012,
+                "caught": 496,
+                "false_alarms": 1790,
+                "lead_time": {
+                  "caught": 496,
+                  "median_days": 23.0,
+                  "mean_days": 24.49798387096774
+                }
+              }
+            ],
+            "top_k": [
+              {
+                "k": 100,
+                "flagged": 100,
+                "caught": 57,
+                "false_alarms": 43,
+                "precision": 0.57,
+                "recall": 0.059873949579831935,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 250,
+                "flagged": 250,
+                "caught": 139,
+                "false_alarms": 111,
+                "precision": 0.556,
+                "recall": 0.14600840336134455,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 500,
+                "flagged": 500,
+                "caught": 239,
+                "false_alarms": 261,
+                "precision": 0.478,
+                "recall": 0.2510504201680672,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 1000,
+                "flagged": 1000,
+                "caught": 367,
+                "false_alarms": 633,
+                "precision": 0.367,
+                "recall": 0.3855042016806723,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 2500,
+                "flagged": 2500,
+                "caught": 508,
+                "false_alarms": 1992,
+                "precision": 0.2032,
+                "recall": 0.5336134453781513,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 5000,
+                "flagged": 5000,
+                "caught": 598,
+                "false_alarms": 4402,
+                "precision": 0.1196,
+                "recall": 0.6281512605042017,
+                "failing_drives": 952,
+                "drives": 361012
+              }
+            ]
+          },
+          "44": {
+            "auroc": 0.9189259802404548,
+            "at_false_alarm_rate": [
+              {
+                "false_alarm_rate_budget": 0.001,
+                "reachable": true,
+                "threshold": 0.9149598731305562,
+                "recall": 0.30462184873949577,
+                "false_alarm_rate": 0.0009970560462145197,
+                "precision": 0.44684129429892144,
+                "caught": 290,
+                "false_alarms": 359,
+                "lead_time": {
+                  "caught": 290,
+                  "median_days": 17.5,
+                  "mean_days": 21.055172413793102
+                }
+              },
+              {
+                "false_alarm_rate_budget": 0.005,
+                "reachable": true,
+                "threshold": 0.7257411139688872,
+                "recall": 0.5168067226890757,
+                "false_alarm_rate": 0.004982502916180636,
+                "precision": 0.2152230971128609,
+                "caught": 492,
+                "false_alarms": 1794,
+                "lead_time": {
+                  "caught": 492,
+                  "median_days": 23.0,
+                  "mean_days": 24.508130081300813
+                }
+              }
+            ],
+            "top_k": [
+              {
+                "k": 100,
+                "flagged": 100,
+                "caught": 63,
+                "false_alarms": 37,
+                "precision": 0.63,
+                "recall": 0.0661764705882353,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 250,
+                "flagged": 250,
+                "caught": 145,
+                "false_alarms": 105,
+                "precision": 0.58,
+                "recall": 0.15231092436974789,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 500,
+                "flagged": 500,
+                "caught": 250,
+                "false_alarms": 250,
+                "precision": 0.5,
+                "recall": 0.26260504201680673,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 1000,
+                "flagged": 1000,
+                "caught": 375,
+                "false_alarms": 625,
+                "precision": 0.375,
+                "recall": 0.3939075630252101,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 2500,
+                "flagged": 2500,
+                "caught": 506,
+                "false_alarms": 1994,
+                "precision": 0.2024,
+                "recall": 0.5315126050420168,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 5000,
+                "flagged": 5000,
+                "caught": 594,
+                "false_alarms": 4406,
+                "precision": 0.1188,
+                "recall": 0.6239495798319328,
+                "failing_drives": 952,
+                "drives": 361012
+              }
+            ],
+            "versus_reference": {
+              "auroc": {
+                "difference": 0.002246817115448052,
+                "difference_ci": [
+                  -0.0010134355987864551,
+                  0.004991348109557276
+                ],
+                "n_boot": 200
+              },
+              "at_false_alarm_rate": [
+                {
+                  "budget": 0.001,
+                  "difference": -0.0008966152174592068,
+                  "difference_ci": [
+                    -0.02037858218349665,
+                    0.02036024043954542
+                  ],
+                  "recall_difference": 0.0031512605042016808,
+                  "recall_difference_ci": [
+                    -0.011078944310578912,
+                    0.01904761904761905
+                  ],
+                  "n_boot": 1000,
+                  "confidence": 0.95
+                },
+                {
+                  "budget": 0.005,
+                  "difference": -0.0017497812773403232,
+                  "difference_ci": [
+                    -0.007225052816700117,
+                    0.003722113770936823
+                  ],
+                  "recall_difference": -0.004201680672268907,
+                  "recall_difference_ci": [
+                    -0.014740761478163493,
+                    0.006530813036579694
+                  ],
+                  "n_boot": 1000,
+                  "confidence": 0.95
+                }
+              ]
+            }
+          },
+          "60": {
+            "auroc": 0.9191197271276449,
+            "at_false_alarm_rate": [
+              {
+                "false_alarm_rate_budget": 0.001,
+                "reachable": true,
+                "threshold": 0.8884389253976348,
+                "recall": 0.2972689075630252,
+                "false_alarm_rate": 0.0009692828972948953,
+                "precision": 0.4477848101265823,
+                "caught": 283,
+                "false_alarms": 349,
+                "lead_time": {
+                  "caught": 283,
+                  "median_days": 19.0,
+                  "mean_days": 21.724381625441698
+                }
+              },
+              {
+                "false_alarm_rate_budget": 0.005,
+                "reachable": true,
+                "threshold": 0.7699021963916755,
+                "recall": 0.523109243697479,
+                "false_alarm_rate": 0.004974170971504749,
+                "precision": 0.21756225425950196,
+                "caught": 498,
+                "false_alarms": 1791,
+                "lead_time": {
+                  "caught": 498,
+                  "median_days": 23.0,
+                  "mean_days": 24.337349397590362
+                }
+              }
+            ],
+            "top_k": [
+              {
+                "k": 100,
+                "flagged": 100,
+                "caught": 62,
+                "false_alarms": 38,
+                "precision": 0.62,
+                "recall": 0.06512605042016807,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 250,
+                "flagged": 250,
+                "caught": 133,
+                "false_alarms": 117,
+                "precision": 0.532,
+                "recall": 0.13970588235294118,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 500,
+                "flagged": 500,
+                "caught": 243,
+                "false_alarms": 257,
+                "precision": 0.486,
+                "recall": 0.2552521008403361,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 1000,
+                "flagged": 1000,
+                "caught": 363,
+                "false_alarms": 637,
+                "precision": 0.363,
+                "recall": 0.38130252100840334,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 2500,
+                "flagged": 2500,
+                "caught": 512,
+                "false_alarms": 1988,
+                "precision": 0.2048,
+                "recall": 0.5378151260504201,
+                "failing_drives": 952,
+                "drives": 361012
+              },
+              {
+                "k": 5000,
+                "flagged": 5000,
+                "caught": 604,
+                "false_alarms": 4396,
+                "precision": 0.1208,
+                "recall": 0.634453781512605,
+                "failing_drives": 952,
+                "drives": 361012
+              }
+            ],
+            "versus_reference": {
+              "auroc": {
+                "difference": 0.002440564002638146,
+                "difference_ci": [
+                  -0.0010952126947044616,
+                  0.006232828376972366
+                ],
+                "n_boot": 200
+              },
+              "at_false_alarm_rate": [
+                {
+                  "budget": 0.001,
+                  "difference": 4.6900610201627835e-05,
+                  "difference_ci": [
+                    -0.0202740032062574,
+                    0.022030986910331174
+                  ],
+                  "recall_difference": -0.004201680672268907,
+                  "recall_difference_ci": [
+                    -0.01906931636016499,
+                    0.010630134951378649
+                  ],
+                  "n_boot": 1000,
+                  "confidence": 0.95
+                },
+                {
+                  "budget": 0.005,
+                  "difference": 0.0005893758693007456,
+                  "difference_ci": [
+                    -0.005346353819567458,
+                    0.006730148282100642
+                  ],
+                  "recall_difference": 0.0021008403361344537,
+                  "recall_difference_ci": [
+                    -0.011175040842672882,
+                    0.015217391304347827
+                  ],
+                  "n_boot": 1000,
+                  "confidence": 0.95
+                }
+              ]
+            }
+          }
+        }
+      },
+      "60": {
+        "drives": 361012,
+        "failing_drives": 1117,
+        "base_rate": 0.0030940799751808805,
+        "row_positive_rate": 0.0018986423434460542,
+        "models": {
+          "30": {
+            "auroc": 0.9176767549940552,
+            "at_false_alarm_rate": [
+              {
+                "false_alarm_rate_budget": 0.001,
+                "reachable": true,
+                "threshold": 0.8712785483000807,
+                "recall": 0.3088630259623993,
+                "false_alarm_rate": 0.0009975131635615944,
+                "precision": 0.4900568181818182,
+                "caught": 345,
+                "false_alarms": 359,
+                "lead_time": {
+                  "caught": 345,
+                  "median_days": 21.0,
+                  "mean_days": 27.223188405797103
+                }
+              },
+              {
+                "false_alarm_rate_budget": 0.005,
+                "reachable": true,
+                "threshold": 0.7045304378881985,
+                "recall": 0.5201432408236347,
+                "false_alarm_rate": 0.004973672876811292,
+                "precision": 0.24504428511176718,
+                "caught": 581,
+                "false_alarms": 1790,
+                "lead_time": {
+                  "caught": 581,
+                  "median_days": 28.0,
+                  "mean_days": 31.70223752151463
+                }
+              }
+            ],
+            "top_k": [
+              {
+                "k": 100,
+                "flagged": 100,
+                "caught": 68,
+                "false_alarms": 32,
+                "precision": 0.68,
+                "recall": 0.06087735004476276,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 250,
+                "flagged": 250,
+                "caught": 164,
+                "false_alarms": 86,
+                "precision": 0.656,
+                "recall": 0.1468218442256043,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 500,
+                "flagged": 500,
+                "caught": 272,
+                "false_alarms": 228,
+                "precision": 0.544,
+                "recall": 0.24350940017905104,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 1000,
+                "flagged": 1000,
+                "caught": 413,
+                "false_alarms": 587,
+                "precision": 0.413,
+                "recall": 0.36974037600716203,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 2500,
+                "flagged": 2500,
+                "caught": 590,
+                "false_alarms": 1910,
+                "precision": 0.236,
+                "recall": 0.5282005371530887,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 5000,
+                "flagged": 5000,
+                "caught": 696,
+                "false_alarms": 4304,
+                "precision": 0.1392,
+                "recall": 0.6230975828111012,
+                "failing_drives": 1117,
+                "drives": 361012
+              }
+            ]
+          },
+          "44": {
+            "auroc": 0.9207271112584401,
+            "at_false_alarm_rate": [
+              {
+                "false_alarm_rate_budget": 0.001,
+                "reachable": true,
+                "threshold": 0.9097235584141694,
+                "recall": 0.306177260519248,
+                "false_alarm_rate": 0.0009975131635615944,
+                "precision": 0.48787446504992865,
+                "caught": 342,
+                "false_alarms": 359,
+                "lead_time": {
+                  "caught": 342,
+                  "median_days": 21.0,
+                  "mean_days": 27.54093567251462
+                }
+              },
+              {
+                "false_alarm_rate_budget": 0.005,
+                "reachable": true,
+                "threshold": 0.7193912763185667,
+                "recall": 0.5138764547896151,
+                "false_alarm_rate": 0.004965337112213284,
+                "precision": 0.2431173231681491,
+                "caught": 574,
+                "false_alarms": 1787,
+                "lead_time": {
+                  "caught": 574,
+                  "median_days": 27.0,
+                  "mean_days": 31.44773519163763
+                }
+              }
+            ],
+            "top_k": [
+              {
+                "k": 100,
+                "flagged": 100,
+                "caught": 73,
+                "false_alarms": 27,
+                "precision": 0.73,
+                "recall": 0.06535362578334826,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 250,
+                "flagged": 250,
+                "caught": 166,
+                "false_alarms": 84,
+                "precision": 0.664,
+                "recall": 0.1486123545210385,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 500,
+                "flagged": 500,
+                "caught": 284,
+                "false_alarms": 216,
+                "precision": 0.568,
+                "recall": 0.25425246195165624,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 1000,
+                "flagged": 1000,
+                "caught": 421,
+                "false_alarms": 579,
+                "precision": 0.421,
+                "recall": 0.37690241718889883,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 2500,
+                "flagged": 2500,
+                "caught": 585,
+                "false_alarms": 1915,
+                "precision": 0.234,
+                "recall": 0.5237242614145031,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 5000,
+                "flagged": 5000,
+                "caught": 688,
+                "false_alarms": 4312,
+                "precision": 0.1376,
+                "recall": 0.6159355416293644,
+                "failing_drives": 1117,
+                "drives": 361012
+              }
+            ],
+            "versus_reference": {
+              "auroc": {
+                "difference": 0.003050356264384879,
+                "difference_ci": [
+                  0.00039188520496072647,
+                  0.005600861014923997
+                ],
+                "n_boot": 200
+              },
+              "at_false_alarm_rate": [
+                {
+                  "budget": 0.001,
+                  "difference": -0.002182353131889525,
+                  "difference_ci": [
+                    -0.0206391456403611,
+                    0.016410697705631506
+                  ],
+                  "recall_difference": -0.0026857654431512983,
+                  "recall_difference_ci": [
+                    -0.015044710630577258,
+                    0.00835742749900198
+                  ],
+                  "n_boot": 1000,
+                  "confidence": 0.95
+                },
+                {
+                  "budget": 0.005,
+                  "difference": -0.0019269619436180774,
+                  "difference_ci": [
+                    -0.007712985337946307,
+                    0.0041132081679619336
+                  ],
+                  "recall_difference": -0.006266786034019696,
+                  "recall_difference_ci": [
+                    -0.016919721689783722,
+                    0.004630493366500828
+                  ],
+                  "n_boot": 1000,
+                  "confidence": 0.95
+                }
+              ]
+            }
+          },
+          "60": {
+            "auroc": 0.9193761887901677,
+            "at_false_alarm_rate": [
+              {
+                "false_alarm_rate_budget": 0.001,
+                "reachable": true,
+                "threshold": 0.8807336154485341,
+                "recall": 0.2954341987466428,
+                "false_alarm_rate": 0.0009863988107642508,
+                "precision": 0.48175182481751827,
+                "caught": 330,
+                "false_alarms": 355,
+                "lead_time": {
+                  "caught": 330,
+                  "median_days": 23.0,
+                  "mean_days": 28.01212121212121
+                }
+              },
+              {
+                "false_alarm_rate_budget": 0.005,
+                "reachable": true,
+                "threshold": 0.7623157261384685,
+                "recall": 0.5228290062667861,
+                "false_alarm_rate": 0.004987565817807972,
+                "precision": 0.24548129466162252,
+                "caught": 584,
+                "false_alarms": 1795,
+                "lead_time": {
+                  "caught": 584,
+                  "median_days": 28.0,
+                  "mean_days": 31.368150684931507
+                }
+              }
+            ],
+            "top_k": [
+              {
+                "k": 100,
+                "flagged": 100,
+                "caught": 68,
+                "false_alarms": 32,
+                "precision": 0.68,
+                "recall": 0.06087735004476276,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 250,
+                "flagged": 250,
+                "caught": 154,
+                "false_alarms": 96,
+                "precision": 0.616,
+                "recall": 0.1378692927484333,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 500,
+                "flagged": 500,
+                "caught": 275,
+                "false_alarms": 225,
+                "precision": 0.55,
+                "recall": 0.24619516562220234,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 1000,
+                "flagged": 1000,
+                "caught": 403,
+                "false_alarms": 597,
+                "precision": 0.403,
+                "recall": 0.36078782452999103,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 2500,
+                "flagged": 2500,
+                "caught": 595,
+                "false_alarms": 1905,
+                "precision": 0.238,
+                "recall": 0.5326768128916741,
+                "failing_drives": 1117,
+                "drives": 361012
+              },
+              {
+                "k": 5000,
+                "flagged": 5000,
+                "caught": 697,
+                "false_alarms": 4303,
+                "precision": 0.1394,
+                "recall": 0.6239928379588182,
+                "failing_drives": 1117,
+                "drives": 361012
+              }
+            ],
+            "versus_reference": {
+              "auroc": {
+                "difference": 0.0016994337961124817,
+                "difference_ci": [
+                  -0.001300305752171707,
+                  0.004782457207036698
+                ],
+                "n_boot": 200
+              },
+              "at_false_alarm_rate": [
+                {
+                  "budget": 0.001,
+                  "difference": -0.008304993364299906,
+                  "difference_ci": [
+                    -0.028293975348684677,
+                    0.012787320162173618
+                  ],
+                  "recall_difference": -0.01342882721575649,
+                  "recall_difference_ci": [
+                    -0.028708563476587668,
+                    0.0016895063513603687
+                  ],
+                  "n_boot": 1000,
+                  "confidence": 0.95
+                },
+                {
+                  "budget": 0.005,
+                  "difference": 0.0004370095498553439,
+                  "difference_ci": [
+                    -0.005590803137818977,
+                    0.006726656221025927
+                  ],
+                  "recall_difference": 0.0026857654431512983,
+                  "recall_difference_ci": [
+                    -0.008896995211732681,
+                    0.014928532314907117
+                  ],
+                  "n_boot": 1000,
+                  "confidence": 0.95
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

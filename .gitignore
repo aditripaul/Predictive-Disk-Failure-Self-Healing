@@ -23,6 +23,12 @@ data/synthetic/*
 data/audit/*/*
 !data/raw/*/
 !data/audit/*/
+# Results of the Q1+Q2 -> Q3 2026 runs (docs/q3_horizon_and_cascade_run.md):
+# the experiment JSON/tables/code.patch behind the runbook tables, and the
+# training reports. Small (about 3 MB). The test-access log stays untracked.
+!data/audit/cascade_q3_h*/*
+!data/audit/horizon_q3/*
+!data/audit/data_quality_reports/*_q1q2_q3.json
 !data/**/.gitkeep
 
 # ML experiment tracking artifacts
