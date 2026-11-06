@@ -1236,7 +1236,7 @@ section 1.1 is the record for it.
 | Splits, frozen run | training rows the first 75 days of Q1 and Q2 2026, validation the 25 days after the 30-day purge, test the following 21 days |
 | Splits, quarter-aligned run | training rows the first 107 days of Q4 2025 to Q2 2026, validation the last 45 days of Q1, test the first 61 days of Q2 |
 | Sealed window | Q3 2026 until 2026-11-06, now a test set; Q4 2026 is the next sealed quarter |
-| Frozen run | retired 2026-11-06; its dataset version is recorded in the runbook, Section 1.1 |
+| Frozen run | retired 2026-11-06 (dataset version `20261009T051152748998Z`) |
 | Features | 246 (212 before the sixth priority attribute and the confidence-formula fixes) |
 | First stage | LightGBM, 31 leaves, at least 200 rows per leaf, L2 10, learning rate 0.05 (tree count for this specific run not recorded in the runbook) |
 | Class weighting | square root of the healthy-to-failing ratio |

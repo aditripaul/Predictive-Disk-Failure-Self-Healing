@@ -1,10 +1,8 @@
 # Model status, results and runbook
 
-> **Current state (2026-10-09; model of record retired 2026-11-06).** Read
-> Section 1 first. The pipeline runs on **Q1 + Q2 2026** with a **30-day
-> horizon** and corrected split dates. The frozen run of Section 1.1 is
-> **retired** and there is no model of record until the Q1+Q2 -> Q3 runs
-> (`docs/q3_horizon_and_cascade_run.md`) are reported. Section 4 is the
+> **Current state (2026-11-06).** Read Section 1 first. There is no model of
+> record until the Q1+Q2 -> Q3 runs (`docs/q3_horizon_and_cascade_run.md`) are
+> reported; Sections 1.1.1 to 1.1.3 hold the most recent frozen runs. Section 4 is the
 > measurement record in the order it was produced; Section 5 holds the
 > lessons from the earlier Q1-only, 14-day work, which still apply. For a
 > shorter overview see `docs/system_summary.md`.
@@ -22,78 +20,16 @@ features, labels, training, fleet scoring, plots and the final report.
 **The stated goal is not met.** It was 95% precision at 35-50% recall, then
 90% at >= 10% recall, both per drive on the real fleet (Section 7).
 
-### 1.1 The retired model of record
-
-**Retired 2026-11-06.** The frozen run below is no longer the model of
-record and is not frozen for any evaluation. It was kept unchanged to be
-scored once on the sealed quarter and on SMART-Z, but neither can happen:
-its artifacts exist on no machine this repository can reach (no MLflow run in
-`mlflow/mlflow.db`, no `frozen_runs/` copy; Section 8, "Open items"), and the sealed quarter
-(Q3 2026) is now an ordinary test set (Section 1.4,
-`docs/q3_horizon_and_cascade_run.md`). The numbers below stay as the
-historical record of that run; they are not reproducible from this
-repository.
-
-Frozen MLflow run (retired; experiment named in
-`configs/model.yaml`, store `sqlite:///mlflow/mlflow.db`), dataset version
-`20261009T051152748998Z`, Q1 + Q2 2026 data, 30-day horizon, two-stage
-model, 246 features. Per drive, on test, with thresholds chosen on
-validation. Test holds 621 failing and 353,328 healthy drives.
-
-| Operating point | Precision, real fleet (0.18% fail) | Recall | Precision at 15% failing |
-|---|---|---|---|
-| **Primary threshold** | **48.6%**, 95% CI [38.9%, 58.2%] | **8.7%** | 99.0% |
-| Broader | 39.7% | 20.3% | - |
-| Broadest | 29.5% | 33.3% | - |
-
-- At the primary threshold an alerted drive is about **277 times** likelier
-  to fail than a random one, and fewer than 1 healthy drive in 6,000 is
-  alerted.
-- The interval is a 1000-draw bootstrap over whole drives
-  (`src/models/uncertainty.py`), so a drive's many near-identical rows are
-  resampled together.
-- The 15% column restates the measured catch rate and false-alarm rate for a
-  test set in which 15% of drives fail, the kind most published results use.
-  It is arithmetic on the measured rates, not a separate experiment.
-- The logged quantities are those rates, the lift and the interval. The drive
-  counts they imply on this test population are 54 of 621 failing drives
-  caught and 57 of 353,328 healthy drives alerted at the primary threshold.
-- **Do not retrain this run.** It is what the sealed quarter and SMART-Z are
-  scored against (Section 1.4), and a retrain would silently change what
-  those evaluations test. Its artifacts include `frozen_spec.json`, which
-  carries the thresholds, the feature list and the calibrator, so nothing is
-  re-chosen at evaluation time.
-- **The previous freeze, `0ee06c01ff2a427ca76011fb1afb8ce3`, is void - not
-  merely superseded.** It was trained when `attribute_coverage_factor` was a
-  vendor proxy (0.6 for non-Seagate, 1.0 for Seagate) and `recency_factor`
-  was pinned near 0.6065 (ADR 0002). Those are model *features*, and the
-  current gold table has both at about 1.0, so scoring that run against the
-  rebuilt data would feed it three features far outside their training
-  distribution. Worse, it would do so silently: all 212 of its
-  `frozen_spec.json` columns still exist in the 246-column frame, so
-  `evaluate_frozen.py` would select them and score without complaint.
-  The same applies to `c9845215896e47a397317cadd3983b6d` (commit `313bacb`).
-  Neither may be used for the sealed quarter.
-
-These numbers moved from the previous record (46.2% precision at 9.7% recall,
-Section 4.5) because the raw `failure` flag was dropped from the feature
-list. That column marks the failure day itself, so it is a label in disguise
-and had to go. It was all zeros in the frame, so it carried no signal, but
-removing it shifted LightGBM's column sampling and so the fitted trees. The
-evaluated test population did not change. Section 4.5 holds the fuller
-breakdown: the per-tier results, the drive counts at four operating points
-and the warning lead time all come from that run.
-
 ### 1.1.1 Frozen run for the quarter-aligned window (2026-11-05)
 
 MLflow run `839d92bcd305494a8930d0dfbbb3f2a6` (name `h30_seed0`), trained with
 `make train TRAIN_TAG=h30_seed0 TRAIN_ARGS="--keep-work-dir --save-scores"` on
 the repository-default window of Section 2.2: train to 2026-01-15, validation
 2026-02-15 to 2026-03-31, test 2026-04-01 to 2026-05-31, 30-day horizon,
-two-stage LightGBM, 246 features. It is a **second frozen run, not a
-replacement for the one in Section 1.1**: the two answer different windows, and
-Section 4.6 found the Section 1.1 model slightly ahead at matched false-alarm
-rate (not a confirmed regression). Use the Section 1.1 run where its window is
+two-stage LightGBM, 246 features. It was a **second frozen run, not a
+replacement for the earlier frozen run (2026-10-09, no longer available)**: the two answer different windows, and
+Section 4.6 found that earlier model slightly ahead at matched false-alarm
+rate (not a confirmed regression). Use the earlier run's figures where its window is
 the one you mean.
 
 It reproduces the earlier run `0c183df0` exactly: the evaluation report and
@@ -132,6 +68,20 @@ the run is not loadable from the repository by id. Its files are copied to
 stages, model card, checksums; see its README) so they can be inspected and
 checked; `score-fleet` and `evaluate-frozen` still read MLflow, not that folder.
 
+**Void runs.** Two older runs must never be scored:
+
+- **The previous freeze, `0ee06c01ff2a427ca76011fb1afb8ce3`, is void - not
+  merely superseded.** It was trained when `attribute_coverage_factor` was a
+  vendor proxy (0.6 for non-Seagate, 1.0 for Seagate) and `recency_factor`
+  was pinned near 0.6065 (ADR 0002). Those are model *features*, and the
+  current gold table has both at about 1.0, so scoring that run against the
+  rebuilt data would feed it three features far outside their training
+  distribution. Worse, it would do so silently: all 212 of its
+  `frozen_spec.json` columns still exist in the 246-column frame, so
+  `evaluate_frozen.py` would select them and score without complaint.
+  The same applies to `c9845215896e47a397317cadd3983b6d` (commit `313bacb`).
+  Neither may be used for the sealed quarter.
+
 ### 1.1.2 Frozen merged-approach run (2026-11-05)
 
 `make train-merged MERGED_TAG=h30_seed0` (MLflow run
@@ -140,7 +90,7 @@ approach. It compares XGBoost AFT and Cox survival models, the LightGBM
 two-stage (run `839d92bc`, Section 1.1.1), an LSTM and a TCN, and two
 rank blends, all on the same 15,359,094 validation and 21,297,371 test
 drive-days (100% coverage for every member) and the Section 2.2 split. Like
-Section 1.1.1 it is **not a replacement** for Section 1.1's run.
+Section 1.1.1 it is **not a replacement** for the earlier frozen run (2026-10-09, no longer available).
 
 | Per drive, threshold chosen on validation | Val precision | Test precision [95% CI] | Test recall | Caught / false alarms | Test AUROC | Test AUPRC |
 |---|---|---|---|---|---|---|
@@ -282,7 +232,7 @@ both models at matched test recall, and they disagree about significance:
 | Run | Features | Stage 1 | Two-stage | Gap | 95% CI |
 |---|---|---|---|---|---|
 | `0ee06c01` | 212 | 0.389 | 0.496 | 0.107 | [0.032, 0.185] |
-| Retired frozen run (Section 1.1) | 246 | 0.450 | 0.486 | 0.036 | **[-0.055, 0.128]** |
+| Earlier frozen run (2026-10-09) | 246 | 0.450 | 0.486 | 0.036 | **[-0.055, 0.128]** |
 
 The second interval includes 0, so the gain is **not** confirmed on the
 current feature set. The two runs do not contradict each other - each point
@@ -386,7 +336,7 @@ noisy. **Do not quote calibrated probabilities above 0.5.**
   effect from filling a vault with one drive batch, not local correlation -
   and model and age are already featurized.
 - Both code changes need a full re-ingest through train to take effect, which
-  **invalidated the frozen run that preceded Section 1.1's**. Do it before Q3
+  **invalidated the frozen run that preceded the earlier frozen run (2026-10-09, no longer available)**. Do it before Q3
   is ingested;
   afterwards it costs the sealed evaluation. Full reasoning, including the
   hypotheses the screen refuted, is in
@@ -443,8 +393,8 @@ make install
 
 ### 2.2 Q4 2025 - Q2 2026, quarter-aligned (the repository default)
 
-**Run once, on 2026-10-18** - results in Section 4.6. Section 1.1's numbers
-still come from the frozen run's narrower window, below, and this window's
+**Run once, on 2026-10-18** - results in Section 4.6. The numbers of
+the earlier frozen run (2026-10-09, no longer available) come from a narrower window, below, and this window's
 precision is not comparable to them (Section 1.7).
 
 Q4 2025 and Q1 2026 train and validate; Q2 2026 tests. `configs/data.yaml`
@@ -477,8 +427,7 @@ Three things follow from it:
   It is what `make score-fleet` scores.
 
 This is **not** the frozen run's window, so its figures will not be directly
-comparable to Section 1.1. The frozen run stays the reference for the sealed
-quarter. To reproduce it instead: `sources.backblaze.start_date:
+comparable to the earlier frozen run (2026-10-09, no longer available). To reproduce it instead: `sources.backblaze.start_date:
 "2026-01-01"` with `2026-04-15` / `2026-05-10` / `2026-05-31`.
 
 Bronze reflects whatever was last ingested, and `make build-silver` reads
@@ -505,7 +454,7 @@ rebuild of features or labels.
 
 ### 2.3 Measuring the agent, not the model (`make agent-fleet`)
 
-**Not yet run.** Section 1.1's figures - 57.1% precision at 12.0% recall -
+**Not yet run.** Section 1.1.1's figures - 57.1% precision at 12.0% recall -
 describe a threshold applied to scores. They say nothing about the agent.
 Between a score and an action sit the guardrails, the 0.80 confidence
 floor, two-cycle hysteresis, the per-drive cooldown, the control arm and
@@ -538,7 +487,7 @@ make agent-fleet ARGS="--start-date 2026-06-01 --end-date 2026-06-23 \
 Two things that figure is not. It is **7-day** precision and belongs in no
 column beside a 30-day one (Section 1.7). And the model is trained for 30
 days, so a drive that fails on day 20 is a 7-day false positive - expect
-the number to be lower than Section 1.1's for that reason alone, before any
+the number to be lower than Section 1.1.1's for that reason alone, before any
 agent filter has removed anything.
 
 The `--end-date` matters more than it looks: `latest_row_per_drive` keeps
@@ -764,7 +713,7 @@ is not clearly lower, keep the Polars pipeline and the RSS watchdog.
 
 Sections 4.1 to 4.5 run chronologically, each building on the baseline
 recorded immediately below; 4.5 is the most recent full breakdown, and
-Section 1.1 is the frozen run that superseded it.
+The earlier frozen run (2026-10-09, no longer available) superseded it.
 
 **Q1 2026, 14-day horizon - the first working model.**
 All drive-level numbers use the per-drive rule in Section 5.1. The validation
@@ -1147,7 +1096,7 @@ both models' sampling, not the test drives):
 train rows, 5,262 positive; candidate threshold 0.830), and
 `model.two_stage.enabled` is now `true`. **This run is the detailed
 breakdown the reader-facing documents cite for counts, action tiers and
-warning lead time**; the frozen run in Section 1.1 superseded its headline
+warning lead time**; the earlier frozen run (2026-10-09, no longer available) superseded its headline
 precision and recall (test, drive level, thresholds from validation):
 
 | Validation recall target | Two stage (current model) | First model alone, same run | At 15% failing | At 50% failing | Lift |
@@ -1188,7 +1137,7 @@ nothing in the chain exceeded the 20 GB cap.
 
 | | test days | base rate | recall | false-alarm rate | precision | PLR |
 |---|---|---|---|---|---|---|
-| Frozen run (Section 1.1) | 21 | 0.175% | 8.70% | 1.61e-04 | 48.6% | 539 |
+| Earlier frozen run (2026-10-09) | 21 | 0.175% | 8.70% | 1.61e-04 | 48.6% | 539 |
 | This run, validation | 45 | 0.323% | 10.05% | 2.25e-04 | 59.2% | 447 |
 | **This run, test** | **61** | **0.417%** | **12.04%** | **3.79e-04** | **57.1%** | **318** |
 
@@ -2059,7 +2008,7 @@ Thresholds are always chosen on validation and applied to test.
 **Neither goal is met on the real fleet.** The original goal was 95%
 precision at 35-50% recall per drive; it was later set to 90% at >= 10%
 recall (`configs/model.yaml` `threshold`). The frozen model gives 49.6% at
-10.5% recall and 28.7% at 32.4% (Section 1.1). At the validation threshold
+10.5% recall and 28.7% at 32.4% (the earlier frozen run (2026-10-09, no longer available)). At the validation threshold
 for 95% precision it flags a single test drive.
 
 **The goal is stated on the frozen run's 21-day test window too, not only its
@@ -2096,7 +2045,7 @@ config edit.
 The limit is how rare failures are, not the false-alarm rate: at the primary
 threshold fewer than 1 healthy drive in 5,000 is alerted, but only 621 drives
 fail out of 353,949. On a test set where 15% of drives fail the same alerts
-are 99.0% precise (Section 1.1). The paper we reviewed (Amram et al.,
+are 99.0% precise (the earlier frozen run (2026-10-09, no longer available)). The paper we reviewed (Amram et al.,
 2021) reports about 44% precision at a 12% false-alarm rate on one drive
 model with random splits and about 15% positives, so it does not support a
 95% real-fleet target either.
@@ -2197,7 +2146,8 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 - **An append-only log of every test-split computation** (Section 1.4).
 - **Action-tier targets expressed as lift** rather than precision
   (Section 1.7).
-- **The raw `failure` flag excluded from the feature list** (Section 1.1).
+- **The raw `failure` flag excluded from the feature list**: it marks the failure day
+  itself, a label in disguise.
 
 **Model and evaluation:**
 
@@ -2226,11 +2176,9 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   false alarms.
 - **Branches:** current work is on `adi_dev`; `main` holds the state before
   the 30-day default and the split fix.
-- **The retired frozen run is not in this repository's MLflow store.** The real-data
-  runs were made on the data machine, so `mlflow/mlflow.db` here ends at
-  2026-10-06 and `data/audit/` holds no report for it. Section 1.1
-  is the record for it. Re-running `make train` locally will not reproduce
-  that run; it would produce a new one.
+- **The earlier frozen run (2026-10-09) is not in this repository's MLflow
+  store.** It was made on the data machine, and `data/audit/` holds no report
+  for it. Re-running `make train` locally will not reproduce it.
 
 ## 9. Reference: key config values
 

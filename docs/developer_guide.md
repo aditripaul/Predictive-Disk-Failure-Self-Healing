@@ -1316,8 +1316,8 @@ the scoring path, say), delete the file deliberately - the refusal is there
 to make that a decision rather than an accident.
 
 **The run must be frozen before the data it is scored on arrives.** This is
-the part no code can enforce. `docs/model_status_and_runbook.md` section 1.1
-names the frozen run and says not to retrain it; retraining and then scoring
+the part no code can enforce. `docs/model_status_and_runbook.md` section 1.4
+names the run frozen for the next sealed quarter, which must not be retrained; retraining and then scoring
 the sealed quarter would quietly turn it into another validation set.
 
 ---

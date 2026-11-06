@@ -281,8 +281,7 @@ builds are not meaningful.
   (`src/models/features.py::NON_FEATURE_COLUMNS`). It marks the failure day
   itself, so it is a label in disguise. It was all zeros in the assembled
   frame, so dropping it removed no signal - but it did change the model's
-  column sampling, and so the fitted trees
-  (`docs/model_status_and_runbook.md` section 1.1).
+  column sampling, and so the fitted trees.
 
 ## 8. Where each piece lives
 
