@@ -688,6 +688,73 @@ for HGST; reporting removed-without-failure drives as their own outcome when
 judging alerts; a weekly trend monitor on the Stage 1 pass share; features that
 could see early-life failures, the one group SMART does not reach.
 
+### 1.1.6 Cluster-based action policy (2026-11-06; rule not passed)
+
+Method, rule and results: `docs/cluster_action_policy.md`; outputs
+`data/audit/cluster_policy_h30/`. The idea: cluster the Stage 1 suspects by SMART
+signature (never the score or the vendor) and let the agent's action depend on
+(tier, cluster) instead of the tier alone, judged on Q3 against the tier-only policy
+with the rule written down before the Q3 look.
+
+**Clusters** (GMM, 4 clusters, chosen on validation from a 35-candidate ablation by
+stability and failure-rate separation within band; `tables.md`):
+
+| Cluster | Name | Share of suspects (Q3) | Failure rate validation / Q3 | Action kind |
+|---|---|---|---|---|
+| C0 | no clear damage | 53.5% (49.6%) | 1.1% / 0.7% | watch |
+| C1 | reallocated sectors rising, defect acceleration | 14.9% (14.3%) | 4.7% / 2.7% | replace |
+| C2 | pending sectors, pending vs reallocated | 22.1% (23.6%) | 11.7% / 4.5% | migrate data |
+| C3 | reallocated sectors rising, defect velocity | 9.6% (12.4%) | 33.4% / 16.1% | replace |
+
+![What each cluster is](../data/audit/cluster_policy_h30/figures/cluster_signatures.png)
+
+The clusters are stable (Q3 shares within a factor of 2 of validation, refit ARI
+0.87) and separate risk from 1% to 33%. The action map, fixed on validation, moved
+three cells, all down (C1 and C2 at warn, C2 at cordon):
+
+![Failure rate per cluster and band on validation, moved cells outlined](../data/audit/cluster_policy_h30/figures/tier_cluster_matrix_validation.png)
+
+**Q3 result** (one look, test-access log line 133; cumulative tiers, 1,105 failing
+drives):
+
+| Tier | Tier-only P / R | Cluster policy P / R | Precision gap [95%] | Recall gap [95%] | Cost 20:1 |
+|---|---|---|---|---|---|
+| warn | 17.3% / 60.9% | 25.3% / 52.1% | +8.0% [+7.1, +8.9] | **-8.8% [-10.5, -7.1]** | 11,848 -> 12,279 |
+| cordon | 34.8% / 42.4% | 39.4% / 36.2% | +4.6% [+3.1, +5.9] | **-6.2% [-7.7, -4.9]** | 13,597 -> 14,715 |
+
+| Policy comparison | Where each policy operates on the score's curve |
+|---|---|
+| ![Precision, recall and moved drives per tier](../data/audit/cluster_policy_h30/figures/policy_comparison.png) | ![Operating points against the drive curve](../data/audit/cluster_policy_h30/figures/policy_precision_recall.png) |
+
+- **Rule not passed:** precision is up but recall is lower at warn and cordon, so the
+  agent integration was not built and the agent is unchanged.
+- **The precision gain is not a gain:** at the recall the cluster policy reaches, a
+  plain stricter threshold gives 26.0% (warn) and 42.5% (cordon) against its 25.3% and
+  39.4%: its points lie on or below the curve.
+- Demoting at warn avoided 1,509 false alarms for 97 lost failing drives, which pays
+  only if a missed failure costs under about 16 false alarms.
+- The clusters stay useful as a description and a watch list (C3: 12% of suspects,
+  16% failing on Q3), not as a policy.
+
+![Q3 failure rate per cluster and band](../data/audit/cluster_policy_h30/figures/tier_cluster_matrix_test.png)
+
+**Commands** (code `8dcca9b`; the first ablation run, stopped after 39 minutes
+because spectral clustering with an RBF kernel did not converge, produced nothing):
+
+```bash
+# validation only: suspects, signatures, 35-candidate ablation, map; reads no test row
+uv run python scripts/cluster_action_policy.py --run-dir frozen_runs/c459046e4f1645169151e7be25ff064d \
+    --scores data/tmp/lightgbm_scores_h30_h30_q1q2_q3.parquet --validation-only
+# the Q3 step with the committed map (one test look, access-log line 133)
+uv run python scripts/cluster_action_policy.py --run-dir frozen_runs/c459046e4f1645169151e7be25ff064d \
+    --scores data/tmp/lightgbm_scores_h30_h30_q1q2_q3.parquet
+# redraw the tables and figures from the saved JSON, no data read
+uv run python scripts/cluster_action_policy.py --run-dir x --scores x --figures-only
+```
+
+The validation step resumes from `ablation_partial.json` if interrupted (and was
+rerun once with `--overwrite` after a naming fix, resuming all 35 candidates).
+
 ### 1.2 The two-stage gain is not established
 
 Two paired bootstraps now exist, both over the same resampled drives with
@@ -869,13 +936,13 @@ Where each section's numbers come from:
 | 1.1.4 (Q1+Q2 -> Q3 runs) | Training reports `data/audit/data_quality_reports/model_evaluation_report_h<H>_q1q2_q3.json` and `action_tiers_h<H>_q1q2_q3.json`; cascade and survival Stage 2 `data/audit/cascade_q3_h30/`, `_h44/`, `_h60/`; horizon comparison `data/audit/horizon_q3/`; runs `frozen_runs/c459046e.../`, `a2cd06d5.../`, `804a20ce.../` |
 | 1.1.5 (deep dive) | `data/audit/deep_dive_q3_h30/` |
 | 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` (local, not committed) |
+| 1.1.6 (cluster action policy) | `data/audit/cluster_policy_h30/` |
 | 4.7 - 4.10 (point-in-time policy, family calibration) | `data/audit/agent_point_in_time*`, `agent_pit_validation*`, `family_calibration.json` |
 | Every look at test | `data/audit/test_access_log.jsonl` (local, never committed) |
 
 What git tracks under `data/audit/` and what stays local is listed in its
 README; the Q1+Q2 -> Q3 results are all tracked.
 
-## 2. How to run the pipeline
 ### 1.9 How the tiers are set
 
 The agent's four action tiers (warn, cordon, migrate, drain) are four thresholds on
@@ -940,6 +1007,7 @@ The per-run curves are in `frozen_runs/c459046e.../figures/`
 (`validation_precision_recall.png`, `test_precision_recall.png`).
 
 
+## 2. How to run the pipeline
 ### 2.1 Setup
 
 ```bash

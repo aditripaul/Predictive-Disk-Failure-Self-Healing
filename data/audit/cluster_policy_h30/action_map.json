@@ -1,0 +1,132 @@
+[
+  {
+    "cluster": 0,
+    "cluster_name": "no clear damage",
+    "band": "monitor",
+    "effective_band": "monitor",
+    "move": 0,
+    "drives": 2467,
+    "failure_rate": 0.0064856100526955816,
+    "reason": "matches band rate"
+  },
+  {
+    "cluster": 0,
+    "cluster_name": "no clear damage",
+    "band": "warn",
+    "effective_band": "warn",
+    "move": 0,
+    "drives": 10,
+    "failure_rate": 0.3,
+    "reason": "fewer than 30 drives"
+  },
+  {
+    "cluster": 0,
+    "cluster_name": "no clear damage",
+    "band": "cordon",
+    "effective_band": "cordon",
+    "move": 0,
+    "drives": 5,
+    "failure_rate": 0.8,
+    "reason": "fewer than 30 drives"
+  },
+  {
+    "cluster": 1,
+    "cluster_name": "reallocated sectors rising, active defect acceleration 7d vs 30d",
+    "band": "monitor",
+    "effective_band": "monitor",
+    "move": 0,
+    "drives": 576,
+    "failure_rate": 0.010416666666666666,
+    "reason": "matches band rate"
+  },
+  {
+    "cluster": 1,
+    "cluster_name": "reallocated sectors rising, active defect acceleration 7d vs 30d",
+    "band": "warn",
+    "effective_band": "monitor",
+    "move": -1,
+    "drives": 38,
+    "failure_rate": 0.05263157894736842,
+    "reason": "fails less often than its band"
+  },
+  {
+    "cluster": 1,
+    "cluster_name": "reallocated sectors rising, active defect acceleration 7d vs 30d",
+    "band": "cordon",
+    "effective_band": "cordon",
+    "move": 0,
+    "drives": 37,
+    "failure_rate": 0.6216216216216216,
+    "reason": "matches band rate"
+  },
+  {
+    "cluster": 2,
+    "cluster_name": "pending vs reallocated, pending sectors",
+    "band": "monitor",
+    "effective_band": "monitor",
+    "move": 0,
+    "drives": 695,
+    "failure_rate": 0.050359712230215826,
+    "reason": "matches band rate"
+  },
+  {
+    "cluster": 2,
+    "cluster_name": "pending vs reallocated, pending sectors",
+    "band": "warn",
+    "effective_band": "monitor",
+    "move": -1,
+    "drives": 247,
+    "failure_rate": 0.1417004048582996,
+    "reason": "fails less often than its band"
+  },
+  {
+    "cluster": 2,
+    "cluster_name": "pending vs reallocated, pending sectors",
+    "band": "cordon",
+    "effective_band": "warn",
+    "move": -1,
+    "drives": 80,
+    "failure_rate": 0.4875,
+    "reason": "fails less often than its band"
+  },
+  {
+    "cluster": 3,
+    "cluster_name": "reallocated sectors rising, active defect velocity 30d",
+    "band": "monitor",
+    "effective_band": "monitor",
+    "move": 0,
+    "drives": 193,
+    "failure_rate": 0.06217616580310881,
+    "reason": "matches band rate"
+  },
+  {
+    "cluster": 3,
+    "cluster_name": "reallocated sectors rising, active defect velocity 30d",
+    "band": "warn",
+    "effective_band": "warn",
+    "move": 0,
+    "drives": 167,
+    "failure_rate": 0.23353293413173654,
+    "reason": "matches band rate"
+  },
+  {
+    "cluster": 3,
+    "cluster_name": "reallocated sectors rising, active defect velocity 30d",
+    "band": "cordon",
+    "effective_band": "cordon",
+    "move": 0,
+    "drives": 212,
+    "failure_rate": 0.5613207547169812,
+    "reason": "matches band rate"
+  },
+  {
+    "cluster": 3,
+    "cluster_name": "reallocated sectors rising, active defect velocity 30d",
+    "band": "drain",
+    "effective_band": "drain",
+    "move": 0,
+    "drives": 2,
+    "failure_rate": 1.0,
+    "reason": "fewer than 30 drives"
+  }
+]

@@ -446,7 +446,16 @@ def name_clusters(
     names, kinds = [], []
     for c in centroids:
         order = np.argsort(-c)
-        picked = [columns[i] for i in order[:top] if c[i] > 0.5]
+        picked: list[str] = []
+        labels_seen: set[str] = set()
+        for i in order:
+            if c[i] <= 0.5 or len(picked) == top:
+                break
+            label = _readable(columns[i])
+            if label in labels_seen:  # a counter's change and its slope read the same
+                continue
+            labels_seen.add(label)
+            picked.append(columns[i])
         if not picked:
             names.append("no clear damage")
             kinds.append("watch")

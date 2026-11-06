@@ -492,6 +492,26 @@ on precision. Writes `horizon_comparison.json`, `tables.md` and `figures/` to
 `--out` (default `data/audit/horizon_q3`; refuses to overwrite without
 `--overwrite`) and records one test-split look.
 
+### Deep dive and cluster action policy (Q3 runs)
+
+```bash
+# per-drive breakdown of the 30-day Q3 run: missed failures, false alarms, weekly stability,
+# validation against test (one test look; --figures-only redraws from the saved JSON)
+uv run python scripts/deep_dive_q3.py --run-dir frozen_runs/<run id> \
+    --scores data/tmp/lightgbm_scores_h30_h30_q1q2_q3.parquet \
+    --test-ids data/tmp/train_model_frame_<id>/test_ids.parquet
+
+# failure-mode clusters of the Stage 1 suspects and a (tier, cluster) action map, fitted on
+# validation, judged once on Q3 against the tier-only policy (docs/cluster_action_policy.md)
+uv run python scripts/cluster_action_policy.py --run-dir frozen_runs/<run id> \
+    --scores data/tmp/lightgbm_scores_h30_h30_q1q2_q3.parquet [--validation-only | --figures-only]
+```
+
+`cluster_action_policy.py` saves each finished clustering candidate to
+`ablation_partial.json` and resumes from it; `--validation-only` reads no test row and
+records no test look. Outputs: `data/audit/deep_dive_q3_h30/`,
+`data/audit/cluster_policy_h30/`.
+
 ### Whole pipeline
 
 | Command | What it does |

@@ -1,9 +1,10 @@
 # Cluster-based action policy for MAPE-K
 
-Status: **method fixed, Q3 not yet read** (sections 1-6 written 2026-11-06, before
-the Q3 step of `scripts/cluster_action_policy.py` ran). Sections 7-10 are filled
-from the saved outputs afterwards, never typed by hand: every number names the file
-it came from.
+Status: **run completed 2026-11-06; the rule was not passed, so the agent is
+unchanged.** Sections 1-6 were written and committed (`8dcca9b`) before the Q3 step
+of `scripts/cluster_action_policy.py` ran; sections 7-10 are filled from the saved
+outputs, and every number names the file it came from
+(`data/audit/cluster_policy_h30/`).
 
 ## 1. Question
 
@@ -170,19 +171,117 @@ same three checks would confirm a policy adopted here.
 
 ## 7. Results
 
-To be filled from `data/audit/cluster_policy_h30/` after the Q3 step.
+### 7.1 Clustering ablation (validation suspects, no test row read)
+
+4,729 suspects (335 failing) of 70,977 validation drives, 42 signature columns
+(`tables.md`, `validation.json` `ablation`; figure `figures/clustering_ablation.png`).
+35 candidates: k-means, Gaussian mixture, agglomerative and spectral at 3-10
+clusters, HDBSCAN at minimum sizes 50, 100, 200. Separation is small for every
+candidate (about 1e-4 to 1e-3), so differences between neighbouring candidates are
+not shown to be meaningful.
+
+| Candidate | Separation | Stability (ARI) | Smallest cluster | Qualifies? |
+|---|---|---|---|---|
+| **GMM, 4 clusters (chosen)** | 9.5e-4 | 0.83 | 9.6% | yes |
+| GMM, 8 clusters (highest separation) | 1.06e-3 | 0.68 | 1.4% | no: stability, size |
+| GMM, 10 clusters | 1.01e-3 | 0.75 | 1.5% | no: size |
+| Agglomerative, 10 clusters | 9.1e-4 | 0.84 | 1.1% | no: size |
+| k-means, best qualifying (5) | 4.8e-4 | 0.85 | 2.8% | yes |
+| Spectral (neighbour graph), best stability (4) | 2.1e-5 | 0.80 | 6.4% | yes, far lower separation |
+| HDBSCAN | 1.8e-4 - 3.6e-4 | 0.79 - 1.00 | 4.1% - 6.7% | noise 53-57% of suspects |
+
+Spectral clustering with an RBF kernel did not converge in two minutes on the real
+data and was replaced by the neighbour-graph version before any result was read
+(section 3). The first full run was stopped after 39 minutes for that reason; the
+ablation was then made resumable.
+
+### 7.2 The clusters and the action map (validation)
+
+| Cluster | Name | Share of suspects | Failure rate | Action kind |
+|---|---|---|---|---|
+| C0 | no clear damage | 53.5% | 1.1% | watch |
+| C1 | reallocated sectors rising, defect acceleration | 14.9% | 4.7% | replace |
+| C2 | pending sectors, pending vs reallocated | 22.1% | 11.7% | migrate data |
+| C3 | reallocated sectors rising, defect velocity | 9.6% | 33.4% | replace |
+
+Clusters alone separate risk from 1% to 33%. The map moved three of 13 cells, all
+**down**, none up: C1 at warn (38 drives, 5.3% failing), C2 at warn (247, 14.2%) and
+C2 at cordon (80, 48.8%) (`action_map.json`; figures `cluster_signatures.png`,
+`tier_cluster_matrix_validation.png`). In sample on validation the map raises warn
+precision by 11.3 points and lowers warn recall by 8.9.
+
+### 7.3 Q3 2026 test (one look: test-access log line 133, commit `8dcca9b`)
+
+`q3_evaluation.json`, `tables.md`. Cumulative tiers, per drive, 1,105 failing and
+367,583 healthy drives; paired drive bootstrap, 1,000 resamples.
+
+| Tier | Tier-only P / R / flagged | Cluster P / R / flagged | Precision gap [95%] | Recall gap [95%] | Moved down (failing) | Cost 20:1 |
+|---|---|---|---|---|---|---|
+| warn | 17.3% / 60.9% / 3,881 | 25.3% / 52.1% / 2,275 | +8.0% [+7.1, +8.9] | **-8.8% [-10.5, -7.1]** | 1,606 (97) | 11,848 -> 12,279 |
+| cordon | 34.8% / 42.4% / 1,346 | 39.4% / 36.2% / 1,015 | +4.6% [+3.1, +5.9] | **-6.2% [-7.7, -4.9]** | 331 (69) | 13,597 -> 14,715 |
+| migrate = drain | 33.3% / 0.2% / 6 | same | 0 | 0 | 0 | unchanged |
+
+- **Stability:** cluster shares on Q3 are 49.6 / 14.3 / 23.6 / 12.4% against 53.5 / 14.9
+  / 22.1 / 9.6% on validation, all within a factor of 2; a refit on Q3 agrees with
+  the assignment (ARI 0.87). Failure rates fell by about half (C3 33.4% -> 16.1%,
+  C2 11.7% -> 4.5%), as the fleet's did (0.59% -> 0.30%), with the order C3 > C2 >
+  C1 > C0 intact (`figures/cluster_stability.png`).
+- **The validation trade held out of sample:** precision +8.0 points (validation
+  +11.3) and recall -8.8 (validation -8.9) at warn.
+- **It does not beat the score's own curve.** At the recall each policy reaches, a
+  plain stricter threshold on the combined score gives 26.0% precision at 52.1%
+  recall (warn; the cluster policy gets 25.3%) and 42.5% at 36.2% recall (cordon;
+  the cluster policy gets 39.4%): the cluster policy's operating points lie on or
+  below the precision-recall curve (read from the curve saved in
+  `q3_evaluation.json`, thinned to about 2,000 points; `figures/policy_precision_recall.png`).
+- **Break-even:** demoting at warn avoided 1,509 false alarms for 97 lost failing
+  drives, so it pays only if one missed failure costs less than about 16 false alarms
+  (the illustrative 20 loses); at cordon, 262 for 69, break-even 3.8.
+- Most drives the policy dropped were still running (`figures/action_outcomes_by_cell.png`).
+
+Figures: `figures/policy_comparison.png`, `tier_cluster_matrix_test.png`,
+`lead_time_by_cell.png`, `cluster_families.png`, shown in runbook 1.1.6.
 
 ## 8. Decision
 
-To be filled.
+**Rule not passed** (`q3_evaluation.json` `rule`): precision is up at warn and
+cordon, but recall is lower at both (the recall clause fails), the clusters are
+stable (shares within 2x, ARI 0.87) and no cell moved on fewer than 30 drives.
+**The agent integration (Phase B) is not built** and the agent is unchanged.
+
+The validation result already pointed this way, and the recall clause could not
+be met by a policy that only demotes cells containing failing drives; the rule was
+run as written and not changed. What survives: the four clusters are stable,
+readable failure modes with very different risk (C3: 12% of Q3 suspects, 16%
+failing; C0: half of the suspects, 0.7%), usable as a description and a watch list.
+They do not improve the tiers: the precision they buy at warn and cordon is the
+precision a stricter score threshold buys, at a better price.
 
 ## 9. Provenance
 
-To be filled: commits, output files, test-access line, wall times.
+| Item | Value |
+|---|---|
+| Method and rule commit (before the Q3 look) | `8dcca9b` |
+| Run | frozen 30-day run `c459046e4f1645169151e7be25ff064d` |
+| Outputs | `data/audit/cluster_policy_h30/` (`validation.json`, `cluster_model.json`, `action_map.json`, `q3_evaluation.json`, `ablation_partial.json`, `tables.md`, `figures/`) |
+| Test accesses | `data/audit/test_access_log.jsonl` line 133 (the step before it, `--validation-only`, records none; lines 130-132 are another session's stacked-Stage-2 runs) |
+| Commands | runbook 1.1.6 |
+| Wall times | validation about 12 min (35 candidates; Gaussian mixtures 46-109 s each, the rest seconds), after a first run stopped at 39 min; Q3 step about 5 min |
 
 ## 10. Threats to validity
 
-To be filled after the run. Known in advance: one test quarter; the clusters are
-fitted on the same holdout the thresholds came from; labels choose the algorithm on
-validation; action kinds are unverifiable; cells near the 30-drive floor; the
-executor is simulated.
+- **One test quarter**, and the fleet's failure rate halved against validation, so
+  per-cell failure rates are not comparable between the two splits.
+- **The clusters are fitted on the same holdout the thresholds came from,** and labels
+  choose the algorithm on validation; separations between candidates are tiny and
+  their differences were not tested.
+- **The map's rule compares cells with band rates,** not with a cost break-even; a
+  cost-based rule would demote fewer cells (none above about 5% failing at 20:1).
+  It was not tried: the rule was fixed before the data was seen.
+- **Action kinds are unverifiable:** Backblaze records failures and removals, not
+  repairs.
+- **Cells near the 30-drive floor** (C0 at warn and cordon, drain) kept their band
+  and carry no result.
+- **The executor is simulated;** outcomes are what happened to the drive afterwards.
+- **The curve comparison is read from a thinned curve** (about 2,000 points); gaps
+  under a point are within its resolution.
