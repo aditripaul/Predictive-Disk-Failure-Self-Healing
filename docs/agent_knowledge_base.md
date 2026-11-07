@@ -411,8 +411,10 @@ Updated as each step lands. Commits are on branch `adi_dev`; times are UTC.
 | Phase 0 run: `data/audit/agent_pit_validation_h60/` | `b9cac53` | Done, frozen (checksums) |
 | Phase 1: knowledge store (`src/agent/knowledge/store.py`) | `b62d74e` | Done; 17 tests (self-checks a, b, c, f, j) |
 | Phase 1: builder, real-data self-checks, CLI | `be1d29a` | Done; 5 tests (incl. resume, check g) |
-| Phase 1: build on real data | - | Running |
-| Phase 1: loop wiring (Analyze context, Plan seam, Validate record) | - | Not started |
+| Phase 1: first build on real data | - | Self-check d failed: 930 censored rows had gold label 0 (section 11.3) |
+| Censoring fix | `a96d8a3` | Done; 29 knowledge tests pass |
+| Phase 1: loop wiring (Analyze context, Plan seam, Validate record) | `9f96205` | Done; 6 tests incl. check k; existing agent tests unchanged |
+| Phase 1: rebuild and checks after the fix | - | Running |
 | Phase 2: rules and screen | - | Not started |
 
 ### 11.1 Phase S: the frozen stack scorer (2026-11-07 13:40-13:44, commit `b8da3eb`)
@@ -475,4 +477,13 @@ The four arms are indistinguishable within their intervals.
   flag; otherwise censored a week later. Per-row outcomes still follow the label definition.
 - **Reopening a store with default settings** first failed against a store built with other
   settings; fixed (settings left out mean "as stored"). Also found by the tests.
+- **Censoring is not a final outcome.** Section 5.2 treated "censored a week after the
+  horizon" as a resolved outcome. On the first real build, self-check d found 930 candidate
+  days (112 drives) censored for good while the gold label is 0: the drives stopped
+  reporting just after their horizon ended, for longer than the 7-day grace, and came back
+  later (drive `ZCH0H28V` was silent 2026-03-17..25). The outcomes table now stores only
+  final outcomes (a failure in the horizon, or presence at or after its end); a censored
+  row is reconsidered on every resolve. As-of views still say "censored", and a later view
+  says "survived" once the drive reports again. Check d now requires exact agreement on
+  resolved rows and no unresolved row with a gold failure.
 
