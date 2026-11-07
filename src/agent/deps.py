@@ -119,3 +119,8 @@ class AgentDependencies:
     post_action_guardrail_evaluator: PostActionGuardrailEvaluator = field(
         default_factory=_default_post_action_guardrail_evaluator
     )
+    #: The Knowledge component (`src.agent.knowledge.KnowledgeBase`), or None. When set,
+    #: Validate records each decision in it; whoever builds the predictor may use it to
+    #: annotate candidates (`KnowledgeBase.annotate`). Typed loosely to keep
+    #: `src.agent.deps` free of the knowledge package's imports.
+    knowledge: Any = None

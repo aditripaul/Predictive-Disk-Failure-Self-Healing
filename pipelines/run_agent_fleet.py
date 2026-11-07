@@ -44,6 +44,7 @@ import time
 import uuid
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -131,6 +132,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Score the decisions against the label table",
     )
     parser.add_argument(
+        "--knowledge",
+        choices=["none", "memory", "sqlite"],
+        default=None,
+        help="Attach the knowledge base (docs/agent_knowledge_base.md): candidates get a "
+        "knowledge context and decisions are recorded in it. Default: configs/agent.yaml "
+        "knowledge.backend. It changes no decision (no rule is enabled).",
+    )
+    parser.add_argument("--knowledge-path", type=Path, default=None)
+    parser.add_argument(
         "--score-horizon-days",
         type=int,
         default=None,
@@ -181,12 +191,43 @@ def advance_pool(
     return reason
 
 
+def open_knowledge(args: argparse.Namespace) -> Any:
+    """The knowledge base the run attaches, or None (`--knowledge` / configs/agent.yaml).
+    `sqlite` opens an existing store (`scripts/build_agent_knowledge.py build`), which
+    carries its own scorer and thresholds; `memory` starts an empty one for this run."""
+    settings = AgentSettings.load()
+    backend = args.knowledge or settings.knowledge_backend
+    if backend == "none":
+        return None
+    from src.agent.knowledge import KnowledgeBase
+
+    if backend == "sqlite":
+        path = args.knowledge_path or Path(settings.knowledge_path)
+        if not path.exists():
+            raise SystemExit(
+                f"{path} not found; build it with scripts/build_agent_knowledge.py build"
+            )
+        return KnowledgeBase(path)
+    thresholds = settings.action_thresholds
+    return KnowledgeBase.in_memory(
+        run_id="agent_fleet",
+        thresholds={
+            "warn": thresholds["warn"],
+            "cordon": thresholds["cordon"],
+            "primary": thresholds["migrate"],
+        },
+        candidate_threshold=min(thresholds.values()),
+        horizon_days=yaml.safe_load(Path("configs/model.yaml").read_text())["primary_horizon_days"],
+    )
+
+
 def main(argv: list[str] | None = None) -> None:
     configure_logging()
     apply_memory_limit_from_config()
     args = parse_args(argv)
     refuse_overwrite([args.out], overwrite=args.overwrite)
 
+    knowledge = open_knowledge(args)
     fleet = build_fleet_dependencies(
         start_date=_date(args.start_date),
         end_date=_date(args.end_date),
@@ -194,6 +235,7 @@ def main(argv: list[str] | None = None) -> None:
         max_candidates=args.max_candidates,
         scores_path=args.scores_path,
         thresholds_path=args.thresholds_path,
+        knowledge=knowledge,
     )
 
     decisions: list[dict] = []
@@ -251,6 +293,11 @@ def main(argv: list[str] | None = None) -> None:
                     "withheld_action": proposal.get("withheld_action"),
                     "guardrail_passed": result["guardrail_result"]["passed"],
                     "human_review_required": result["human_review_required"],
+                    **(
+                        {"knowledge_context": proposal.get("knowledge_context")}
+                        if knowledge is not None
+                        else {}
+                    ),
                 }
             )
             decided.add(proposal["drive_id"])
@@ -306,6 +353,15 @@ def main(argv: list[str] | None = None) -> None:
         "executed": fleet.executed_actions,
         "decisions": decisions,
     }
+    if knowledge is not None:
+        report["knowledge"] = {
+            "path": str(knowledge.path) if knowledge.path else ":memory:",
+            "run_id": knowledge.run_id,
+            "decisions_recorded": knowledge.db.execute("SELECT COUNT(*) FROM decisions").fetchone()[
+                0
+            ],
+            "with_context": sum(1 for d in decisions if d.get("knowledge_context") is not None),
+        }
     if args.score:
         report["scoring"] = _score(fleet, decisions, horizon_days=args.score_horizon_days)
     args.out.parent.mkdir(parents=True, exist_ok=True)

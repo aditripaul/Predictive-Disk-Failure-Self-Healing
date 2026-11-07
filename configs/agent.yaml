@@ -52,3 +52,14 @@ feature_confidence:
 control_arm:
   control_fraction: 0.0
   salt: "control-arm-v1"
+
+# Knowledge (the K of MAPE-K; docs/agent_knowledge_base.md): a time-indexed store of what
+# the loop has seen per drive and cohort, queried as of each decision's date so it never
+# sees a later fact (src/agent/knowledge/). `backend: none` keeps the loop exactly as
+# before; `sqlite` / `memory` attach a store that annotates candidates and records
+# decisions, which feed outcome resolution and final trust scores. It changes no decision:
+# `rule` stays `none` unless a rule passes the pre-registered screen (section 8). None has.
+knowledge:
+  backend: none
+  path: data/audit/agent_knowledge.sqlite
+  rule: none

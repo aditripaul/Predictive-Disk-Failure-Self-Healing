@@ -72,6 +72,10 @@ AGENT_CONFIG_PATH = Path("configs/agent.yaml")
 #: 2,274 of 2,374 above-threshold test drives on the full run; 5000 holds them
 #: all. Override with `--max-candidates`.
 DEFAULT_MAX_CANDIDATES = 5000
+
+#: Columns a candidate carries for the knowledge base when one is attached (identity of
+#: the cohort and age); added only then, so the agent's state is unchanged without it.
+CANDIDATE_CONTEXT_COLUMNS = ("drive_model", "model_family", "power_on_hours")
 #: Left-side rows per slice of the snapshot join. Smaller than the training
 #: join's 2,000,000 because each slice is read at full width: 500k x 246
 #: float64 is under 1 GB, where 2M would be 3.9 GB for an output that is one
@@ -197,6 +201,8 @@ def to_candidate_drives(
     *,
     action_thresholds: dict[str, float],
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
+    context_columns: tuple[str, ...] = (),
+    include_as_of: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
     """The lean per-drive dicts the agent state carries, highest risk first.
 
@@ -210,7 +216,10 @@ def to_candidate_drives(
     Returns `(candidates, above_threshold_count)`. The second value is the
     count BEFORE `max_candidates` truncates, so a scorer can tell drives the
     agent rejected from drives it was never shown - without it, a capped run
-    reports every drive as reached and the attrition reads as zero."""
+    reports every drive as reached and the attrition reads as zero.
+
+    `context_columns` (those present) and, with `include_as_of`, the row's date as an ISO
+    `as_of` are added for the knowledge base, which needs the date to answer as of it."""
     floor = min(action_thresholds.values()) if action_thresholds else 0.0
     candidates = (
         scored.filter(pl.col("p_fail") >= floor).sort("p_fail", descending=True)
@@ -227,6 +236,12 @@ def to_candidate_drives(
                 "feature_confidence": float(row["feature_confidence"]),
                 "feature_maturity": row["feature_maturity"],
                 "stale_telemetry": bool(row.get("stale_telemetry_flag") or False),
+                **{c: row[c] for c in context_columns if c in row},
+                **(
+                    {"as_of": row["date"].isoformat()}
+                    if include_as_of and row.get("date") is not None
+                    else {}
+                ),
             }
         )
     return drives, above_threshold
@@ -391,6 +406,7 @@ def build_fleet_dependencies(
     agent_config: dict | None = None,
     scores_path: Path | None = None,
     thresholds_path: Path | None = None,
+    knowledge: Any = None,
 ) -> FleetAgent:
     """Bind the MAPE-K loop to the real gold feature table and trained model.
 
@@ -459,7 +475,11 @@ def build_fleet_dependencies(
             load_scoring_model(resolved_run_id, model_config["model"].get("type", "lightgbm")),
         )
     drives, above_threshold = to_candidate_drives(
-        scored, action_thresholds=action_thresholds, max_candidates=max_candidates
+        scored,
+        action_thresholds=action_thresholds,
+        max_candidates=max_candidates,
+        context_columns=CANDIDATE_CONTEXT_COLUMNS if knowledge is not None else (),
+        include_as_of=knowledge is not None,
     )
     snapshot_id = _snapshot_id((start_date, end_date), scored.height)
     logger.info(
@@ -507,11 +527,16 @@ def build_fleet_dependencies(
 
     dependencies = AgentDependencies(
         fleet_state_provider=fleet_state_provider,
-        predictor=lambda snap: {"drives": snap["drives"]},
+        predictor=(
+            (lambda snap: {"drives": knowledge.annotate(snap["drives"])})
+            if knowledge is not None
+            else (lambda snap: {"drives": snap["drives"]})
+        ),
         guardrail_evaluator=build_guardrail_evaluator(),
         executor=execute,
         validator=validate,
         action_ledger=action_ledger or InMemoryActionLedger(),
+        knowledge=knowledge,
     )
     return FleetAgent(
         dependencies=dependencies,
