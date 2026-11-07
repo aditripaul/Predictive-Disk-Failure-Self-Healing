@@ -1,0 +1,25 @@
+flavors:
+  lightgbm:
+    code: null
+    data: model.skops
+    lgb_version: 4.7.0
+    model_class: lightgbm.sklearn.LGBMClassifier
+    serialization_format: skops
+    skops_trusted_types:
+    - lightgbm.sklearn.LGBMClassifier
+    - lightgbm.basic.Booster
+    - lightgbm.sklearn.LGBMRegressor
+    - collections.OrderedDict
+  python_function:
+    data: model.skops
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.lightgbm
+    python_version: 3.14.8
+mlflow_version: 3.16.1
+model_id: null
+model_size_bytes: 266204
+model_uuid: 81a293af2e524b56a15d0d7591166bee
+prompts: null
+utc_time_created: '2026-11-07 13:44:35.038208'

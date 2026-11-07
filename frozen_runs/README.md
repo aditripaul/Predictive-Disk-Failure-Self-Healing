@@ -17,6 +17,7 @@ validation set. A new experiment gets a new run tag and a new folder.
 | `a2cd06d53e624c09b0d12f81076def8a` | `h44_q1q2_q3` | Same, 44-day label | Same rows, test 07-01..08-17 | 62.6% at 9.9% | 2.7 MB |
 | `804a20cec10048abb1bc3ccf510f96e1` | `h60_q1q2_q3` | Same, 60-day label | Same rows, test 07-01..08-01 | 63.3% at 9.0% | 2.4 MB |
 | `839d92bcd305494a8930d0dfbbb3f2a6` | `h30_seed0` | LightGBM two-stage, 0.5 net | Train to 2026-01-15, validation 02-15..03-31, test 04-01..05-31 (61 days), 30-day | 57.1% at 12.0% | 1.3 MB |
+| `stack_h60_seed0` | (not an MLflow run) | The stacked Stage 2 (LightGBM + Cox rank blend on the Stage 1 candidates, seed 0, net 0.8), refitted from the `804a20ce` work dir and frozen as a scorer for the agent's knowledge base (`docs/agent_knowledge_base.md`); reproduces the 1.1.4a seed-0 run exactly; load with `load_stacked_two_stage` | Same rows as `804a20ce`, 60-day; validation only, no test access | Not tested here (runbook 1.1.4a has its Q3 results) | 3.7 MB |
 | `fb58d9576c6146ba94c13389005fa15b` | `h30_seed0` (merged) | The merged approach: XGBoost AFT and Cox, LSTM, TCN and rank blends, beside the LightGBM two-stage member above, on identical rows. No LightGBM model of its own | Same window as `839d92bc` | Best blend (LightGBM + AFT + TCN) 70.1% at 13.7% | 426 MB (the score table) |
 
 The three Q3 runs are the 30-, 44- and 60-day models of one experiment, trained

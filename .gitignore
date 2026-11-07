@@ -39,6 +39,7 @@ data/audit/q3_logs/cascade_h*.log
 data/audit/q3_logs/train_h*.log
 data/audit/q3_logs/deep_dive*.log
 data/audit/q3_logs/cluster_policy_validation.log
+data/audit/stack_scorer_h60_logs/freeze.log
 
 # ML experiment tracking artifacts
 mlflow/*
