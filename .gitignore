@@ -60,3 +60,4 @@ tests/golden/golden_dataset.parquet
 data/audit/*.sqlite*
 
 delme/
+data/audit/agent_knowledge_h60_logs/build.log
