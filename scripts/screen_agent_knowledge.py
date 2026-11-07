@@ -480,7 +480,8 @@ def main(argv: list[str] | None = None) -> None:
         for key, r in described["rules"].items():
             print(
                 f"{key}: changed {r['changed_cordon_drive_days']} ({r['changed_drives']} drives, "
-                f"{r['changed_that_failed']} failing) | precision {100 * r['precision_difference']:+.1f} "
+                f"{r['changed_that_failed']} failing) | precision "
+                f"{100 * r['precision_difference']:+.1f} "
                 f"[{100 * r['precision_ci'][0]:+.1f}, {100 * r['precision_ci'][1]:+.1f}] | recall "
                 f"{100 * r['recall_difference']:+.1f} [{100 * r['recall_ci'][0]:+.1f}, "
                 f"{100 * r['recall_ci'][1]:+.1f}]"
