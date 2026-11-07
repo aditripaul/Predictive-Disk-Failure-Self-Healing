@@ -1,15 +1,16 @@
 # A Knowledge component for the MAPE-K agent
 
-Status: **in progress, 2026-11-07.** Phase S (frozen stack scorer) and Phase 0 (validation
-baseline) are done and frozen; Phase 1 (the knowledge store) is being built. Section 11 is
-the running log. Sections 1-10 are the
+Status: **finished and frozen, 2026-11-07. No knowledge rule passed the screen, so there was
+no Q3 look and the agent's decisions are unchanged; the Knowledge component stays in the loop as
+read-only context.** Section 11 is the progress log and results, 12 the decision, 13 the
+provenance (runbook 1.1.7 and 4.13, ADR 0004). Sections 1-10 are the
 design and are committed before any code or run. Section 8, the rule that decides
 whether a knowledge rule may change a decision, is not edited after that commit except by
 dated amendments appended to it, made before any screening result exists (one so far:
 Amendment 1); the Q3 step of the screen refuses to run if this file has uncommitted
 changes. Sections
-11-13 (Results, Decision, Provenance) are added when the runs are finished and their
-outputs are frozen; the runbook gets the same record (sections 1.1.7 and 4.14).
+11-13 (Results, Decision, Provenance) were added when the runs were finished and their
+outputs frozen; the runbook has the same record (sections 1.1.7 and 4.13).
 
 ## 1. Question
 
@@ -411,11 +412,13 @@ Updated as each step lands. Commits are on branch `adi_dev`; times are UTC.
 | Phase 0 run: `data/audit/agent_pit_validation_h60/` | `b9cac53` | Done, frozen (checksums) |
 | Phase 1: knowledge store (`src/agent/knowledge/store.py`) | `b62d74e` | Done; 17 tests (self-checks a, b, c, f, j) |
 | Phase 1: builder, real-data self-checks, CLI | `be1d29a` | Done; 5 tests (incl. resume, check g) |
-| Phase 1: first build on real data | - | Self-check d failed: 930 censored rows had gold label 0 (section 11.3) |
+| Phase 1: first build on real data | - | Self-check d failed: 930 censored rows had gold label 0 (section 11.5) |
 | Censoring fix | `a96d8a3` | Done; 29 knowledge tests pass |
 | Phase 1: loop wiring (Analyze context, Plan seam, Validate record) | `9f96205` | Done; 6 tests incl. check k; existing agent tests unchanged |
-| Phase 1: rebuild and checks after the fix | - | Running |
-| Phase 2: rules and screen | - | Not started |
+| Phase 1: rebuild and checks after the fix | (outputs) `3090d2a` | Done; every self-check passes (11.3) |
+| Phase 2: rules and screen | `941a78a`, `d58e0cc`, `4842ea3` | Done; 13 tests |
+| Phase 2: screen run (clean tree) | (outputs) `3090d2a` | Done: no rule passed (11.4) |
+| Full suite before the write-up | - | 846 tests pass (unit and agent-graph integration); lint and types clean |
 
 ### 11.1 Phase S: the frozen stack scorer (2026-11-07 13:40-13:44, commit `b8da3eb`)
 
@@ -453,7 +456,66 @@ exactly on 2026-02-23 (67,477 drives).
 
 The four arms are indistinguishable within their intervals.
 
-### 11.3 Where the implementation departs from sections 1-10
+### 11.3 Phase 1: the knowledge store (2026-11-07 14:12-14:16, commit `a96d8a3`)
+
+Built from the stack's validation scores (2026-01-01..05-01) and silver presence and failures to
+2026-06-30, for the 70,969 validation drives, in 26 weekly chunks (193 s). No test access.
+
+| Table | Rows |
+|---|---|
+| candidate_days | 234,275 (exactly the stack run's validation candidate rows) |
+| presence_weeks | 1,864,602 |
+| failure_days | 483 |
+| cohort_daily | 15,593 |
+| outcomes (final only) | 234,034 |
+
+**Self-checks, all pass** (`knowledge_checks.json`): (a) 2026-02-01..14 rebuilt in memory forward
+and in reverse is identical (23,532 candidate days, 37 failures, 1,204 cohort rows); (b) the
+contexts of 500 fixed drives at 26 chunk ends equal the hashes recorded while building; (d)
+234,034 resolved outcomes against the gold labels: 0 disagreements (221,247 zeros, 12,787 ones);
+241 rows unresolved, all gold 0 and none a gold failure; (f) re-ingesting 2026-05-01 changes
+nothing; (h) model and score table agree on 2026-02-23; (c), (g), (i), (j), (k) by tests.
+
+**Episodes as of 2026-06-30:** 1,419 on 797 drives (median 7 flagged days, 90th percentile 39):
+431 failed, 979 survived their horizon, 2 censored, 7 pending. **Of the 222 episodes with 7 or
+more days above cordon, 138 failed and 83 survived**: a long episode is mostly a real failure.
+
+**Coverage:** every validation drive scored on 2026-03-02 (67,732) and 2026-05-01 (70,066) has
+history, 66,581 and 67,564 of them 60 days or more. The Q3 bound of section 7.3 (19.3% of Q3
+drives with history before Q3) was not measured, since no rule reached Q3.
+
+**Drift** (reference 2026-01-01..03-31, current 04-01..05-01): drives at Stage 1, warn and
+cordon rose from 2.71% / 0.24% / 0.057% to 3.17% / 0.31% / 0.092% of the daily fleet; PSI flags
+all three as significant (coarse on 31 daily values) and the candidate scores as moderate (0.23).
+
+### 11.4 Phase 2: the screen (2026-11-07, commit `4842ea3`, clean tree)
+
+Confirm half 2026-02-16..03-02: 1,013,502 drive-days, 68,064 drives, row failure rate 0.223%;
+2,534 drive-days with a knowledge context (those at warn or above). No test access.
+
+| Rule | Chosen on the select half | Verdict |
+|---|---|---|
+| R1 cohort prior | tau 2.0 (judged at warn and cordon; 748 changed drive-days, 201 drives) | **Failed**: warn precision -0.2 points [-2.2, +1.8], cordon +1.9 [-2.5, +6.3]; recall +0.5 [-1.9, +2.9] and +1.9 [+0.3, +3.7]; recall at matched false-alarm rate not better (criterion 2) |
+| R2 chronic demote | none (every N tied with "no rule") | **Failed** at selection |
+| R2b first-flag promote | none | **Failed** at selection |
+| R3 outcome memory | - | **Not screenable** at h = 60 (declared in section 7.1) |
+
+**No rule passed, so no Q3 look was taken** (`screen_agent_knowledge.py --q3` refuses: "no rule
+passed the validation screen").
+
+**Descriptive, not part of any verdict** (`tier_rules_descriptive.json`): at the fixed cordon
+threshold on the confirm half,
+
+| R2, N | Changed cordon drive-days (drives) | Of which failing | Precision [95% CI] | Recall [95% CI] |
+|---|---|---|---|---|
+| 7 | 396 (58) | 230 | -8.9 [-18.1, +1.1] | -10.2 [-14.1, -6.3] |
+| 14 | 242 (30) | 135 | -2.0 [-9.7, +6.3] | -6.0 [-9.2, -3.1] |
+| 21 | 189 (20) | 107 | -1.7 [-8.9, +5.8] | -4.7 [-7.8, -2.1] |
+| 28 | 161 (16) | 93 | -1.8 [-8.1, +5.0] | -4.1 [-7.0, -1.7] |
+
+R2b changes 2 drive-days at either delta (60 days of history is barely available on these dates).
+
+### 11.5 Where the implementation departs from sections 1-10
 
 - **Phase S is a standalone script** (`scripts/freeze_stack_scorer.py`), not new flags on
   the cascade experiment. Test scoring is woven through every step of that experiment;
@@ -486,4 +548,49 @@ The four arms are indistinguishable within their intervals.
   row is reconsidered on every resolve. As-of views still say "censored", and a later view
   says "survived" once the drive reports again. Check d now requires exact agreement on
   resolved rows and no unresolved row with a gold failure.
+- **The selection criterion cannot see a pure tier rule.** Section 8 chooses hyperparameters by
+  recall at the judged tier's own false-alarm rate, which compares rankings; section 7's
+  transform places a demoted drive just below the next threshold, above every other drive of
+  its new tier, so at a matched false-alarm rate the demoted drives are re-admitted and R2 and
+  R2b tie with "no rule" for every value. This was found when the screen ran. The verdict stands
+  as computed; a descriptive look at the fixed cordon threshold shows R2 would have
+  failed criterion 1 anyway, by losing recall (11.4).
+- **R1's thresholds** are matched to the baseline's select-half flag counts at each tier,
+  because R1 changes the score's scale; section 8 did not say how to place them. No confirm-half
+  data is used for this.
+- **The fleet runner does not ingest its own snapshots** into the store; it records decisions
+  (through Validate) and reports coverage. The store is filled by its builder.
+- **The Q3 step of the screen is a guard only.** Its evaluation path was not built, since it
+  runs only after a pass and none happened.
 
+## 12. Decision
+
+- **No knowledge rule is enabled.** `configs/agent.yaml knowledge.rule` stays `none`, and the
+  agent's decisions are unchanged. None of R1, R2, R2b passed the pre-registered screen; R3 could
+  not be screened at the 60-day horizon.
+- **The Knowledge component stays in the loop as read-only context** (`knowledge.backend` is
+  `none` by default and `sqlite` or `memory` on request): it records decisions, resolves
+  outcomes and final trust scores, and reports drift of the daily Stage 1, warn and cordon shares.
+- **What was learned:** a drive's own long-run history is information the 30-day features do not
+  have, and it points toward failure. Episodes with a week or more above cordon ended in failure
+  138 times out of 222, and demoting them would cost 4-10 points of recall. ADR 0003's conclusion
+  (re-filtering the model's flags does not raise precision) stands, extended to long-run history
+  (ADR 0004).
+- **Cost-based tiers are available, not adopted.** `threshold.tier_rule` stays `lift` until
+  operations sets the cost ratios; on validation, the ratio decides where the cheap tiers sit far
+  more than any knowledge rule could.
+- **Q3 was not read** by any step of this work.
+
+## 13. Provenance
+
+| Item | Value |
+|---|---|
+| Design commit (sections 1-10) | `553004a`; power filled `441468f`; Amendment 1 `1165f2c` |
+| Scorer | `frozen_runs/stack_h60_seed0/`, refit at `b8da3eb` from work dir `train_model_frame_xjxdieoe` (60-day run `804a20ce`), seed 0, net 0.8; `stack.json` SHA-256 `5b587b964b67e8c2`, tiers `747d2ed19d6b7b3e`, report `ebddc0b6c7f617ad` |
+| Validation baseline | `make agent-pit-validation` at `787b8b8`; `data/audit/agent_pit_validation_h60/stack.json` `55bea04b297820a3` |
+| Knowledge store | `scripts/build_agent_knowledge.py build/check/coverage/drift` at `a96d8a3`; `knowledge_checks.json` `aa9a3f80f019bd71`; the store (`data/audit/agent_knowledge.sqlite`, 96 MB) is local |
+| Screen | `scripts/screen_agent_knowledge.py` at `4842ea3`; `validation.json` `a637496d70e35ebd`; descriptive `tier_rules_descriptive.json` `058b9173cd493176` (at `d58e0cc`) |
+| Test-access log | 139 lines before and after: no step read test data |
+| Wall times (UTC, 2026-11-07) | scorer 13:40-13:44; baseline 13:53-13:54; store 14:12-14:16; screen about 2 minutes |
+| Tests | 846 pass (unit and agent-graph integration) at the end of the work; lint and types clean |
+| Outputs | Each folder has a README and `CHECKSUMS.sha256`; logs stay local (absolute paths) |
