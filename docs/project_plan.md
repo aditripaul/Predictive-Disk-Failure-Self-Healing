@@ -3,11 +3,13 @@
 ## AI-Based Autonomous System Validation & Reliability Checker
 ### Predictive Disk-Failure Self-Healing Agent for Server Fleets
 
-> **The plan as written, before implementation, and kept that way.** The
-> prediction target stated here (precision >= 95%, recall 35-50%) was not met;
-> the primary horizon is now 30 days, and per-action thresholds are set from
-> lift rather than precision. Measured outcomes: `docs/system_summary.md`,
-> `docs/project_report.md` and `docs/model_status_and_runbook.md`.
+> **The plan as written before implementation, with a status layer added.**
+> Sections 1 to 17 are the original plan and are kept as written, so the plan
+> can be compared with what was built. Section 0 below records where each
+> objective and phase stands as of 2026-11-07 and which plan items the work
+> replaced. Measured outcomes and their evidence: `docs/project_report.md`,
+> `docs/system_summary.md` and `docs/model_status_and_runbook.md` (the record
+> every number here comes from).
 
 **Document role:**
 This document defines the complete execution roadmap for the Project. It translates the design goals from `design_goal.md` and the dataset/feature strategy from `dataset_strategy.md` into a phased, actionable engineering plan.
@@ -20,6 +22,71 @@ Each phase includes:
 - RAM-aware implementation guidance;
 - deliverables;
 - exit criteria.
+
+---
+
+# 0. Status against the plan (2026-11-07)
+
+## 0.1 Objectives
+
+| # | Objective | Status | What exists |
+|---:|---|---|---|
+| O1 | Ingest and harmonize Backblaze and SMART-Z | **Backblaze done; SMART-Z not run** | Backblaze Q4 2025 to Q3 2026 through bronze, silver and gold within a 20 GB memory cap. SMART-Z has harmonization code and a reserved split (`external_smartz`) but no data has been ingested |
+| O2 | Predict failure within N days at precision >= 95%, recall 35-50% | **Not met** | 30-day two-stage cascade (frozen run `c459046e`), tested on Q3 2026: 59.0% precision at 12.5% recall at the primary threshold (95% CI 52.3% to 65.5%); 34.8% precision at 42.4% recall at cordon. The limit is how rare failures are and what daily SMART shows: about a fifth of failing drives show no SMART change before failing (report Sections 8 and 9) |
+| O3 | Guardrailed agentic loop, zero hard-guardrail violations | **Met in simulation** | Integration and chaos tests; but the last-healthy-node and quorum rules default to permissive in the demonstration wiring, which supplies no topology (developer guide Section 13) |
+| O4 | Remediation in the fleet simulator without data loss | **Met in simulation** | Chaos tests: no data loss, no quorum violation, compensating action on timeout |
+| O5 | Reliability checker and trust scoring | **Implemented; partly operational** | Trust score with veto on every decision. Final (resolved) trust scores and drift checks exist (`src/reliability/batch.py`, `drift.py`) but run only on demand; separation between decision classes has not been measured on real decisions |
+| O6 | Audit trail and explainability | **Met** | Every decision audited, persisted to SQLite; SHAP explanations describe the first stage only |
+
+## 0.2 Phases
+
+| Phase | Status | Delivered | Changed from the plan |
+|---:|---|---|---|
+| 0 Bootstrap | Done | Repository scaffold, typed data contracts, golden-dataset tests, `make ci` (ruff, mypy, pytest) run by GitHub Actions | - |
+| 1 Ingestion | Backblaze only | Bronze Parquet for Backblaze, every SMART column read as a number | SMART-Z not ingested (no data); synthetic data lives in the simulator and test fixtures |
+| 2 Harmonization | Done for Backblaze | Silver tables, vendor-to-canonical attribute map, telemetry gaps, maturity states | Polars throughout; the DuckDB path was a spike, never measured on real data and not in the pipeline. The maturity state reads the dataset's last date, so a backtest that consults it looks ahead (ADR 0003) |
+| 3 Features | Done | 246 features per drive-day (`configs/features.yaml`); feature confidence; memory-mapped `.npy` sequences for the LSTM | The feature-confidence formula was wrong until 2026-10-09: 0% of drive-days could clear the 0.80 floor. Fixed (attributes scored per drive model, recency charged only beyond the daily cadence); 86.1% now clear it (ADR 0002) |
+| 4 Labels and splits | Done | Labels for 30, 44 and 60 days (7 and 14 were built and compared earlier and dropped from the build on 2026-11-06); time-ordered splits with a label purge; a sealed-split mechanism | **30 days is the primary horizon** (44 and 60 rank no better). The current model's validation is a 20% drive holdout over the training dates, with Q3 2026 as test. Class weighting is the square root of the class ratio: `is_unbalance` collapsed the model. SMOTE is compared, not used |
+| 5 Model and thresholds | Done; target not met | LightGBM **two-stage cascade**: Stage 1 keeps 80% of failing drives, Stage 2 re-ranks what passes; XGBoost, AFT, Cox, LSTM, TCN, blends and a stacked Stage 2 compared; MLflow (local), model cards, frozen runs | The primary threshold is the most precise point with at least 10% recall, chosen on validation; action tiers are set from **lift**, not precision. On the current model migrate and drain share one cutoff that flags 6 drives in the 62-day Q3 test window, so only warn and cordon act. Optuna search exists but is off by default |
+| 6 Agent core | Done in simulation | LangGraph MAPE-K loop, checkpoints, idempotent action ledger, hysteresis (2 cycles), cooldown (3,600 s), human approval, compensation; `make agent-fleet` runs the loop on the real feature table with a simulated executor | The API and `make agent-demo` drive a two-drive demonstration fleet. Timeout degradation is implemented and tested, but nothing in the running service sweeps the queue for overdue reviews |
+| 7 Guardrails | Done | 6 hard pre-action, 3 soft and 2 post-action rules; every one of 2,000 evaluations under 500 ms; optional Redis operational state | In-memory state is the default |
+| 8 Simulator and chaos | Done | Fleet simulator; chaos tests for stale telemetry, correlated multi-drive failure, action timeout, human-review timeout and guardrail latency | Trajectory-morphed synthetic telemetry was not built |
+| 9 Reliability checker | Partly | Trust score, veto, audit records | Batch resolution and drift checks are not scheduled |
+| 10 Dashboards and HITL | Done, not hardened | FastAPI approval queue and audit API, Streamlit dashboards | No authentication, no request locking |
+| 11 Evaluation and report | Partly | Final report (`docs/project_report.md`); a point-in-time evaluation of the agent's policy; a test on Q3 2026, a quarter nothing had seen | Cross-dataset evaluation not run; loop cycle time not measured; the sealed quarter became the Q3 test set on 2026-11-06, so no untouched period remains |
+
+## 0.3 Evaluation matrix (Phase 11): outcome
+
+| Dimension | Target | Outcome |
+|---|---:|---|
+| Prediction precision | >= 95% | 59.0% at the primary threshold on Q3 2026 |
+| Prediction recall | 35-50% | 12.5% at the primary threshold; 42.4% at cordon (34.8% precision); 60.9% at warn (17.3%) |
+| Loop cycle time | < 5 minutes | Not measured |
+| Guardrail latency | < 500 ms | Met: every one of 2,000 evaluations |
+| Hard-guardrail violations, data loss, quorum violations | 0 | Met in integration and chaos tests |
+| False-positive action rate | < 5% | Depends on the definition the plan did not fix: on Q3, 877 of the 1,346 drives flagged at cordon or above (65%) did not fail within 30 days, while 0.24% of healthy drives were cordoned (arithmetic on the reported counts) |
+| False-negative action rate | < 2% | Not met: 57.6% of failing Q3 drives did not reach cordon (636 of 1,105) |
+| Trust-score separation | Clear | Not measured on real decisions |
+| SMART-Z generalization | Acceptable degradation | Not run |
+| Guardrail compliance | 100% hard / >= 95% soft | 100% hard in tests; soft compliance not reported |
+| Duplicate actions after recovery | 0 | Met in the replay test |
+
+## 0.4 Plan items the work replaced
+
+- **One high-precision model** became a **two-stage cascade** tuned for
+  coverage first: Stage 1 reaches 80% of failing drives, Stage 2 sharpens the
+  top of the list (report Section 8).
+- **Precision >= 95%** is not reachable on real-fleet data at these failure
+  rates; results are reported per drive, with the failure rate beside every
+  precision figure (report Sections 7 and 13.1).
+- **Per-tier precision targets** became **lift targets**, because precision moves
+  with the failure rate; the current targets are placeholders until the cost of
+  each action is known.
+- **A random drive-level split** was never used; every split is time-ordered,
+  and every test-split computation is logged (`data/audit/test_access_log.jsonl`).
+- **LightGBM `is_unbalance`** gave way to square-root class weighting,
+  regularization and early stopping on average precision after the first real
+  run collapsed.
 
 ---
 

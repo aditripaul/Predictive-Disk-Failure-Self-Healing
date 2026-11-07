@@ -20,8 +20,10 @@ human_review:
 # false-alarm rate. `make score-fleet` instead uses per-tier thresholds that
 # `make train` derives from lift targets (configs/model.yaml
 # threshold.action_tier_lift) and records with the model; these values
-# are the fallback for models trained before that existed. Wiring the live
-# agent loop (src/agent/nodes.py) to the same thresholds is not done yet.
+# are the fallback for models trained before that existed, and for a fresh
+# checkout with no trained run: the live loop's entry points (src/agent/demo.py
+# live_plan_kwargs, src/agent/fleet.py) resolve the trained thresholds through
+# src/models/trained_thresholds.py and only fall back to these.
 action_thresholds:
   warn: 0.30
   cordon: 0.60

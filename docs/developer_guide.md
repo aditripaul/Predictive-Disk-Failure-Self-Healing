@@ -1165,8 +1165,11 @@ failure rate - see §5.13). It reports
 validation and test precision and recall per tier (model card, log), writes
 `action_tiers.json` to the MLflow run, and `make score-fleet` uses those
 thresholds; a tier whose target is unreachable never fires, and older runs
-fall back to the cutoffs in `configs/agent.yaml`. The live agent loop still
-uses `agent.yaml` directly.
+fall back to the cutoffs in `configs/agent.yaml`. The live agent loop reads
+the same trained thresholds: `src/agent/demo.py::live_plan_kwargs` (used by the
+API and `make agent-demo`) and `make agent-fleet` resolve them through
+`src/models/trained_thresholds.py`, falling back to `agent.yaml` with a logged
+reason when no trained run is resolvable.
 
 **Goal status: not met, and not reachable by tuning.** Shipped model, test,
 drive level: 23% precision at 30% recall (92 of 309 failures caught, 309
@@ -1232,9 +1235,16 @@ is judged on the fleet figure only.
    (`docs/cascade_wide_net.md`). `stage2_kind="cox"` or `"aft"` fits an XGBoost
    survival model instead (`src/models/survival.py`), given the train rows'
    time-to-failure bounds (`train_survival_bounds`) and the horizon; the
-   combined score keeps the same form. Compared, not shipped
-   (`docs/q3_horizon_and_cascade_run.md` section 7.3): only a LightGBM Stage 2
-   can be logged for scoring.
+   combined score keeps the same form. `stage2_kind="stack"`
+   (`src/models/stacking.py::fit_stack`) blends the net's already-fitted
+   LightGBM and Cox Stage 2 by validation rank (`src/models/ensemble.py::
+   validation_rank`), with weights searched on a 0.1 simplex grid for
+   drive-level average precision on the validation candidates; nothing is
+   retrained, and because the members early-stopped on the same rows its
+   validation score is optimistic. Survival kinds and the stack are compared,
+   not shipped (`docs/q3_horizon_and_cascade_run.md` section 7.3, runbook
+   1.1.4a): only a LightGBM Stage 2 can be logged for scoring
+   (`log_two_stage`).
 4. One combined score: a non-candidate keeps its Stage 1 score; a candidate
    scores `threshold + (1 - threshold) * stage2`. Tiers needing more recall
    than `candidate_recall` therefore behave exactly as with Stage 1 alone.
@@ -1245,8 +1255,9 @@ stage1_precision_at_recall`, `stage1_alone_precision_at_recall` log lines).
 Stage 1 is still logged as the run's `model`; Stage 2 is logged as
 `model_stage2` with `two_stage.json`, and `make score-fleet` wraps both
 (`load_two_stage`) for any run that has them. SHAP and gain importance
-describe Stage 1. The live agent loop does not use the trained model at all
-yet (§13), so it is unaffected.
+describe Stage 1. The demo and API's predictor is still a two-drive fixture
+(§13), so only `make agent-fleet` scores real drives with the trained model;
+the tier thresholds, however, come from the trained run on every entry point.
 
 **Action-tier targets are lift, not precision**
 (`src/models/threshold.py::precision_targets_from_lift`). Precision moves
@@ -1258,6 +1269,11 @@ another fleet; lift (alerted-drive failure rate ÷ fleet failure rate) does.
 tunes the threshold as before, and reports test lift beside test precision.
 `threshold.action_tier_lift`'s current values reproduce the former precision
 targets on validation, so adopting lift was not meant to move any threshold.
+A target above what any cutoff earns falls back to the curve's most precise
+point (`tune_action_tiers` records `target_met: false`). On the current model
+(`c459046e`, validation failure rate 0.589%) that happens to drain (lift
+226.4 -> 133%); migrate's target (151.0 -> 88.9%) is met only at the very top of
+the curve (2 validation drives). Both get 0.926 and flag 6 drives on Q3, so only warn (0.653) and cordon (0.836) act (runbook 1.9).
 
 **Per-drive-model thresholds exist and are measured, but are not served**
 (`src/models/threshold.py::tune_action_tiers_by_family`, ADR 0002). A drive
@@ -1279,6 +1295,7 @@ and should not be rewired to this.
 |---|---|
 | `--two-stage` | the same `two_stage` module, one report per Stage 1 net (`--candidate-recalls`), against Stage 1 alone at each recall level up to the net, with a paired drive bootstrap |
 | `--two-stage-seeds N` | repeats it with N seeds and prints the mean, the spread of the precision gain, and in how many seeds it was better on both precision and recall |
+| `--stage2-kinds lightgbm cox aft stack` | Stage 2 kinds compared per net; survival kinds and the stack are paired against the LightGBM Stage 2 (`paired_vs_lightgbm`), and each report adds precision/recall and caught drives at `evaluation.top_k` |
 | `xgboost_aft`, `xgboost_aft_spw` | survival model (`src/models/survival.py`): XGBoost accelerated failure time on each train row's time to failure, scored on the same binary label |
 | `--anomaly-stage` | isolation forest fitted on healthy rows: the anomaly score alone, an anomaly-filter-then-classify cascade, and the score as an extra feature |
 | `reg_spw_old_features`, `reg_spw_no_lifetime`, `reg_spw_no_secondary` | feature-group ablations on the same rows |
@@ -1922,14 +1939,17 @@ fully clean slate between experiments.
 Data / model:
 
 - The repository ships no data. The pipeline has been run end to end on real
-  Backblaze Q1 + Q2 2026 data (results in `docs/model_status_and_runbook.md`);
-  SMART-Z has not been evaluated.
-- The model does not reach the precision target on the real fleet (48.6% at
-  8.7% recall against a 90% target, 95% CI [38.9%, 58.2%]).
-  `docs/system_summary.md` section 4.
+  Backblaze data from Q4 2025 to Q3 2026 (results in
+  `docs/model_status_and_runbook.md`); SMART-Z has not been evaluated.
+- The model does not reach the precision target on the real fleet: the
+  current model (`c459046e`) gives 59.0% at 12.5% recall on Q3 2026 against a
+  90% target, 95% CI [52.3%, 65.5%]. `docs/system_summary.md` section 4.
+- Migrate and drain do not operate on the current model: their lift targets
+  convert to precision met only at the very top of the curve (migrate) or not
+  at all (drain), so both share one cutoff that flags 6 drives in the 62-day Q3 test window (§5.13, runbook 1.9).
 - The second-stage model's precision gain is not confirmed - a direct paired
-  bootstrap test on the current build gives an interval that includes 0.
-  `docs/model_status_and_runbook.md` §1.2.
+  bootstrap test gives an interval that includes 0, and on Q3 the gain appears
+  only below about 20% recall. `docs/model_status_and_runbook.md` §1.2, §1.1.4.
 - Neither sealed evaluation has been run: the Q3 2026 quarter was used as a
   test set instead (2026-11-06, §5.14), and SMART-Z has a split reserved but
   no data ingested, so stability across vendors is unmeasured and stability

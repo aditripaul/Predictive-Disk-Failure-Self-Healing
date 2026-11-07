@@ -269,39 +269,60 @@ guardrail/trust-score system, not from SHAP directly.
 
 ## 6a. How reliable are the predictions?
 
-Measured on real Backblaze data (January to June 2026, about 360,000
-drives), predicting failure within 30 days:
+Measured on real Backblaze data, predicting failure within 30 days. The
+current model was trained on January to April 2026 and tested on Q3 2026
+(July and August, about 369,000 drives, 1,105 of them failing), a quarter it
+never saw:
 
-- **Most alerts are false alarms, and the system is designed for that.** At
-  the strictest setting about half of the alerted drives go on to fail; at
-  the warning level about 1 in 10 do. Drive failure is rare (roughly 1 drive
-  in 570 over the test period), so even a very selective model raises more
-  false alarms than true ones at the lenient levels.
-- **An alert still means a lot.** An alerted drive is about 277 times more
-  likely to fail than a typical drive, and fewer than 1 healthy drive in
-  6,000 is alerted at the primary threshold.
-- **It does not catch every failure.** The strictest levels catch under 10%
-  of failing drives; the warning level catches about 60%. Many drives fail
-  with no warning in their SMART readings.
-- **Warnings come about 14 days before the failure** (median).
-- **The figures have real uncertainty.** Only 621 drives failed in the test
-  period, so the precision at the primary threshold is 48.6% with a 95%
-  confidence range of roughly 39% to 58%. Treat it as "about half", not as a
-  precise number, and expect it to move on a different fleet or period.
-- **The second-stage model's gain is not confirmed.** A direct significance
-  test on the current build includes 0 in its interval; an earlier run and a
-  five-seed repeat both suggested a small gain. It stays on by default
-  because it does not appear to hurt, not because the gain is settled.
+| Level | Share of alerted drives that failed | Share of failing drives alerted | Healthy drives alerted |
+|---|---|---|---|
+| Primary threshold | 59.0% | 12.5% | 96 |
+| Cordon | 34.8% | 42.4% | 877 |
+| Warn | 17.3% | 60.9% | 3,208 |
+
+- **Most alerts at the lenient levels are false alarms, and the system is
+  designed for that.** At the strictest setting about six alerted drives in
+  ten go on to fail; at the warning level about 1 in 6 do. Drive failure is
+  rare (roughly 1 drive in 330 over the Q3 test period), so even a very
+  selective model raises more false alarms than true ones at the lenient
+  levels.
+- **A false alarm is usually a damaged drive.** Almost every healthy drive
+  alerted at warn or above has a non-zero SMART error counter (against about 9%
+  of the fleet), and the stricter the level, the more of them were taken out
+  of service anyway (35% at the primary threshold).
+- **It does not catch every failure.** The warning level catches about 60% of
+  failing drives. About a fifth of failing drives show no change at all in
+  their SMART readings in the month before they fail - mostly younger drives -
+  and no model on this data can see them.
+- **In practice you will see warn and cordon, rarely migrate or drain.** On
+  the current model the migrate and drain targets ask for more precision than
+  the model reaches except on its very highest scores, so both share a cut-off
+  that flagged 6 drives in the whole 62-day Q3 test window. This is a consequence of how their targets are set,
+  not a fault; see `docs/model_status_and_runbook.md` Section 1.9.
+- **Warnings come about 14 to 20 days before the failure** (median), and many
+  drives are flagged at the warning level more than 30 days ahead.
+- **The figures have real uncertainty.** The precision at the primary threshold
+  is 59.0% with a 95% confidence range of roughly 52% to 66%. Treat it as
+  "about six in ten", not as a precise number, and expect it to move on a
+  different fleet or period: precision rises and falls with how many drives
+  fail in a given month.
+- **The second-stage model's gain is small.** It sharpens the very top of the
+  alert list and does nothing at the warning and cordon levels. It stays on
+  by default because it does not appear to hurt, not because the gain is
+  settled.
+
+The earlier model of record, tested on 2026-05-11 to 05-31, gave 48.6% at its primary
+threshold with an alerted drive about 277 times more likely to fail than a
+typical one; it is retired and kept only as history.
 
 This is why a low score only warns, why migrate and drain need the highest
 scores plus the safety checks in §7, and why uncertain cases are sent to a
 person. The measured figures and how they were obtained are in
-`docs/system_summary.md`.
+`docs/system_summary.md` and `docs/project_report.md`.
 
 One thing these numbers are **not**: a statement about generalization. They
-come from one fleet and one six-month training period. The 30-day two-stage
-model was also tested on Q3 2026, a quarter it never saw (59.0% precision at
-12.5% recall), but no further untouched period exists, and the second
+come from one fleet. Q3 2026 was a quarter the model never saw, but it has now
+been used as a test set, so no further untouched period exists, and the second
 (cross-vendor) data set has not been evaluated at all.
 
 ---

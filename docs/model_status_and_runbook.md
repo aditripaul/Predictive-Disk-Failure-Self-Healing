@@ -3055,9 +3055,12 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   (56.6 / 94.3 / 151.0 / 226.4, Section 1.7), which makes them comparable
   across splits, but the numbers themselves should come from the real cost of
   a false alarm per action, not from the precisions they were converted from.
-- **The live agent loop** (`src/agent/nodes.py`) is not driven by the trained
-  model and uses the hand-picked cutoffs in `configs/agent.yaml`, not the
-  trained tier thresholds.
+- **The live agent loop's predictor is still a fixture.** The API and
+  `make agent-demo` score a hardcoded two-drive fleet; only `make agent-fleet`
+  scores real drives with the trained model. The tier thresholds are no longer
+  the issue: every entry point resolves the trained run's thresholds through
+  `src/models/trained_thresholds.py` and falls back to `configs/agent.yaml` only
+  when no run is resolvable.
 - **The DuckDB spike** (Section 3.1) was never measured on real data; the
   Polars pipeline fits the memory cap, so it is no longer needed for that.
 
