@@ -235,3 +235,195 @@ def test_the_false_positive_script_reads_what_the_pipeline_saved(run_report, tmp
     assert "nothing exact to report" in out
     assert "need at least 4 snapshots" in out
     assert "two looks 7d apart vs one" in out
+
+
+# --- Phase 0 options (docs/agent_knowledge_base.md) -------------------------------
+
+
+def _with_split(gold: Path, validation_every: int = 4) -> None:
+    """Marks every `validation_every`-th drive as the validation holdout."""
+    labels = pl.read_parquet(gold / "labels" / "part.parquet")
+    index = labels["drive_id"].str.slice(1).cast(pl.Int64)
+    labels.with_columns(
+        pl.when(index % validation_every == 0)
+        .then(pl.lit("validation"))
+        .otherwise(pl.lit("train"))
+        .alias("split")
+    ).write_parquet(gold / "labels" / "part.parquet")
+
+
+def _score_table(gold: Path, path: Path) -> None:
+    """A score table with the stub model's scores for every labelled drive-day."""
+    feats = pl.read_parquet(gold / "features" / "part.parquet")
+    labels = pl.read_parquet(gold / "labels" / "part.parquet")
+    feats.join(labels.select("drive_id", "date", "label", "split"), on=["drive_id", "date"]).select(
+        "split",
+        "drive_id",
+        "date",
+        "label",
+        (pl.col("smart_5_raw") / 100.0).clip(0.0, 1.0).alias("score"),
+    ).write_parquet(path)
+
+
+def _run(tmp_path, extra, *, model_calls=None, splits=None):
+    gold = tmp_path / "gold"
+    data_path, model_path = _configs(tmp_path, gold)
+    if splits:
+        model = yaml.safe_load(model_path.read_text())
+        model["splits"].update(splits)
+        model_path.write_text(yaml.safe_dump(model))
+    out = tmp_path / "phase0.json"
+    accesses: list[dict] = []
+
+    class _Counting(_Model):
+        def predict_proba(self, x):
+            if model_calls is not None:
+                model_calls.append(len(x))
+            return super().predict_proba(x)
+
+    with (
+        patch.object(runner, "DATA_CONFIG_PATH", data_path),
+        patch.object(runner, "MODEL_CONFIG_PATH", model_path),
+        patch.object(runner, "load_scoring_model", lambda *_a, **_k: _Counting()),
+        patch.object(runner, "latest_run_id_for_horizon", lambda *_a, **_k: "run-test"),
+        patch.object(
+            runner,
+            "action_thresholds_for_run",
+            lambda *_a, **_k: {"warn": 0.30, "cordon": 0.55, "migrate": 0.70, "drain": 0.85},
+        ),
+        patch.object(
+            runner, "record_test_access", lambda *a, **k: accesses.append({"args": a, **k})
+        ),
+        patch("mlflow.set_tracking_uri"),
+    ):
+        runner.main(
+            [
+                "--bootstrap",
+                "20",
+                "--out",
+                str(out),
+                "--start-date",
+                "2026-05-17",
+                "--observations-out",
+                str(tmp_path / "obs.parquet"),
+                *extra,
+            ]
+        )
+    return json.loads(out.read_text()), accesses
+
+
+def _thresholds_file(tmp_path: Path) -> Path:
+    path = tmp_path / "agent_thresholds_x.json"
+    path.write_text(
+        json.dumps(
+            {
+                "score_column": "score",
+                "action_tiers": {"warn": 0.30, "cordon": 0.55, "migrate": 0.70, "drain": None},
+                "action_tiers_cost": {"warn": 0.10, "cordon": 0.40, "migrate": 0.60, "drain": 0.80},
+            }
+        )
+    )
+    return path
+
+
+def test_the_drive_filter_keeps_only_the_validation_holdout(tmp_path):
+    gold = _gold(tmp_path)
+    _with_split(gold)
+    report, _ = _run(tmp_path, ["--drives-from-split", "validation"])
+    obs = pl.read_parquet(tmp_path / "obs.parquet")
+    assert obs.height > 0
+    assert (obs["drive_id"].str.slice(1).cast(pl.Int64) % 4 == 0).all()
+    assert report["drive_filter"] == "validation"
+
+
+def test_the_outcome_cutoff_refuses_a_horizon_that_ends_after_it(tmp_path):
+    _gold(tmp_path)
+    with pytest.raises(SystemExit, match="outcome cutoff"):
+        _run(tmp_path, ["--outcome-cutoff", "2026-06-15"])
+
+
+def test_table_scores_replace_the_model_and_match_it(tmp_path):
+    gold = _gold(tmp_path)
+    _with_split(gold, validation_every=1)
+    _score_table(gold, tmp_path / "scores.parquet")
+    calls: list[int] = []
+    report, _ = _run(
+        tmp_path,
+        [
+            "--scores-path",
+            str(tmp_path / "scores.parquet"),
+            "--thresholds-path",
+            str(_thresholds_file(tmp_path)),
+            "--label",
+            "stub-table",
+        ],
+        model_calls=calls,
+    )
+    assert calls == []  # the model is never loaded or called
+    assert report["run_id"] == "stub-table"
+    assert report["thresholds"]["drain"] == 1.01  # an unreachable tier never fires
+    # the same run scored by the model gives the same tiers
+    model_report, _ = _run(tmp_path, [])
+    assert report["pooled"]["tiers"]["cordon"] == model_report["pooled"]["tiers"]["cordon"]
+
+
+def test_the_cross_check_compares_table_and_model_scores(tmp_path):
+    gold = _gold(tmp_path)
+    _with_split(gold, validation_every=1)
+    _score_table(gold, tmp_path / "scores.parquet")
+    report, _ = _run(
+        tmp_path,
+        [
+            "--scores-path",
+            str(tmp_path / "scores.parquet"),
+            "--thresholds-path",
+            str(_thresholds_file(tmp_path)),
+            "--cross-check-dates",
+            "2026-05-24",
+        ],
+    )
+    (check,) = report["cross_check"]
+    assert check["drives"] > 0 and check["max_abs_delta"] < 1e-9 and check["over_1e-6"] == 0
+
+
+def test_the_cost_tier_set_is_read_when_asked(tmp_path):
+    gold = _gold(tmp_path)
+    _with_split(gold, validation_every=1)
+    _score_table(gold, tmp_path / "scores.parquet")
+    report, _ = _run(
+        tmp_path,
+        [
+            "--scores-path",
+            str(tmp_path / "scores.parquet"),
+            "--thresholds-path",
+            str(_thresholds_file(tmp_path)),
+            "--tier-key",
+            "action_tiers_cost",
+        ],
+    )
+    assert report["thresholds"]["warn"] == 0.10 and report["tier_key"] == "action_tiers_cost"
+
+
+def test_partitions_are_written_per_date_and_reused_on_a_rerun(tmp_path):
+    _gold(tmp_path)
+    calls: list[int] = []
+    first, _ = _run(tmp_path, ["--observations-dir", str(tmp_path / "parts")], model_calls=calls)
+    assert sorted(p.name for p in (tmp_path / "parts").iterdir()) == [
+        f"date={d.isoformat()}.parquet" for d in DATES
+    ]
+    calls.clear()
+    second, _ = _run(tmp_path, ["--observations-dir", str(tmp_path / "parts")], model_calls=calls)
+    assert calls == []  # every date was read back, none re-scored
+    assert first["pooled"]["tiers"] == second["pooled"]["tiers"]
+
+
+def test_a_validation_only_window_records_no_test_access(tmp_path):
+    gold = _gold(tmp_path)
+    _with_split(gold, validation_every=1)
+    # the same dates, with the split boundary moved after them: they are validation dates
+    _, accesses = _run(
+        tmp_path,
+        ["--drives-from-split", "validation"],
+        splits={"validation_end": "2026-06-10", "test_end": "2026-06-30"},
+    )
+    assert accesses == []

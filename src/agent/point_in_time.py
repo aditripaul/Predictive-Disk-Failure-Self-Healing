@@ -93,6 +93,8 @@ def snapshot_observations(
     *,
     horizon_days: int,
     context_columns: tuple[str, ...] = (),
+    drive_ids: pl.Series | None = None,
+    scores: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """`drive_id, date, p_fail, label` for every drive reporting on `day`
     that has an observable label there, plus any of `context_columns` the
@@ -106,8 +108,19 @@ def snapshot_observations(
     A drive without an observable label at `day` - removed rather than failed
     inside the horizon, or too close to the end of the data - is dropped
     rather than counted as a negative: an outcome that cannot be observed is
-    not evidence that nothing happened."""
-    fleet = pl.scan_parquet(features_path).filter(pl.col("date") == day).collect()
+    not evidence that nothing happened.
+
+    `drive_ids` keeps only those drives (applied inside the scan, before anything is
+    collected), e.g. the validation holdout so training drives are never scored.
+    `scores` (`drive_id, p_fail` for `day`) replaces the model: the features are then
+    read only for the context columns, and drives without a score are dropped."""
+    scan = pl.scan_parquet(features_path).filter(pl.col("date") == day)
+    if drive_ids is not None:
+        scan = scan.filter(pl.col("drive_id").is_in(drive_ids.implode()))
+    if scores is not None:
+        present = set(scan.collect_schema().names())
+        scan = scan.select(["drive_id", "date", *[c for c in context_columns if c in present]])
+    fleet = scan.collect()
     if fleet.is_empty():
         return pl.DataFrame(
             schema={
@@ -117,7 +130,10 @@ def snapshot_observations(
                 "label": pl.Int8,
             }
         )
-    scored = score_snapshot(fleet, model)
+    if scores is not None:
+        scored = fleet.join(scores.select("drive_id", "p_fail"), on="drive_id", how="inner")
+    else:
+        scored = score_snapshot(fleet, model)
     keep = ["drive_id", "date", "p_fail", *[c for c in context_columns if c in scored.columns]]
     scored = scored.select(keep)
     del fleet
@@ -132,6 +148,49 @@ def snapshot_observations(
         .collect()
     )
     return scored.join(labels, on="drive_id", how="inner")
+
+
+def split_drive_ids(
+    labels_path: Path, *, horizon_days: int, split: str = "validation"
+) -> pl.Series:
+    """The drives with at least one label row in `split` at this horizon (the validation
+    holdout, by default): the only drives whose scores are out of sample."""
+    return (
+        pl.scan_parquet(labels_path)
+        .filter((pl.col("horizon_days") == horizon_days) & (pl.col("split") == split))
+        .select("drive_id")
+        .unique()
+        .collect()["drive_id"]
+    )
+
+
+def table_scores_for_day(
+    scores_path: Path, day: dt.date, *, split: str | None = "validation", column: str = "score"
+) -> pl.DataFrame:
+    """`drive_id, p_fail` for `day` from a score table (`split, drive_id, date, label,
+    <column>...`), read with a date filter so only that day is loaded."""
+    scan = pl.scan_parquet(scores_path).filter(pl.col("date") == day)
+    if split is not None:
+        scan = scan.filter(pl.col("split") == split)
+    return scan.select("drive_id", pl.col(column).alias("p_fail")).collect()
+
+
+def partition_path(out_dir: Path, day: dt.date) -> Path:
+    return out_dir / f"date={day.isoformat()}.parquet"
+
+
+def write_observations_partition(obs: pl.DataFrame, out_dir: Path, day: dt.date) -> Path:
+    """One snapshot's observations, written as soon as they are scored, so a long run
+    resumes from the dates already on disk."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = partition_path(out_dir, day)
+    obs.write_parquet(path, compression="zstd")
+    return path
+
+
+def read_observations_partition(out_dir: Path, day: dt.date) -> pl.DataFrame | None:
+    path = partition_path(out_dir, day)
+    return pl.read_parquet(path) if path.exists() else None
 
 
 # --- tier metrics --------------------------------------------------------

@@ -22,6 +22,20 @@ matched false-alarm rate?
 One cycle's memory is a single date's fleet (~0.7 GB at 356k drives x 246
 features) plus its scores; dates are processed one at a time and only
 (drive_id, date, p_fail, label) is kept.
+
+Options for scorers that are not MLflow runs and for validation-only baselines
+(docs/agent_knowledge_base.md, Phase 0):
+
+    --drives-from-split validation   score only the validation holdout's drives
+    --outcome-cutoff 2026-05-01      refuse a date whose horizon ends after it
+    --observations-dir DIR           one parquet per date, written as it is scored;
+                                     dates already on disk are read, not re-scored
+    --scores-path / --score-column   p_fail from a score table instead of a model
+    --model-dir DIR                  a frozen stacked scorer (load_stacked_two_stage)
+    --thresholds-path FILE           tiers from a JSON file (`action_tiers` /
+                                     `action_tiers_cost` via --tier-key, or a flat dict)
+    --cross-check-dates D1,D2        score these dates with the model AND the table and
+                                     report the largest difference
 """
 
 from __future__ import annotations
@@ -39,14 +53,19 @@ from src.agent.fleet import load_scoring_model, overlaps_test_split
 from src.agent.point_in_time import (
     CONTEXT_COLUMNS,
     DEFAULT_FAR_BUDGETS,
+    TIERS,
     bootstrap_tier_ci,
     compare_looks,
     last_observable_date,
     pair_observations,
+    read_observations_partition,
     select_snapshot_dates,
     snapshot_observations,
+    split_drive_ids,
+    table_scores_for_day,
     tier_counts,
     tier_metrics,
+    write_observations_partition,
 )
 from src.logging_config import configure_logging, get_logger
 from src.models.access_log import record_test_access
@@ -91,7 +110,38 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "so scripts/analyze_false_positives.py can profile them without "
         "re-scoring. Pass an empty string to skip.",
     )
+    parser.add_argument("--drives-from-split", default=None, metavar="SPLIT")
+    parser.add_argument("--outcome-cutoff", default=None, metavar="YYYY-MM-DD")
+    parser.add_argument("--observations-dir", type=Path, default=None)
+    parser.add_argument("--scores-path", type=Path, default=None)
+    parser.add_argument(
+        "--scores-split", default="validation", help="split filter on the score table; '' for none"
+    )
+    parser.add_argument("--score-column", default="score")
+    parser.add_argument("--model-dir", type=Path, default=None)
+    parser.add_argument("--thresholds-path", type=Path, default=None)
+    parser.add_argument("--tier-key", default="action_tiers")
+    parser.add_argument("--cross-check-dates", default="", metavar="D1,D2")
+    parser.add_argument("--label", default=None, help="name of the scorer in the report")
     return parser.parse_args(argv)
+
+
+def load_thresholds_file(
+    path: Path, *, tier_key: str, fallback: dict[str, float]
+) -> dict[str, float]:
+    """Tier thresholds from a scorer's JSON (`action_tiers` or another `tier_key`) or
+    from a flat `{warn, cordon, migrate, drain}` file such as a frozen run's
+    `action_tiers.json`; an unreachable tier (None) never fires."""
+    from src.models.threshold import resolve_action_thresholds
+
+    meta = json.loads(path.read_text())
+    if tier_key in meta:
+        tiers = meta[tier_key]
+    elif set(TIERS) <= set(meta):
+        tiers = {t: meta[t] for t in TIERS}
+    else:
+        raise SystemExit(f"{path} has neither {tier_key!r} nor the tier keys {list(TIERS)}")
+    return resolve_action_thresholds(tiers, fallback)
 
 
 def _fmt_ci(value: float, interval: tuple[float, float]) -> str:
@@ -189,14 +239,32 @@ def main(argv: list[str] | None = None) -> None:
     if lag % args.step_days:
         raise SystemExit("--lag-days must be a multiple of --step-days so the earlier look exists")
     dates = select_snapshot_dates(start, end, args.step_days)
+    cutoff = _date(args.outcome_cutoff)
+    if cutoff is not None and max(dates) + dt.timedelta(days=horizon) > cutoff:
+        raise SystemExit(
+            f"{max(dates)} + {horizon} days ends after the outcome cutoff {cutoff}; "
+            f"the latest date allowed is {cutoff - dt.timedelta(days=horizon)}"
+        )
 
-    import mlflow
+    if args.thresholds_path is not None:
+        thresholds = load_thresholds_file(
+            args.thresholds_path, tier_key=args.tier_key, fallback=agent_config["action_thresholds"]
+        )
+        run_id = (
+            args.label
+            or args.run_id
+            or (
+                args.model_dir.name if args.model_dir else f"{args.scores_path}:{args.score_column}"
+            )
+        )
+    else:
+        import mlflow
 
-    mlflow.set_tracking_uri(model_config["mlflow"]["tracking_uri"])
-    run_id = args.run_id or latest_run_id_for_horizon(
-        model_config["mlflow"]["experiment_name"], horizon
-    )
-    thresholds = action_thresholds_for_run(run_id, agent_config["action_thresholds"])
+        mlflow.set_tracking_uri(model_config["mlflow"]["tracking_uri"])
+        run_id = args.run_id or latest_run_id_for_horizon(
+            model_config["mlflow"]["experiment_name"], horizon
+        )
+        thresholds = action_thresholds_for_run(run_id, agent_config["action_thresholds"])
     logger.info("point_in_time_thresholds", run_id=run_id, thresholds=thresholds)
 
     if overlaps_test_split(start, end, splits):
@@ -206,7 +274,15 @@ def main(argv: list[str] | None = None) -> None:
             extra={"run_id": run_id, "dates": [str(d) for d in dates], "horizon_days": horizon},
         )
 
-    model = load_scoring_model(run_id, model_config["model"].get("type", "lightgbm"))
+    cross_check_dates = [_date(d) for d in args.cross_check_dates.split(",") if d.strip()]
+    if args.model_dir is not None:
+        from src.models.stacking import load_stacked_two_stage
+
+        model = load_stacked_two_stage(args.model_dir)
+    elif args.scores_path is not None and not cross_check_dates:
+        model = None
+    else:
+        model = load_scoring_model(run_id, model_config["model"].get("type", "lightgbm"))
     gold = Path(data_config["gold_dir"])
     features_path, labels_path = (
         gold / "features" / "part.parquet",
@@ -216,16 +292,46 @@ def main(argv: list[str] | None = None) -> None:
         if not path.exists():
             raise SystemExit(f"{path} not found; run the pipeline first")
 
-    by_date: dict[dt.date, pl.DataFrame] = {}
-    for day in dates:
-        obs = snapshot_observations(
+    drive_ids = (
+        split_drive_ids(labels_path, horizon_days=horizon, split=args.drives_from_split)
+        if args.drives_from_split
+        else None
+    )
+    scores_split = args.scores_split or None
+
+    def score_day(day: dt.date, *, use_table: bool) -> pl.DataFrame:
+        table = (
+            table_scores_for_day(
+                args.scores_path, day, split=scores_split, column=args.score_column
+            )
+            if use_table
+            else None
+        )
+        return snapshot_observations(
             features_path,
             labels_path,
             model,
             day,
             horizon_days=horizon,
             context_columns=CONTEXT_COLUMNS,
+            drive_ids=drive_ids,
+            scores=table,
         )
+
+    by_date: dict[dt.date, pl.DataFrame] = {}
+    for day in dates:
+        cached = (
+            read_observations_partition(args.observations_dir, day)
+            if args.observations_dir is not None
+            else None
+        )
+        if cached is not None:
+            obs = cached
+            logger.info("point_in_time_partition_reused", date=str(day))
+        else:
+            obs = score_day(day, use_table=args.scores_path is not None)
+            if args.observations_dir is not None and not obs.is_empty():
+                write_observations_partition(obs, args.observations_dir, day)
         if obs.is_empty():
             logger.warning("point_in_time_no_rows", date=str(day))
             continue
@@ -281,8 +387,36 @@ def main(argv: list[str] | None = None) -> None:
         else []
     )
 
+    cross_check = []
+    for day in cross_check_dates:
+        if args.scores_path is None or model is None:
+            raise SystemExit("--cross-check-dates needs both --scores-path and a model")
+        a = score_day(day, use_table=True).select("drive_id", pl.col("p_fail").alias("table"))
+        b = score_day(day, use_table=False).select("drive_id", pl.col("p_fail").alias("model"))
+        both = a.join(b, on="drive_id", how="inner")
+        delta = (both["table"] - both["model"]).abs()
+        cross_check.append(
+            {
+                "date": str(day),
+                "drives": both.height,
+                "only_table": a.height - both.height,
+                "only_model": b.height - both.height,
+                "max_abs_delta": float(delta.max()) if both.height else None,
+                "over_1e-6": int((delta > 1e-6).sum()),
+            }
+        )
+
     report = {
         "run_id": run_id,
+        "label": args.label,
+        "drive_filter": args.drives_from_split,
+        "outcome_cutoff": args.outcome_cutoff,
+        "scores_path": str(args.scores_path) if args.scores_path else None,
+        "score_column": args.score_column if args.scores_path else None,
+        "model_dir": str(args.model_dir) if args.model_dir else None,
+        "thresholds_path": str(args.thresholds_path) if args.thresholds_path else None,
+        "tier_key": args.tier_key if args.thresholds_path else None,
+        "cross_check": cross_check,
         "horizon_days": horizon,
         "step_days": args.step_days,
         "lag_days": lag,
