@@ -3,6 +3,7 @@ with Amendment 1). Validation only by default; the Q3 step is guarded.
 
     uv run python scripts/screen_agent_knowledge.py            # validation screen
     uv run python scripts/screen_agent_knowledge.py --q3       # one Q3 look, only after a pass
+    uv run python scripts/screen_agent_knowledge.py --describe-tier-rules   # descriptive only
 
 Screen set: daily validation observations of the frozen stack scorer, 2026-02-01..03-02
 (every 60-day horizon ends by 2026-05-01), each flagged drive joined to its knowledge
@@ -391,6 +392,34 @@ def tables_markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def describe_tier_rules(
+    conf: pl.DataFrame, ctx: list, thresholds: dict, *, n_boot: int, seed: int
+) -> dict:
+    """DESCRIPTIVE, not part of any verdict. The select-half criterion (recall at the tier's
+    own false-alarm rate) compares rankings, and a tier rule's transform keeps a demoted
+    drive just below the next threshold, above every other drive of the lower tier, so at a
+    matched false-alarm rate the demoted drives are re-admitted and a pure tier rule can
+    never beat "no rule" there. This reports what criterion 1 would see instead: every grid
+    value of R2 and R2b at the fixed cordon threshold on the confirm half."""
+    failed = conf["label"].to_numpy() == 1
+    codes = dense_drive_codes(conf)
+    p = conf["p_fail"].to_numpy()
+    out = {}
+    for family in ("r2_chronic_demote", "r2b_first_flag_promote"):
+        for params in GRIDS[family]:
+            q = apply_tier_rule(RULES[family], p, ctx, params, thresholds)
+            a, b = p >= thresholds["cordon"], q >= thresholds["cordon"]
+            changed = a != b
+            diff = paired_difference(codes, failed, a, b, n_boot=n_boot, seed=seed)
+            out[f"{family} {json.dumps(params)}"] = {
+                "changed_cordon_drive_days": int(changed.sum()),
+                "changed_drives": len(set(conf["drive_id"].to_numpy()[changed].tolist())),
+                "changed_that_failed": int((changed & failed).sum()),
+                **diff,
+            }
+    return {"note": describe_tier_rules.__doc__, "rules": out}
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--knowledge", type=Path, default=Path("data/audit/agent_knowledge.sqlite"))
@@ -411,6 +440,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--bootstrap", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--q3", action="store_true")
+    parser.add_argument("--describe-tier-rules", action="store_true")
     args = parser.parse_args(argv)
     configure_logging()
     apply_memory_limit_from_config()
@@ -440,6 +470,22 @@ def main(argv: list[str] | None = None) -> None:
     sel = obs.filter(pl.col("date") <= args.select_end)
     conf = obs.filter(pl.col("date") > args.select_end)
     ctx_sel, ctx_conf = context_list(sel, contexts), context_list(conf, contexts)
+    if args.describe_tier_rules:
+        described = describe_tier_rules(
+            conf, ctx_conf, thresholds, n_boot=args.bootstrap, seed=args.seed
+        )
+        described["git_commit"] = _git("rev-parse", "HEAD")
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        (args.out_dir / "tier_rules_descriptive.json").write_text(json.dumps(described, indent=2))
+        for key, r in described["rules"].items():
+            print(
+                f"{key}: changed {r['changed_cordon_drive_days']} ({r['changed_drives']} drives, "
+                f"{r['changed_that_failed']} failing) | precision {100 * r['precision_difference']:+.1f} "
+                f"[{100 * r['precision_ci'][0]:+.1f}, {100 * r['precision_ci'][1]:+.1f}] | recall "
+                f"{100 * r['recall_difference']:+.1f} [{100 * r['recall_ci'][0]:+.1f}, "
+                f"{100 * r['recall_ci'][1]:+.1f}]"
+            )
+        return
     r1_fitted, r1_grid = fit_r1(sel, thresholds)
 
     report: dict[str, Any] = {
