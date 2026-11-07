@@ -318,6 +318,7 @@ def load_precomputed_scores(
     scores_path: Path,
     fallback_thresholds: dict[str, float],
     thresholds_path: Path | None = None,
+    tier_key: str = "action_tiers",
 ) -> tuple[pl.DataFrame, str, dict[str, float]]:
     """`(drive_id, date, p_fail)` from a `train_merged_models` scores parquet,
     the run id the agent logs for it, and its validation-tuned action tiers
@@ -326,7 +327,11 @@ def load_precomputed_scores(
 
     `thresholds_path` names a different file with the same layout (`score_column`,
     `action_tiers`): how one model's column of the table is acted on with that
-    model's own tiers, since `train-merged` writes tiers for the agent ensemble only."""
+    model's own tiers, since `train-merged` writes tiers for the agent ensemble only.
+
+    `tier_key` picks the tier set: `action_tiers` (lift targets) or `action_tiers_cost`
+    (cost-based, written by `scripts/freeze_stack_scorer.py`), following
+    configs/model.yaml `threshold.tier_rule`."""
     from src.models.threshold import resolve_action_thresholds
 
     # The thresholds file shares the scores file's suffix, tag included:
@@ -350,7 +355,9 @@ def load_precomputed_scores(
     )
     if scores.select("drive_id", "date").is_duplicated().any():
         raise ValueError(f"{scores_path} repeats a (drive_id, date) row")
-    thresholds = resolve_action_thresholds(meta["action_tiers"], fallback_thresholds)
+    if tier_key not in meta:
+        raise KeyError(f"{meta_path} has no {tier_key!r}; it holds {sorted(meta)}")
+    thresholds = resolve_action_thresholds(meta[tier_key], fallback_thresholds)
     return scores, f"precomputed:{column}", thresholds
 
 
@@ -408,8 +415,12 @@ def build_fleet_dependencies(
 
     precomputed: pl.DataFrame | None = None
     if scores_path is not None:
+        tier_rule = model_config.get("threshold", {}).get("tier_rule", "lift")
         precomputed, resolved_run_id, action_thresholds = load_precomputed_scores(
-            Path(scores_path), agent_config["action_thresholds"], thresholds_path
+            Path(scores_path),
+            agent_config["action_thresholds"],
+            thresholds_path,
+            tier_key="action_tiers_cost" if tier_rule == "cost" else "action_tiers",
         )
     else:
         import mlflow

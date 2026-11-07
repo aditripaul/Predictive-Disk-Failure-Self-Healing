@@ -12,15 +12,20 @@ drive-level average precision on the validation candidate rows. That is two or t
 fitted on thousands of rows, but the members also early-stopped on the same validation rows,
 so the validation score of the blend is optimistic; only the paired test comparison counts.
 
-Experiment only: like the survival kinds, a stack is compared, not deployed
-(`two_stage.log_two_stage` accepts a LightGBM Stage 2 only).
+Not logged to MLflow (`two_stage.log_two_stage` accepts a LightGBM Stage 2 only). A stack
+used as a scorer is saved to and loaded from a folder instead (`save_stacked_two_stage`,
+`load_stacked_two_stage`), as `scripts/freeze_stack_scorer.py` does for
+`frozen_runs/stack_h60_seed0/`.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
+import lightgbm as lgb
 import numpy as np
 
 from src.models.blend_weights import DriveRows, average_precision, simplex_grid
@@ -124,3 +129,70 @@ def fit_stack(
     report["stage2_trees"] = stack.tree_count
     report["status"] = "ok"
     return TwoStageModel(stage1, stack, candidate_threshold), report
+
+
+#: Stage 2 member kinds a saved stack may hold, and how each is stored.
+_LIGHTGBM_KIND, _COX_KIND = "lightgbm", "cox"
+
+
+def _save_lightgbm(model: lgb.LGBMClassifier, directory: Path) -> None:
+    import mlflow.lightgbm
+
+    mlflow.lightgbm.save_model(model, str(directory))
+
+
+def _load_lightgbm(directory: Path) -> Any:
+    import mlflow.lightgbm
+
+    return mlflow.lightgbm.load_model(str(directory))
+
+
+def save_stacked_two_stage(model: TwoStageModel, out_dir: Path) -> dict[str, Any]:
+    """Writes a two-stage model whose Stage 2 is a `StackedStage2` of LightGBM and Cox
+    members to `out_dir`: `stage1/` and `stage2_lightgbm/` (MLflow LightGBM format, as
+    the frozen runs store their stages), `stage2_cox/` (`CoxModel.save`),
+    `references.npz` (each member's sorted validation candidate scores) and
+    `stack.json` (weights, members, candidate threshold). Returns the `stack.json` dict.
+    `out_dir` must not exist yet."""
+    from src.models.survival import CoxModel
+
+    stack = model.stage2
+    if not isinstance(stack, StackedStage2):
+        raise TypeError("save_stacked_two_stage needs a StackedStage2 Stage 2")
+    if out_dir.exists():
+        raise FileExistsError(f"{out_dir} exists; a frozen scorer is never overwritten")
+    out_dir.mkdir(parents=True)
+    _save_lightgbm(model.stage1, out_dir / "stage1")
+    kinds: dict[str, str] = {}
+    for name, member in stack.members.items():
+        if isinstance(member, CoxModel):
+            member.save(out_dir / f"stage2_{name}")
+            kinds[name] = _COX_KIND
+        elif isinstance(member, lgb.LGBMClassifier):
+            _save_lightgbm(member, out_dir / f"stage2_{name}")
+            kinds[name] = _LIGHTGBM_KIND
+        else:
+            raise TypeError(f"stack member {name!r} has an unsupported type {type(member)}")
+    np.savez_compressed(out_dir / "references.npz", **stack.references)  # type: ignore[arg-type]
+    meta = {
+        "candidate_threshold": model.candidate_threshold,
+        "weights": stack.weights,
+        "members": kinds,
+    }
+    (out_dir / "stack.json").write_text(json.dumps(meta, indent=2))
+    return meta
+
+
+def load_stacked_two_stage(out_dir: Path) -> TwoStageModel:
+    """The `TwoStageModel` that `save_stacked_two_stage` wrote."""
+    from src.models.survival import CoxModel
+
+    meta = json.loads((out_dir / "stack.json").read_text())
+    members: dict[str, Any] = {}
+    for name, kind in meta["members"].items():
+        directory = out_dir / f"stage2_{name}"
+        members[name] = CoxModel.load(directory) if kind == _COX_KIND else _load_lightgbm(directory)
+    with np.load(out_dir / "references.npz") as refs:
+        references = {name: refs[name] for name in members}
+    stack = StackedStage2(members, references, meta["weights"])
+    return TwoStageModel(_load_lightgbm(out_dir / "stage1"), stack, meta["candidate_threshold"])

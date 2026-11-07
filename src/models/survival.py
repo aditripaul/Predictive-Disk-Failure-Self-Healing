@@ -11,6 +11,8 @@ Used only by `pipelines/experiment_model.py`; not part of `make train`.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -202,6 +204,23 @@ class CoxModel:
         for name, gain in self.booster.get_score(importance_type="total_gain").items():
             gains[int(name[1:])] = gain
         return gains
+
+    def save(self, directory: Path) -> None:
+        """Writes the booster as JSON plus the tree count early stopping chose, so a
+        reload predicts with exactly the same trees (`cox.json`, `cox_meta.json`)."""
+        directory.mkdir(parents=True, exist_ok=True)
+        self.booster.save_model(directory / "cox.json")
+        (directory / "cox_meta.json").write_text(
+            json.dumps({"best_iteration": int(self.booster.best_iteration)}, indent=2)
+        )
+
+    @classmethod
+    def load(cls, directory: Path) -> CoxModel:
+        booster = xgb.Booster()
+        booster.load_model(directory / "cox.json")
+        meta = json.loads((directory / "cox_meta.json").read_text())
+        booster.set_attr(best_iteration=str(int(meta["best_iteration"])))
+        return cls(booster)
 
 
 def train_cox(

@@ -156,6 +156,20 @@ threshold:
     cordon: 94.3
     migrate: 151.0
     drain: 226.4
+  # Cost-based tiers (src/models/threshold.py::tune_cost_tiers;
+  # docs/agent_knowledge_base.md section 4): per action, how many unnecessary actions
+  # of that kind one prevented failure is worth. Each tier is placed where its action
+  # pays for itself on validation (flag while marginal precision >= 1 / (1 + r)).
+  # PLACEHOLDERS: the real ratios are an operations decision, not a result. Must not
+  # increase from warn to drain.
+  action_cost_ratio:
+    warn: 100
+    cordon: 20
+    migrate: 5
+    drain: 2
+  # Which tier set the agent acts on when it reads a precomputed scorer's thresholds
+  # file: lift (action_tier_lift, the default) or cost (action_cost_ratio).
+  tier_rule: lift
   # Per-family action tiers (docs/adr/0002): one fleet-wide threshold puts
   # different drive models at very different operating points, so each model
   # with at least this many FAILING validation drives also gets its own

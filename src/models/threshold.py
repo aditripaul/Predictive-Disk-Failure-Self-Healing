@@ -162,6 +162,66 @@ def tune_action_tiers(
     return result
 
 
+#: Which tier set the agent acts on: the lift tiers above or the cost tiers below
+#: (configs/model.yaml threshold.tier_rule).
+TIER_RULES = ("lift", "cost")
+
+
+def tune_cost_tiers(
+    drive_ids: np.ndarray,
+    y_true: np.ndarray,
+    y_scores: np.ndarray,
+    *,
+    cost_ratios: dict[str, float],
+) -> dict[str, float | None]:
+    """One score threshold per action tier, each maximising the tier's net value on the
+    validation DRIVE-level table: `r * caught - false_alarms`, where `r` is how many
+    unnecessary actions of that kind one prevented failure is worth
+    (configs/model.yaml threshold.action_cost_ratio). Equivalently, drives are flagged
+    while the marginal precision stays at or above `1 / (1 + r)`.
+
+    The lift tiers (`tune_action_tiers`) place each tier at a precision target without
+    any cost; these place it where the action pays for itself, so a cheap action sits at
+    much higher recall than a drastic one. Ratios must not increase from warn to drain (a
+    more drastic action costs more per false alarm), and thresholds are forced
+    non-decreasing as for the lift tiers. A tier with no threshold of positive net value
+    gets `None` and should never fire.
+
+    The optimum depends on the failure rate of the split it is tuned on: on a test period
+    with half the validation failure rate, a validation-tuned cost tier flags more than is
+    optimal there."""
+    ratios = [float(cost_ratios[tier]) for tier in ACTION_TIERS]
+    if any(r <= 0 for r in ratios):
+        raise ValueError(f"cost ratios must be positive: {cost_ratios}")
+    if any(b > a for a, b in zip(ratios, ratios[1:], strict=False)):
+        raise ValueError(
+            f"cost ratios must not increase from warn to drain: "
+            f"{dict(zip(ACTION_TIERS, ratios, strict=True))}"
+        )
+    labels, scores = drive_level_table(drive_ids, y_true, y_scores)
+    order = np.argsort(-np.asarray(scores, dtype=float), kind="stable")
+    sorted_scores = np.asarray(scores, dtype=float)[order]
+    sorted_labels = np.asarray(labels, dtype=int)[order]
+    caught = np.cumsum(sorted_labels)
+    false_alarms = np.cumsum(1 - sorted_labels)
+    # A threshold flags every drive scoring at or above it, so only the last drive of
+    # each run of tied scores is a reachable cut.
+    cut = np.r_[sorted_scores[1:] != sorted_scores[:-1], True]
+    caught, false_alarms, cut_scores = caught[cut], false_alarms[cut], sorted_scores[cut]
+
+    result: dict[str, float | None] = {}
+    floor = float("-inf")
+    for tier, ratio in zip(ACTION_TIERS, ratios, strict=True):
+        value = ratio * caught - false_alarms
+        best = int(np.argmax(value)) if len(value) else -1
+        if best < 0 or value[best] <= 0:
+            result[tier] = None
+            continue
+        floor = max(floor, float(cut_scores[best]))
+        result[tier] = floor
+    return result
+
+
 def resolve_action_thresholds(
     tier_thresholds: dict[str, float | None] | None, fallback: dict[str, float]
 ) -> dict[str, float]:
