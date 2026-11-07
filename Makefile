@@ -1,4 +1,4 @@
-.PHONY: install lint format install-hooks check-paths agent-pit-validation test test-unit test-integration test-chaos test-golden test-property \
+.PHONY: install lint format install-hooks check-paths agent-pit-validation agent-knowledge pack-knowledge unpack-knowledge test test-unit test-integration test-chaos test-golden test-property \
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
@@ -313,6 +313,19 @@ agent-pit-validation:
 		--thresholds-path frozen_runs/804a20cec10048abb1bc3ccf510f96e1/action_tiers.json \
 		--out $(PIT_OUT)/cascade.json --observations-dir $(PIT_OUT)/cascade \
 		--observations-out $(PIT_OUT)/cascade_observations.parquet $(ARGS)
+
+# The agent's knowledge store (docs/agent_knowledge_base.md): build it, pack it into the
+# tracked deterministic gzip (data/audit/agent_knowledge_h60/agent_knowledge.sqlite.gz, with its
+# SHA-256 and content fingerprint in agent_knowledge_pack.json), or restore and verify it.
+agent-knowledge:
+	uv run python scripts/build_agent_knowledge.py build --overwrite $(ARGS)
+	uv run python scripts/build_agent_knowledge.py check
+
+pack-knowledge:
+	uv run python scripts/build_agent_knowledge.py pack
+
+unpack-knowledge:
+	uv run python scripts/build_agent_knowledge.py unpack $(ARGS)
 
 # Per-family recalibration, fitted on VALIDATION-window snapshots and judged on
 # the test snapshots (runbook 4.10). Makes the validation snapshots first, into

@@ -239,3 +239,46 @@ def test_reading_the_test_period_needs_the_flag_and_is_logged(tmp_path, monkeypa
     assert logged == []
     script.guard_test_dates(dt.date(2026, 7, 15), allow=True, purpose="p", extra={})
     assert len(logged) == 1 and logged[0]["variant"] == "agent_knowledge"
+
+
+def test_pack_and_unpack_round_trip_and_refuse_a_tampered_file(tmp_path):
+    scores, drive_day, _ = _sources(tmp_path)
+    run = _run_dir(tmp_path)
+    script = _script()
+    kb_path, out = tmp_path / "kb.sqlite", tmp_path / "out"
+    common = ["--knowledge", str(kb_path), "--out", str(out), "--drive-day", str(drive_day)]
+    script.main(
+        [
+            *common,
+            "build",
+            "--scores",
+            str(scores),
+            "--run-dir",
+            str(run),
+            "--thresholds-file",
+            "t.json",
+            "--horizon-days",
+            str(H),
+            "--start",
+            D0.isoformat(),
+            "--end",
+            (D0 + dt.timedelta(days=39)).isoformat(),
+            "--presence-end",
+            (D0 + dt.timedelta(days=49)).isoformat(),
+        ]
+    )
+    script.main([*common, "pack"])
+    info = json.loads((out / "agent_knowledge_pack.json").read_text())
+    first = (out / info["packed_file"]).read_bytes()
+    script.main([*common, "pack"])  # deterministic: the same bytes again
+    assert (out / info["packed_file"]).read_bytes() == first
+
+    with pytest.raises(SystemExit, match="exists"):
+        script.main([*common, "unpack"])
+    kb_path.unlink()
+    script.main([*common, "unpack"])
+    assert KnowledgeBase(kb_path).content_hash() == info["content_hash"]
+
+    (out / info["packed_file"]).write_bytes(first[:-10] + b"0" * 10)
+    with pytest.raises(SystemExit, match="SHA-256"):
+        script.main([*common, "unpack", "--overwrite"])

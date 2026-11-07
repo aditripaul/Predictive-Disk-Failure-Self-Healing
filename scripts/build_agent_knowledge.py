@@ -6,18 +6,28 @@
     uv run python scripts/build_agent_knowledge.py drift --reference 2026-01-01:2026-03-31 \\
         --current 2026-04-01:2026-05-01
     uv run python scripts/build_agent_knowledge.py resolve --as-of 2026-06-30  # + trust scores
+    uv run python scripts/build_agent_knowledge.py pack      # -> tracked .sqlite.gz
+    uv run python scripts/build_agent_knowledge.py unpack    # restore and verify it
 
 Nothing dated on or after the sealed start (configs/model.yaml splits.sealed_start, the
 first Q3 day) is read unless `--allow-test-outcomes` is given, and then the read is logged
-in the test-access log. The store itself (`data/audit/agent_knowledge.sqlite`) is local and
-rebuilt by `build`; the JSON reports go to `data/audit/agent_knowledge_h60/`.
+in the test-access log. The store itself (`data/audit/agent_knowledge.sqlite`, about 100 MB) is
+local; `pack` writes a deterministic gzip of it beside the JSON reports in
+`data/audit/agent_knowledge_h60/` (tracked, about 25 MB), with the SHA-256 of the packed file
+and the store's content fingerprint (`KnowledgeBase.content_hash`) in `agent_knowledge_pack.json`;
+`unpack` restores it and checks both. A store rebuilt with `build` has the same content
+fingerprint even where its file bytes differ.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import gzip
+import hashlib
 import json
+import shutil
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
@@ -204,6 +214,76 @@ def cmd_drift(args: argparse.Namespace) -> None:
     print(json.dumps(report, indent=2, default=str), f"\n({path})")
 
 
+PACK_NAME = "agent_knowledge.sqlite.gz"
+PACK_META = "agent_knowledge_pack.json"
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def cmd_pack(args: argparse.Namespace) -> None:
+    """Folds the write-ahead log into the file, then gzips it deterministically (no file
+    name or timestamp in the header) and records its SHA-256 and the content fingerprint."""
+    if not args.knowledge.exists():
+        raise SystemExit(f"{args.knowledge} not found; build it first")
+    db = sqlite3.connect(args.knowledge)
+    db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    db.close()
+    kb = KnowledgeBase(args.knowledge)
+    fingerprint, counts, meta = kb.content_hash(), kb.row_counts(), kb.metadata()
+    kb.close()
+    args.out.mkdir(parents=True, exist_ok=True)
+    packed = args.out / PACK_NAME
+    with args.knowledge.open("rb") as src, packed.open("wb") as raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, compresslevel=9, mtime=0) as dst:
+            shutil.copyfileobj(src, dst, length=1 << 20)
+    info = {
+        "packed_file": PACK_NAME,
+        "packed_sha256": _sha256(packed),
+        "packed_bytes": packed.stat().st_size,
+        "store_bytes": args.knowledge.stat().st_size,
+        "store_sha256": _sha256(args.knowledge),
+        "content_hash": fingerprint,
+        "row_counts": counts,
+        "run_id": meta.get("run_id"),
+        "built_from": [meta.get("built_from_start"), meta.get("built_from_end")],
+        "presence_end": meta.get("presence_end"),
+        "restore": "make unpack-knowledge",
+    }
+    path = _write(args.out, PACK_META, info)
+    print(
+        f"packed {args.knowledge} ({info['store_bytes']:,} B) -> {packed} "
+        f"({info['packed_bytes']:,} B); {path}"
+    )
+
+
+def cmd_unpack(args: argparse.Namespace) -> None:
+    """Restores the packed store to `--knowledge`, checking the packed file's SHA-256
+    before and the content fingerprint after. Refuses to overwrite without --overwrite."""
+    info = json.loads((args.out / PACK_META).read_text())
+    packed = args.out / info["packed_file"]
+    if _sha256(packed) != info["packed_sha256"]:
+        raise SystemExit(f"{packed} does not match the SHA-256 in {PACK_META}")
+    if args.knowledge.exists() and not args.overwrite:
+        raise SystemExit(f"{args.knowledge} exists; pass --overwrite to replace it")
+    for suffix in ("-wal", "-shm"):
+        Path(f"{args.knowledge}{suffix}").unlink(missing_ok=True)
+    args.knowledge.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(packed, "rb") as src, args.knowledge.open("wb") as dst:
+        shutil.copyfileobj(src, dst, length=1 << 20)
+    kb = KnowledgeBase(args.knowledge)
+    fingerprint = kb.content_hash()
+    kb.close()
+    if fingerprint != info["content_hash"]:
+        raise SystemExit("the restored store's content fingerprint does not match the recorded one")
+    print(f"restored {args.knowledge}; content fingerprint matches ({fingerprint[:16]})")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--knowledge", type=Path, default=DEFAULT_KB)
@@ -245,6 +325,10 @@ def main(argv: list[str] | None = None) -> None:
     d.add_argument("--reference", type=_range, required=True)
     d.add_argument("--current", type=_range, required=True)
 
+    sub.add_parser("pack")
+    u = sub.add_parser("unpack")
+    u.add_argument("--overwrite", action="store_true")
+
     args = parser.parse_args(argv)
     configure_logging()
     apply_memory_limit_from_config()
@@ -254,6 +338,8 @@ def main(argv: list[str] | None = None) -> None:
         "check": cmd_check,
         "coverage": cmd_coverage,
         "drift": cmd_drift,
+        "pack": cmd_pack,
+        "unpack": cmd_unpack,
     }[args.command](args)
 
 
