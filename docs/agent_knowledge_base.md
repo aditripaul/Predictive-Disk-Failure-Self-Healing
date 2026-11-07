@@ -2,8 +2,10 @@
 
 Status: **design, 2026-11-07. Nothing is built or run yet.** Sections 1-10 are the
 design and are committed before any code or run. Section 8, the rule that decides
-whether a knowledge rule may change a decision, is not edited after that commit; the
-Q3 step of the screen refuses to run if this file has uncommitted changes. Sections
+whether a knowledge rule may change a decision, is not edited after that commit except by
+dated amendments appended to it, made before any screening result exists (one so far:
+Amendment 1); the Q3 step of the screen refuses to run if this file has uncommitted
+changes. Sections
 11-13 (Results, Decision, Provenance) are added when the runs are finished and their
 outputs are frozen; the runbook gets the same record (sections 1.1.7 and 4.14).
 
@@ -312,6 +314,24 @@ knowledge context as of its date. Select half: 2026-02-01..02-15. Confirm half:
 - The Q3 step (`screen_agent_knowledge.py --q3`) refuses to run unless this file is
   committed and unchanged, `validation.json` records a passing rule, and no Q3 result
   exists yet.
+
+**Amendment 1 (2026-11-07, before any screening code exists or any rule has been
+evaluated).** Reason: the power measured from the frozen scorer (section 9) showed that
+criterion 1, as written above, cannot be met by R2 or R2b. Both only move drives between
+warn and cordon, so their warn-and-above set is unchanged and its precision difference is
+exactly 0. The criteria above are kept as written; this amendment says where they apply.
+
+- **Criterion 1 is judged at the tier set a rule can change.** A rule that only moves
+  drives between warn and cordon (R2, R2b) is judged at cordon-and-above alone. The screen
+  verifies that its warn-and-above flags are identical to "no rule"; if they are not, the
+  rule is judged at both tier sets. A rule that changes scores or removes flags (R1, R3) is
+  judged at both, as written.
+- **Criterion 2** uses the false-alarm budgets that bracket the validation false-alarm rate
+  of the tier set being judged.
+- **Criteria 3 and 4 are unchanged**, including the floor of 300 changed flagged drive-days
+  from 60 distinct drives. Only 92 drives reach cordon on the confirm half, so a rule judged
+  at cordon alone is expected to be "underpowered"; that verdict is recorded as such.
+- Nothing else in this section changes.
 
 ## 9. Phases, commands, outputs
 
