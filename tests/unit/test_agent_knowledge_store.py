@@ -229,8 +229,13 @@ def test_resolve_outcomes_writes_known_labels_and_leaves_pending_ones():
     kb = _build(_fleet())
     first = kb.resolve_outcomes(D0 + dt.timedelta(days=39))
     assert first["failure"] > 0 and first["presence"] > 0 and first["pending"] > 0
+    # d3 left on day 20: its earlier rows are censored, counted but not written
+    assert first["censored_removed"] > 0
+    assert not kb.db.execute("SELECT 1 FROM outcomes WHERE basis = 'censored_removed'").fetchall()
     again = kb.resolve_outcomes(D0 + dt.timedelta(days=39))
-    assert sum(v for k, v in again.items() if k != "pending") == 0  # nothing new to write
+    # nothing new to write; censored rows are reconsidered each call, as they may resolve
+    assert again["failure"] == 0 and again["presence"] == 0
+    assert again["censored_removed"] == first["censored_removed"]
     labels = dict(
         ((d, day), label)
         for d, day, label in kb.db.execute(
@@ -310,3 +315,33 @@ def test_an_episode_ending_on_its_failure_day_is_failed():
         episode, 10, failure_date=day(0), last_presence=day(20), as_of=day(30)
     )
     assert (label, basis) == (0, "presence")
+
+
+def test_a_censored_row_resolves_when_the_drive_comes_back():
+    """A drive silent past its horizon's end plus the grace period is censored as of then,
+    but a telemetry gap is not a removal: when it reports again the row is a 0."""
+    kb = KnowledgeBase.in_memory(**META)
+    flagged = pl.DataFrame({"drive_id": ["g"], "p_fail": [0.7]})
+    kb.ingest_snapshot(D0, flagged, source="test")
+    for i in range(1, 9):  # seen until day 8, then silent until day 30
+        kb.ingest_snapshot(
+            D0 + dt.timedelta(days=i),
+            flagged.with_columns(pl.lit(0.1).alias("p_fail")),
+            source="test",
+        )
+    as_of = D0 + dt.timedelta(days=25)
+    assert kb.resolve_outcomes(as_of)["censored_removed"] >= 1
+    ctx = kb.context_for("g", as_of=as_of)
+    assert ctx.last_resolved_outcome == "censored"
+    kb.ingest_snapshot(
+        D0 + dt.timedelta(days=30), flagged.with_columns(pl.lit(0.1).alias("p_fail")), source="test"
+    )
+    later = D0 + dt.timedelta(days=30)
+    kb.resolve_outcomes(later)
+    (label,) = kb.db.execute(
+        "SELECT label FROM outcomes WHERE drive_id = 'g' AND date = ?", (D0.isoformat(),)
+    ).fetchone()
+    assert label == 0
+    assert kb.context_for("g", as_of=later).last_resolved_outcome == "survived_horizon"
+    # the earlier view is unchanged: as of day 25 the drive was still missing
+    assert kb.context_for("g", as_of=as_of).last_resolved_outcome == "censored"

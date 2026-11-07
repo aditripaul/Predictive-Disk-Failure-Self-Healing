@@ -132,8 +132,9 @@ def test_presence_after_the_last_score_resolves_late_outcomes(tmp_path):
     kb = KnowledgeBase.in_memory(**META)
     _backfill(kb, scores, drive_day)
     # candidate days up to day 39 with a 10-day horizon end by day 49, so presence through
-    # day 49 resolves them all, except a row dated on its drive's failure day: a failure
-    # must come strictly after the day, so that row stays pending until it is censored
+    # day 49 resolves them all, except rows with no final outcome: a row dated on its
+    # drive's failure day (a failure must come strictly after the day) and rows of drives
+    # that left before their horizon ended (censored, which is not final)
     as_of = D0 + dt.timedelta(days=49)
     kb.resolve_outcomes(as_of)
     unresolved = kb.db.execute(
@@ -141,7 +142,10 @@ def test_presence_after_the_last_score_resolves_late_outcomes(tmp_path):
         "LEFT JOIN outcomes o ON o.drive_id = c.drive_id AND o.date = c.date "
         "LEFT JOIN failure_days f ON f.drive_id = c.drive_id WHERE o.drive_id IS NULL"
     ).fetchall()
-    assert unresolved and all(day == failure for _, day, failure in unresolved)
+    left = {f"d{k}" for k in range(3, N_DRIVES, 11)}  # these leave after day 30
+    assert unresolved
+    for drive, day, failure in unresolved:
+        assert day == failure or drive in left, (drive, day)
     assert kb.metadata()["presence_end"] == (D0 + dt.timedelta(days=49)).isoformat()
 
 

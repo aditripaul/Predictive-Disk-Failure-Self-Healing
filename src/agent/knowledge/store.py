@@ -484,8 +484,11 @@ class KnowledgeBase:
 
     def resolve_outcomes(self, as_of: dt.date) -> dict[str, int]:
         """Writes the outcome of every stored candidate day and decision whose
-        `horizon_days` label is known on `as_of` (failure, presence, or censored), using
-        only facts dated on or before `as_of`. Pending ones are left for a later call."""
+        `horizon_days` label is final on `as_of`, using only facts dated on or before it:
+        a failure inside the horizon (label 1) or presence at or after its end (label 0).
+        "Censored" is not final, because a drive that stopped reporting can come back after
+        a telemetry gap (the gold label then says 0), so censored rows are counted but not
+        written, and a later call resolves them if the drive reappears."""
         h = self.horizon_days
         done = {
             (d, day)
@@ -517,7 +520,7 @@ class KnowledgeBase:
                 as_of=as_of,
             )
             written[basis] += 1
-            if basis == "pending":
+            if basis in ("pending", "censored_removed"):
                 continue
             failure = failures.get(d)
             rows.append(

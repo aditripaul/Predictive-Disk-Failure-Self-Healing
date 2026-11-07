@@ -111,9 +111,11 @@ def check_replay(kb: KnowledgeBase) -> dict[str, Any]:
 def check_outcomes_vs_labels(
     kb: KnowledgeBase, *, labels_path: Path, split: str = "validation"
 ) -> dict[str, Any]:
-    """(d) The store's resolved outcomes against the gold labels for the same drive, date
-    and horizon. Only censoring differences are expected (gold null against a censored
-    outcome)."""
+    """(d) The store's resolved (final) outcomes against the gold labels for the same
+    drive, date and horizon: they must agree exactly. Candidate days the store has not
+    resolved are reported separately by their gold label; a gold 0 there is expected
+    where the gold table used presence after the store's cutoff (data the store must not
+    read), and a gold 1 there would be a miss."""
     outcomes = pl.DataFrame(
         kb.db.execute(
             "SELECT drive_id, date, label, basis FROM outcomes WHERE horizon_days = ?",
@@ -147,16 +149,48 @@ def check_outcomes_vs_labels(
         | (pl.col("kb_label").is_not_null() & pl.col("gold_label").is_null())
         | (pl.col("kb_label").is_null() & pl.col("gold_label").is_not_null())
     )
+    unresolved = (
+        pl.DataFrame(
+            kb.db.execute(
+                "SELECT c.drive_id, c.date FROM candidate_days c LEFT JOIN outcomes o "
+                "ON o.drive_id = c.drive_id AND o.date = c.date AND o.horizon_days = ? "
+                "WHERE o.drive_id IS NULL",
+                (kb.horizon_days,),
+            ).fetchall(),
+            schema=["drive_id", "date"],
+            orient="row",
+        )
+        .with_columns(pl.col("date").str.to_date())
+        .join(
+            pl.scan_parquet(labels_path)
+            .filter((pl.col("horizon_days") == kb.horizon_days) & (pl.col("split") == split))
+            .select("drive_id", "date", pl.col("label").alias("gold_label"))
+            .collect(),
+            on=["drive_id", "date"],
+            how="left",
+        )
+    )
+    unresolved_by_gold = (
+        unresolved.with_columns(pl.col("gold_label").cast(pl.String).fill_null("null"))
+        .group_by("gold_label")
+        .len()
+        .sort("gold_label")
+        .to_dicts()
+    )
+    missed_failures = int((unresolved["gold_label"] == 1).sum())
     return {
         "check": "d_outcomes_vs_gold_labels",
         "compared": labels.height,
         "not_in_gold": outcomes.height - labels.height,
+        "unresolved_candidate_days": unresolved.height,
+        "unresolved_by_gold_label": unresolved_by_gold,
+        "unresolved_with_gold_failure": missed_failures,
         "matrix": table.to_dicts(),
         "disagreements": disagree.height,
         "disagreement_examples": disagree.head(10)
         .with_columns(pl.col("date").cast(pl.String))
         .to_dicts(),
-        "passed": disagree.height == 0,
+        "passed": disagree.height == 0 and missed_failures == 0,
     }
 
 
