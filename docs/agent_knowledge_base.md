@@ -1,6 +1,8 @@
 # A Knowledge component for the MAPE-K agent
 
-Status: **design, 2026-11-07. Nothing is built or run yet.** Sections 1-10 are the
+Status: **in progress, 2026-11-07.** Phase S (frozen stack scorer) and Phase 0 (validation
+baseline) are done and frozen; Phase 1 (the knowledge store) is being built. Section 11 is
+the running log. Sections 1-10 are the
 design and are committed before any code or run. Section 8, the rule that decides
 whether a knowledge rule may change a decision, is not edited after that commit except by
 dated amendments appended to it, made before any screening result exists (one so far:
@@ -393,3 +395,74 @@ the validation screen about 20 minutes, the Q3 look about 5 minutes.
   on; with real actions, the control arm becomes necessary (section 6).
 - **Removals.** Drives removed without a recorded failure are batch decommissions with no
   telemetry warning; the store records them as censored, not as successes or failures.
+
+## 11. Progress log
+
+Updated as each step lands. Commits are on branch `adi_dev`; times are UTC.
+
+| Step | Commit | State |
+|---|---|---|
+| Design, sections 1-10 | `553004a` | Done |
+| Phase S code (Cox and stack save/load, cost tiers, freeze script) | `b8da3eb` | Done; 11 new tests, 97 existing pass |
+| Phase S run: `frozen_runs/stack_h60_seed0/` | `57a9a37` | Done, frozen (checksums) |
+| Section 9 power measured | `441468f` | Done |
+| Amendment 1 to section 8 | `1165f2c` | Done, before any screening code |
+| Phase 0 code (point-in-time options) | `157ac46`, `787b8b8` | Done; 39 point-in-time tests pass |
+| Phase 0 run: `data/audit/agent_pit_validation_h60/` | `b9cac53` | Done, frozen (checksums) |
+| Phase 1: knowledge store (`src/agent/knowledge/store.py`) | - | Written, lint and types clean; tests next |
+| Phase 1: builder, self-checks, CLI, loop wiring | - | Not started |
+| Phase 2: rules and screen | - | Not started |
+
+### 11.1 Phase S: the frozen stack scorer (2026-11-07 13:40-13:44, commit `b8da3eb`)
+
+- **Reproduction: 14 of 14 checks equal** to the 1.1.4a run (candidate threshold 0.2716,
+  Stage 1 355 trees, 176,461 / 234,275 train / validation candidate rows, Stage 2 43 and
+  176 trees, weights 0.5 / 0.5, validation AP 0.5959). Reloading the saved folder gives the
+  saved scores exactly (maximum difference 0.0 on 200,000 rows). No test access.
+- **Validation tiers** (drive level; failure rate 0.679%, 482 of 70,969 drives):
+
+  | Arm | Lift warn P / R | Lift cordon P / R | Primary P / R |
+  |---|---|---|---|
+  | Stack | 38.5% / 63.1% | 64.0% / 44.0% | 82.7% / 18.9% |
+  | LightGBM Stage 2 | 38.4% / 62.4% | 64.2% / 42.1% | 79.4% / 11.2% |
+  | Cox Stage 2 | 38.5% / 62.7% | 64.2% / 43.6% | 81.9% / 17.8% |
+
+- **At equal cost the arms are worth the same on validation:** at ratio 20, `20 x caught -
+  false alarms` is 5,724 (stack), 5,725 (LightGBM), 5,753 (Cox), 5,729 (frozen cascade).
+- **Cost tiers move recall a lot:** at ratio 20 the stack's cordon sits at 67.4% recall
+  (29.5% precision) instead of 44.0%. At the placeholder warn ratio of 100 its threshold
+  (0.216) falls below the Stage 1 net, flagging 8.1% of drives for 82% recall.
+- Lift migrate and drain fire on at most 4 drives: not usable tiers, as for the cascade.
+
+### 11.2 Phase 0: validation point-in-time baseline (2026-11-07 13:53-13:54, commit `787b8b8`)
+
+Nine weekly snapshots 2026-01-05..03-02, 60-day horizon, validation drives only; 606,194
+drive-snapshots, base rate 0.196%; no test access. The stack's model and score table agree
+exactly on 2026-02-23 (67,477 drives).
+
+| Arm | >= warn P / R | >= cordon P [95% CI] / R |
+|---|---|---|
+| Stack | 28.3% / 31.2% | 53.7% [44, 64] / 13.4% |
+| LightGBM Stage 2 | 28.2% / 31.0% | 49.5% [40, 60] / 12.3% |
+| Cox Stage 2 | 28.6% / 30.8% | 56.2% [46, 67] / 12.9% |
+| Cascade `804a20ce` | 28.6% / 29.8% | 49.6% [40, 60] / 11.6% |
+
+The four arms are indistinguishable within their intervals.
+
+### 11.3 Where the implementation departs from sections 1-10
+
+- **Phase S is a standalone script** (`scripts/freeze_stack_scorer.py`), not new flags on
+  the cascade experiment. Test scoring is woven through every step of that experiment;
+  a separate script that never opens the test matrix makes "no test access" structural,
+  and it reuses the experiment's functions and settings, which the reproduction check
+  confirms.
+- **Episodes and drive summaries are derived at read time, not cached.** Section 5.1
+  listed `episodes` and `drive_summary` tables. The store keeps only dated facts and
+  computes episodes, summaries and outcomes for the requested date, so "incremental
+  equals batch" and the as-of rule hold by construction rather than by keeping caches in
+  step. Flags are rare (0.26% of validation rows at warn), so this costs little.
+- **The point-in-time run does not ingest into the store** (`--knowledge-ingest` was not
+  added). The store is filled by its own backfill from the same score table, so the two
+  stay independent and each can be checked against the other.
+- **Amendment 1** (section 8) changed where criterion 1 applies, before any screening.
+
