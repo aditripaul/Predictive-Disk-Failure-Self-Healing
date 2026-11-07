@@ -3,6 +3,66 @@
 ## AI-Based Autonomous System Validation & Reliability Checker
 ### Predictive Disk-Failure Self-Healing Agent for Server Fleets
 
+> **The design as written before implementation, with a status layer added.**
+> The sections below are the original design and are kept as written. The
+> block that follows records, as of 2026-11-07, what was built, which design
+> choices the work replaced, and how the targets came out. Short "Current
+> state" notes mark the sections that changed (12, 13, 26 and 28). Evidence
+> for every number: `docs/model_status_and_runbook.md`; the full account:
+> `docs/project_report.md`; phase by phase: `docs/project_plan.md` Section 0.
+
+## Current state (2026-11-07)
+
+**Built and run.** Both layers exist and were exercised end to end: the data
+pipeline on real Backblaze data (Q4 2025 to Q3 2026, within a 20 GB memory cap),
+the failure model, the LangGraph MAPE-K agent with guardrails, human approval,
+rollback and crash recovery, the fleet simulator, the reliability checker and
+the operator API and dashboards. The agent acts only in simulation; the API and
+demo run on a two-drive demonstration fleet, and `make agent-fleet` runs the
+loop on the real feature table with a simulated executor.
+
+| # | Objective | Status |
+|---:|---|---|
+| O1 | Ingest and harmonize Backblaze and SMART-Z | Backblaze done; SMART-Z supported in code, not ingested or evaluated |
+| O2 | Precision >= 95%, recall 35-50% | **Not met**: 59.0% precision at 12.5% recall at the primary threshold on Q3 2026; 34.8% at 42.4% at cordon |
+| O3 | Zero hard-guardrail violations in simulation | Met in integration and chaos tests |
+| O4 | Remediation without data loss; compensation on failure | Met in chaos tests |
+| O5 | Trust score that discriminates decisions | Implemented with veto; final trust scores and drift checks run only on demand; separation not measured on real decisions |
+| O6 | Audit trail and explainability | Met; explanations describe the first-stage model only |
+
+**Where the design changed.**
+
+- **The model is a two-stage cascade, not a single high-precision
+  classifier.** Stage 1 (LightGBM) is tuned for coverage: its threshold keeps
+  80% of failing drives on validation and passes about 6% of the fleet. Stage
+  2, trained only on what passes, re-ranks those drives into the action tiers.
+  XGBoost, survival models (AFT, Cox), an LSTM, a TCN, rank blends and a
+  stacked Stage 2 were compared on the same drives (report Section 8).
+- **Precision-first, in practice, means tier-by-tier.** At real fleet failure
+  rates (0.30% of drives in the Q3 test) 95% precision is far out of reach; the
+  mild tiers absorb false alarms (warn: 17.3% precision at 60.9% recall on Q3)
+  and the destructive tiers stay strict.
+- **Tier thresholds are set from lift, not precision.** Lift carries across
+  failure rates, precision does not. Converted at the validation failure rate,
+  the migrate target is met only by the two highest-scored validation drives and
+  the drain target by none, so on the current model only warn and cordon act.
+- **The horizon is 30 days.** 7, 14, 44 and 60 days were compared; none ranks
+  drives better once the failure rate is accounted for.
+- **Feature confidence needed two fixes found only on real data.** As first
+  built it could not clear its own 0.80 floor for any real drive-day; it now
+  scores attributes against what each drive model reports and charges staleness
+  only beyond the daily cadence, and 86.1% of drive-days clear it (ADR 0002).
+- **Evaluation rules were added** that the design did not foresee: results per
+  drive, precision always beside its failure rate, every test-split
+  computation logged, and the agent's policy measured at fixed dates
+  (point-in-time), after an earlier backtest was found to look ahead (ADR 0003).
+
+**Not built or not run.** Cross-dataset (SMART-Z) evaluation; trajectory-morphed
+synthetic telemetry; scheduled trust-score resolution and drift checks; a sweep
+for overdue reviews in the running service; authentication on the API; real
+topology data for the last-healthy-node and quorum guardrails outside the
+simulator; a measurement of loop cycle time.
+
 ---
 
 # 1. Goal
@@ -574,6 +634,13 @@ destructive_action_allowed =
 
 If confidence is low, the system should downgrade to monitor, warn, or cordon, but not drain.
 
+> **Current state.** Implemented as designed, as `feature_confidence =
+> telemetry_coverage_30d x recency_factor x attribute_coverage_factor` gated at
+> 0.80 for migrate and drain. Two factors were wrong until 2026-10-09 and kept
+> every real drive-day below the floor; after the fixes 86.1% clear it
+> (ADR 0002). The maturity gate reads the dataset's last date, so it is used
+> for live scoring but not in backtests (ADR 0003).
+
 ---
 
 # 13. Prediction and Action Policy
@@ -610,6 +677,16 @@ The system does not map every prediction directly to a destructive action. Inste
 | Migrate | High risk + guardrails pass | Move data/workload proactively |
 | Drain | Very high risk + guardrails pass | Remove drive/node from service |
 | Human Review | Blocked, uncertain, or critical | Requires explicit approval/rejection |
+
+> **Current state.** The tiers exist as designed, but the score behind them
+> comes from the two-stage cascade, and each tier's threshold is the validation
+> cutoff with the most recall whose precision meets lift times the validation
+> failure rate (lift 56.6 / 94.3 / 151.0 / 226.4). On the current model (frozen
+> run `c459046e`, Q3 2026 test) warn (0.653) reaches 60.9% of failing drives at
+> 17.3% precision and cordon (0.836) 42.4% at 34.8%; migrate and drain share the
+> cutoff 0.926 and flag 6 drives in the 62-day test window. The lift targets are
+> placeholders until the cost of each action is known (report Sections 6.3 and
+> 9.2).
 
 ## Hysteresis and Cooldown
 
@@ -1217,6 +1294,16 @@ The project deliverables are:
 | Quorum violations in simulation | 0 |
 | Duplicate actions after crash recovery | 0 |
 
+> **Current state.** Met in tests: guardrail latency (all 2,000 evaluations
+> under 500 ms), hard-guardrail compliance, zero data loss and quorum violations,
+> zero duplicate actions after recovery. Not met: precision (59.0%) and recall
+> (12.5%) at the primary threshold on Q3 2026, and the false-negative action
+> rate (57.6% of failing Q3 drives did not reach cordon). The false-positive
+> action rate depends on a definition the design did not fix (65% of drives
+> cordoned on Q3 did not fail within 30 days; 0.24% of healthy drives were
+> cordoned). Not measured: loop cycle time and soft-guardrail compliance. The
+> outcome table is in `docs/project_plan.md` Section 0.3.
+
 ---
 
 # 27. Key Risks and Mitigations
@@ -1253,6 +1340,11 @@ The project is successful if the final system demonstrates all of the following:
 10. Every decision is explainable and auditable.
 11. Dashboards provide visibility into fleet health, trust, approvals, and compliance.
 12. Chaos and replay tests demonstrate robustness under abnormal conditions.
+
+> **Current state.** Items 3 to 7, 9, 10 and 12 are demonstrated in simulation
+> and tests. Item 1 is not met at the stated precision; item 2 was not run
+> (no SMART-Z data); item 8 is partly met (scores and veto work, resolution
+> runs on demand); item 11 is met for the demonstration fleet.
 
 ---
 

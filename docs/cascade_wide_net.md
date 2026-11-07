@@ -356,3 +356,11 @@ the strict-end gain is weaker than here (+5.1 points at 10% recall for 30 days,
 1 of 3 seeds above 0; none at 44 or 60 days), the 60% gap is -0.2, and the 0.5
 net loses 2.5 points at 35% recall. The 0.8 net stays, not confirmed; these
 numbers are descriptive.
+
+On Q3 the 0.8 net's Stage 1 kept 79-82% of failing test drives while passing
+5-6% of all drives, as on validation, and 98.6% of the failing drives it does
+not reach show no SMART counter rise before failure (runbook 1.1.5), so the net
+is about as wide as the telemetry allows. A stack of the net's LightGBM and Cox
+Stage 2 then caught a few more failing drives in the top 500 than the LightGBM
+Stage 2 alone, not confirmed and not adopted (runbook 1.1.4a;
+`docs/q3_horizon_and_cascade_run.md` section 7.7).

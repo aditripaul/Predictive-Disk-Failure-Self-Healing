@@ -325,6 +325,11 @@ figures (`docs/figures/q3_2026/cascade_h<H>_*.png`), are in section 1.1.4 of
 | Warn tier | 17.3% | 60.9% | 673 / 432 / 3,208 |
 | Cordon tier | 34.8% | 42.4% | 469 / 636 / 877 |
 | Primary threshold | 59.0% | 12.5% | 138 / 967 / 96 |
+| Migrate = drain (fallback cutoff 0.926) | 33.3% | 0.2% | 2 / 1,103 / 4 |
+
+Migrate and drain share one cutoff because their lift targets, converted at
+the validation failure rate (0.589%), ask for 88.9% precision, met only by the
+two highest-scored validation drives, and 133%, which nothing can meet; on this model only warn and cordon act (runbook 1.9).
 
 Above 60% recall false alarms outnumber catches about 4 to 1 (25 to 1 at
 80%), while under 1% of healthy drives are flagged: with 0.3% of drives
@@ -353,6 +358,26 @@ breaks the 30-day Q3 result down per drive:
   (0.59% against 0.30%); AUROC and recall at matched false-alarm rate are the
   same on both, and test precision at the validation base rate is 73.9%
   against 75.0%.
+
+### 7.7 Afterwards: two follow-ups on the same Q3 data
+
+Both were run after the results above and read Q3 again, so they are
+descriptive by section 3's rules, not tests of this method.
+
+- **A stacked Stage 2** (runbook 1.1.4a, `data/audit/stack_q3_h<H>/`, MLflow
+  `5ab8f0bb`, `7a568b77`, `47d8ff0c`): a validation-weighted rank blend of the
+  LightGBM and Cox Stage 2 of the 0.8 net. Flagging the same number of drives,
+  it catches 4 to 11 more failing drives than the LightGBM Stage 2 at K = 100,
+  250 and 500 in 3 of 3 seeds in every horizon; at K = 100 and 250 Cox alone
+  does as well, and above about 35% recall nothing differs. The counts have no
+  intervals and the seeds share the test drives. **Not adopted**: the LightGBM
+  Stage 2 stays (7.4); a confirmation needs an untouched quarter with Cox alone
+  as a third arm and the rules of section 6.
+- **A cluster-based action policy** (runbook 1.1.6, `docs/cluster_action_policy.md`,
+  `data/audit/cluster_policy_h30/`, one Q3 look, access-log line 133): the
+  agent's action chosen by (tier, failure-mode cluster). Precision rose 4.6 to
+  8.0 points at warn and cordon but recall fell 6.2 to 8.8, on or below the
+  score's own curve. **Rule not passed**; the agent is unchanged.
 
 ## 8. Provenance
 

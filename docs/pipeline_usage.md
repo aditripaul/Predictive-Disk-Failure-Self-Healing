@@ -447,7 +447,7 @@ Options for `EXPERIMENT_ARGS` and `FULL_EXPERIMENT_ARGS`:
 | `--two-stage-seeds N` | With `--two-stage`: repeats it with N seeds and prints the mean, the range of the precision gain, and in how many seeds the two-stage model was better on both precision and recall. Use it to tell a real gain from chance; each seed takes a few minutes. |
 | `--candidate-recalls R ...` | With `--two-stage`: the Stage 1 nets to compare (the validation recall the candidate threshold keeps). One Stage 1 per seed is shared by every net. Default `model.two_stage.experiment.candidate_recalls` (0.5 0.7 0.8 0.9). Method: `docs/cascade_wide_net.md`. |
 | `--recall-levels R ...` | With `--two-stage`: recall levels to compare at; each net uses the levels up to itself. Default from the same config block (5% to 80%). |
-| `--stage2-kinds K ...` | With `--two-stage`: Stage 2 models to compare per net, from `lightgbm`, `cox`, `aft` (XGBoost survival models on the candidates' censored time to failure, `src/models/survival.py`). Survival kinds are paired against the LightGBM Stage 2 of the same net and run only at `--survival-nets R ...` (default every net). Each report adds a per-drive C-index on the test candidates and precision/recall at `evaluation.top_k`; seed 0 writes `figures/`. Defaults `model.two_stage.experiment.stage2_kinds` / `survival_nets` / `survival_params`. Method and results: `docs/q3_horizon_and_cascade_run.md`. |
+| `--stage2-kinds K ...` | With `--two-stage`: Stage 2 models to compare per net, from `lightgbm`, `cox`, `aft` (XGBoost survival models on the candidates' censored time to failure, `src/models/survival.py`) and `stack` (a validation-weighted rank blend of the net's LightGBM and Cox Stage 2, `src/models/stacking.py`; needs both in the list, nothing is retrained; runbook 1.1.4a). Survival kinds and the stack are paired against the LightGBM Stage 2 of the same net and run only at `--survival-nets R ...` (default every net). Each report adds a per-drive C-index on the test candidates and precision/recall at `evaluation.top_k`; seed 0 writes `figures/`. Defaults `model.two_stage.experiment.stage2_kinds` / `survival_nets` / `survival_params`. Method and results: `docs/q3_horizon_and_cascade_run.md`. |
 | `--lead-min-days N`, `--cost-ratio X`, `--n-boot N` | With `--two-stage`: a catch "with lead" needs a row at least N days before the failure; illustrative cost = misses x X + false alarms; paired drive-bootstrap resamples for the precision gap. Defaults from the config block. Without that block `--two-stage-seeds` defaults to 1, with it to `seeds` (3). |
 | `--two-stage-out DIR` | Where `experiment_two_stage.json`, `tables.md`, `figures/` and (if the tree has uncommitted changes) `code.patch` go. Default `data/audit/cascade_wide_net_h<horizon>`. Refuses to overwrite without `--overwrite`. |
 | `--no-mlflow` | With `--two-stage`: skip logging the results as one MLflow run. By default the run goes to the pipeline's experiment with tag `run_kind=experiment`, settings as params, per-seed metrics (step = seed) and summary metrics named `net<N>_r<L>_...`, and every output file as an artifact; its id goes to `mlflow_run.json`. It has no model, so `score-fleet` and the agent never pick it. `uv run python scripts/log_two_stage_experiment.py DIR [--artifact LOG]` logs an existing output directory later. |
@@ -491,6 +491,24 @@ alone, so horizons are compared on recall at a matched false-alarm rate, not
 on precision. Writes `horizon_comparison.json`, `tables.md` and `figures/` to
 `--out` (default `data/audit/horizon_q3`; refuses to overwrite without
 `--overwrite`) and records one test-split look.
+
+### Stacked Stage 2 (Q3 runs)
+
+```bash
+# LightGBM, Cox and their stack per horizon (kept work dirs of the Q1+Q2 -> Q3 runs);
+# refuses to overwrite an existing output folder
+bash data/audit/stack_q3_logs/run_stack.sh "$PWD"
+#   = make experiment-model EXPERIMENT_ARGS="--work-dir data/tmp/train_model_frame_<id> \
+#       --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack \
+#       --two-stage-out data/audit/stack_q3_h<H>"
+
+# failing drives caught at the same number flagged, from the saved top-K results
+# (no score file, no test look); writes docs/figures/q3_2026/stack_topk_caught.png
+uv run python scripts/plot_stack_topk.py
+
+# check the frozen outputs
+sha256sum -c data/audit/stack_q3_logs/CHECKSUMS.sha256
+```
 
 ### Deep dive and cluster action policy (Q3 runs)
 
