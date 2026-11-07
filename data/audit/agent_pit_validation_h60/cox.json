@@ -1,0 +1,587 @@
+{
+  "run_id": "cox_h60_seed0",
+  "label": "cox_h60_seed0",
+  "drive_filter": "validation",
+  "outcome_cutoff": "2026-05-01",
+  "scores_path": "data/tmp/stack_scores/scores_h60_seed0.parquet",
+  "score_column": "score_cox",
+  "model_dir": null,
+  "thresholds_path": "frozen_runs/stack_h60_seed0/agent_thresholds_cox_h60_seed0.json",
+  "tier_key": "action_tiers",
+  "cross_check": [],
+  "horizon_days": 60,
+  "step_days": 7,
+  "lag_days": 7,
+  "dates": [
+    "2026-01-05",
+    "2026-01-12",
+    "2026-01-19",
+    "2026-01-26",
+    "2026-02-02",
+    "2026-02-09",
+    "2026-02-16",
+    "2026-02-23",
+    "2026-03-02"
+  ],
+  "thresholds": {
+    "warn": 0.8008369111894673,
+    "cordon": 0.8848697152402154,
+    "migrate": 0.9770571431405759,
+    "drain": 0.9770571431405759
+  },
+  "pooled": {
+    "observations": 606194,
+    "drives": 68428,
+    "failing_observations": 1191,
+    "base_rate": 0.0019647175656637974,
+    "tiers": {
+      "warn": {
+        "flagged": 1285.0,
+        "caught": 367.0,
+        "precision": 0.2856031128404669,
+        "recall": 0.30814441645675905,
+        "false_alarm_rate": 0.0015173478478619114,
+        "positive_likelihood_ratio": 203.0809328862621,
+        "lift": 145.36598940824013,
+        "base_rate": 0.0019647175656637974
+      },
+      "cordon": {
+        "flagged": 274.0,
+        "caught": 154.0,
+        "precision": 0.5620437956204379,
+        "recall": 0.12930310663308145,
+        "false_alarm_rate": 0.00019834612390351783,
+        "positive_likelihood_ratio": 651.9063951861182,
+        "lift": 286.0684942420955,
+        "base_rate": 0.0019647175656637974
+      },
+      "migrate": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0019647175656637974
+      },
+      "drain": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0019647175656637974
+      }
+    },
+    "ci": {
+      "warn": {
+        "precision": [
+          0.23468866740530842,
+          0.3349444241982507
+        ],
+        "recall": [
+          0.2560833396837689,
+          0.3588336776398217
+        ]
+      },
+      "cordon": {
+        "precision": [
+          0.45618092470075333,
+          0.6714166958762398
+        ],
+        "recall": [
+          0.09677065130118546,
+          0.16725039048420043
+        ]
+      },
+      "migrate": {
+        "precision": [
+          0.0,
+          0.0
+        ],
+        "recall": [
+          0.0,
+          0.0
+        ]
+      },
+      "drain": {
+        "precision": [
+          0.0,
+          0.0
+        ],
+        "recall": [
+          0.0,
+          0.0
+        ]
+      }
+    }
+  },
+  "per_date": [
+    {
+      "date": "2026-01-05",
+      "alive": 67258,
+      "failing": 116,
+      "warn": {
+        "flagged": 115.0,
+        "caught": 30.0,
+        "precision": 0.2608695652173913,
+        "recall": 0.25862068965517243,
+        "false_alarm_rate": 0.0012659736081737213,
+        "positive_likelihood_ratio": 204.28600405679515,
+        "lift": 151.25487256371815,
+        "base_rate": 0.0017247018941984596
+      },
+      "cordon": {
+        "flagged": 18.0,
+        "caught": 11.0,
+        "precision": 0.6111111111111112,
+        "recall": 0.09482758620689655,
+        "false_alarm_rate": 0.0001042566500848947,
+        "positive_likelihood_ratio": 909.5591133004925,
+        "lift": 354.32854406130275,
+        "base_rate": 0.0017247018941984596
+      },
+      "migrate": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0017247018941984596
+      },
+      "drain": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0017247018941984596
+      }
+    },
+    {
+      "date": "2026-01-12",
+      "alive": 67246,
+      "failing": 124,
+      "warn": {
+        "flagged": 127.0,
+        "caught": 38.0,
+        "precision": 0.2992125984251969,
+        "recall": 0.3064516129032258,
+        "false_alarm_rate": 0.00132594380381991,
+        "positive_likelihood_ratio": 231.11960855382387,
+        "lift": 162.26492252984508,
+        "base_rate": 0.001843975849864676
+      },
+      "cordon": {
+        "flagged": 23.0,
+        "caught": 14.0,
+        "precision": 0.6086956521739131,
+        "recall": 0.11290322580645161,
+        "false_alarm_rate": 0.00013408420488066506,
+        "positive_likelihood_ratio": 842.0322580645161,
+        "lift": 330.09957924263676,
+        "base_rate": 0.001843975849864676
+      },
+      "migrate": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.001843975849864676
+      },
+      "drain": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.001843975849864676
+      }
+    },
+    {
+      "date": "2026-01-19",
+      "alive": 67215,
+      "failing": 122,
+      "warn": {
+        "flagged": 133.0,
+        "caught": 37.0,
+        "precision": 0.2781954887218045,
+        "recall": 0.30327868852459017,
+        "false_alarm_rate": 0.0014308497160657595,
+        "positive_likelihood_ratio": 211.9570525956284,
+        "lift": 153.26975224947614,
+        "base_rate": 0.0018150710406903221
+      },
+      "cordon": {
+        "flagged": 24.0,
+        "caught": 15.0,
+        "precision": 0.625,
+        "recall": 0.12295081967213115,
+        "false_alarm_rate": 0.00013414216088116496,
+        "positive_likelihood_ratio": 916.5710382513661,
+        "lift": 344.33913934426226,
+        "base_rate": 0.0018150710406903221
+      },
+      "migrate": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0018150710406903221
+      },
+      "drain": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0018150710406903221
+      }
+    },
+    {
+      "date": "2026-01-26",
+      "alive": 67295,
+      "failing": 120,
+      "warn": {
+        "flagged": 133.0,
+        "caught": 39.0,
+        "precision": 0.2932330827067669,
+        "recall": 0.325,
+        "false_alarm_rate": 0.0013993301079270562,
+        "positive_likelihood_ratio": 232.25398936170214,
+        "lift": 164.44266917293234,
+        "base_rate": 0.0017831934021844118
+      },
+      "cordon": {
+        "flagged": 36.0,
+        "caught": 20.0,
+        "precision": 0.5555555555555556,
+        "recall": 0.16666666666666666,
+        "false_alarm_rate": 0.0002381838481577968,
+        "positive_likelihood_ratio": 699.7395833333333,
+        "lift": 311.550925925926,
+        "base_rate": 0.0017831934021844118
+      },
+      "migrate": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0017831934021844118
+      },
+      "drain": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0017831934021844118
+      }
+    },
+    {
+      "date": "2026-02-02",
+      "alive": 67201,
+      "failing": 113,
+      "warn": {
+        "flagged": 140.0,
+        "caught": 30.0,
+        "precision": 0.21428571428571427,
+        "recall": 0.26548672566371684,
+        "false_alarm_rate": 0.0016396374910565227,
+        "positive_likelihood_ratio": 161.91794046661306,
+        "lift": 127.43552465233881,
+        "base_rate": 0.0016815225963899346
+      },
+      "cordon": {
+        "flagged": 26.0,
+        "caught": 11.0,
+        "precision": 0.4230769230769231,
+        "recall": 0.09734513274336283,
+        "false_alarm_rate": 0.00022358693059861673,
+        "positive_likelihood_ratio": 435.37935103244837,
+        "lift": 251.60347174948947,
+        "base_rate": 0.0016815225963899346
+      },
+      "migrate": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0016815225963899346
+      },
+      "drain": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0016815225963899346
+      }
+    },
+    {
+      "date": "2026-02-09",
+      "alive": 67181,
+      "failing": 136,
+      "warn": {
+        "flagged": 141.0,
+        "caught": 39.0,
+        "precision": 0.2765957446808511,
+        "recall": 0.2867647058823529,
+        "false_alarm_rate": 0.0015213662465508242,
+        "positive_likelihood_ratio": 188.49156574394462,
+        "lift": 136.63219649561952,
+        "base_rate": 0.0020243818936901805
+      },
+      "cordon": {
+        "flagged": 30.0,
+        "caught": 16.0,
+        "precision": 0.5333333333333333,
+        "recall": 0.11764705882352941,
+        "false_alarm_rate": 0.00020881497501677978,
+        "positive_likelihood_ratio": 563.4033613445378,
+        "lift": 263.4549019607843,
+        "base_rate": 0.0020243818936901805
+      },
+      "migrate": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0020243818936901805
+      },
+      "drain": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0020243818936901805
+      }
+    },
+    {
+      "date": "2026-02-16",
+      "alive": 67589,
+      "failing": 143,
+      "warn": {
+        "flagged": 172.0,
+        "caught": 53.0,
+        "precision": 0.3081395348837209,
+        "recall": 0.3706293706293706,
+        "false_alarm_rate": 0.0017643744625329893,
+        "positive_likelihood_ratio": 210.06276076864313,
+        "lift": 145.64225890388678,
+        "base_rate": 0.0021157288907958397
+      },
+      "cordon": {
+        "flagged": 43.0,
+        "caught": 24.0,
+        "precision": 0.5581395348837209,
+        "recall": 0.16783216783216784,
+        "false_alarm_rate": 0.00028170684695904874,
+        "positive_likelihood_ratio": 595.7688627162311,
+        "lift": 263.8048463164742,
+        "base_rate": 0.0021157288907958397
+      },
+      "migrate": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0021157288907958397
+      },
+      "drain": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0021157288907958397
+      }
+    },
+    {
+      "date": "2026-02-23",
+      "alive": 67477,
+      "failing": 152,
+      "warn": {
+        "flagged": 160.0,
+        "caught": 47.0,
+        "precision": 0.29375,
+        "recall": 0.3092105263157895,
+        "false_alarm_rate": 0.0016784255477163014,
+        "positive_likelihood_ratio": 184.22653702841177,
+        "lift": 130.4037417763158,
+        "base_rate": 0.002252619411058583
+      },
+      "cordon": {
+        "flagged": 34.0,
+        "caught": 19.0,
+        "precision": 0.5588235294117647,
+        "recall": 0.125,
+        "false_alarm_rate": 0.0002227998514667657,
+        "positive_likelihood_ratio": 561.0416666666666,
+        "lift": 248.07720588235293,
+        "base_rate": 0.002252619411058583
+      },
+      "migrate": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.002252619411058583
+      },
+      "drain": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.002252619411058583
+      }
+    },
+    {
+      "date": "2026-03-02",
+      "alive": 67732,
+      "failing": 165,
+      "warn": {
+        "flagged": 164.0,
+        "caught": 54.0,
+        "precision": 0.32926829268292684,
+        "recall": 0.32727272727272727,
+        "false_alarm_rate": 0.0016280136753148726,
+        "positive_likelihood_ratio": 201.02578512396695,
+        "lift": 135.16363636363636,
+        "base_rate": 0.0024360715762121302
+      },
+      "cordon": {
+        "flagged": 40.0,
+        "caught": 24.0,
+        "precision": 0.6,
+        "recall": 0.14545454545454545,
+        "false_alarm_rate": 0.00023680198913670874,
+        "positive_likelihood_ratio": 614.2454545454545,
+        "lift": 246.2981818181818,
+        "base_rate": 0.0024360715762121302
+      },
+      "migrate": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0024360715762121302
+      },
+      "drain": {
+        "flagged": 0.0,
+        "caught": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_alarm_rate": 0.0,
+        "positive_likelihood_ratio": null,
+        "lift": 0.0,
+        "base_rate": 0.0024360715762121302
+      }
+    }
+  ],
+  "two_look_pairs": 536912,
+  "two_look": [
+    {
+      "combiner": "min",
+      "false_alarm_budget": 0.0001,
+      "one_look_recall": 0.09519230769230769,
+      "two_look_recall": 0.07692307692307693,
+      "difference": -0.01826923076923076,
+      "difference_ci": [
+        -0.03051942602569416,
+        0.005904884763749484
+      ]
+    },
+    {
+      "combiner": "min",
+      "false_alarm_budget": 0.0002,
+      "one_look_recall": 0.1326923076923077,
+      "two_look_recall": 0.12307692307692308,
+      "difference": -0.009615384615384609,
+      "difference_ci": [
+        -0.02843316341966355,
+        0.010888777632619367
+      ]
+    },
+    {
+      "combiner": "min",
+      "false_alarm_budget": 0.0005,
+      "one_look_recall": 0.19134615384615383,
+      "two_look_recall": 0.19230769230769232,
+      "difference": 0.0009615384615384859,
+      "difference_ci": [
+        -0.015197419812995612,
+        0.01944063926940639
+      ]
+    },
+    {
+      "combiner": "min",
+      "false_alarm_budget": 0.001,
+      "one_look_recall": 0.25576923076923075,
+      "two_look_recall": 0.24326923076923077,
+      "difference": -0.012499999999999983,
+      "difference_ci": [
+        -0.025043763765230806,
+        0.00866012102515426
+      ]
+    },
+    {
+      "combiner": "min",
+      "false_alarm_budget": 0.003,
+      "one_look_recall": 0.37884615384615383,
+      "two_look_recall": 0.3557692307692308,
+      "difference": -0.02307692307692305,
+      "difference_ci": [
+        -0.04007800138945777,
+        -0.0070458243479929305
+      ]
+    }
+  ]
+}

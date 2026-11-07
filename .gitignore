@@ -40,6 +40,9 @@ data/audit/q3_logs/train_h*.log
 data/audit/q3_logs/deep_dive*.log
 data/audit/q3_logs/cluster_policy_validation.log
 data/audit/stack_scorer_h60_logs/freeze.log
+data/audit/agent_pit_validation_h60_logs/pit.log
+# Per-date partitions duplicate the merged observation files beside them.
+data/audit/agent_pit_validation_h60/*/
 
 # ML experiment tracking artifacts
 mlflow/*
