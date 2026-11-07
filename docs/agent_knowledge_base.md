@@ -327,10 +327,28 @@ knowledge context as of its date. Select half: 2026-02-01..02-15. Confirm half:
 Q3 point-in-time dates, used only inside the logged Q3 look: 2026-07-04, 07-11, 07-18,
 07-25, 08-01 (the last date whose 60-day label is observable).
 
-**Power, filled in from Phase S before the screen runs:** the stack's 60-day validation
-flag rates at warn and cordon, and the expected flagged drive-days of the confirm half.
-This subsection is the one part of sections 1-10 completed after the design commit; it
-records measurements, not choices, and section 8 does not change.
+**Power, filled in from Phase S before the screen runs** (measured 2026-11-07 from
+`data/tmp/stack_scores/scores_h60_seed0.parquet` with the stack's lift tiers, warn 0.9342
+and cordon 0.9825; candidate threshold 0.2716). This subsection is the one part of
+sections 1-10 completed after the design commit; it records measurements, not choices.
+
+| Validation rows | Candidates (>= 0.2716) | warn and above | cordon and above |
+|---|---|---|---|
+| All 8,242,015 | 2.84% | 0.26% | 0.067% |
+
+| Half | Days | Drive-days | Drives | warn-and-above drive-days (drives) | cordon-and-above drive-days (drives) | Row failure rate |
+|---|---|---|---|---|---|---|
+| Select, 02-01..02-15 | 15 | 1,009,214 | 67,828 | 2,233 (295) | 528 (90) | 0.187% |
+| Confirm, 02-16..03-02 | 15 | 1,013,502 | 68,064 | 2,534 (291) | 649 (92) | 0.223% |
+
+Two consequences, found when these were measured and before any screening code exists:
+
+- **Cordon-level rules are underpowered by design.** Criterion 3 of section 8 needs at
+  least 60 distinct changed drives; only 92 drives reach cordon on the whole confirm half.
+- **R2 and R2b cannot meet criterion 1 as written.** Both move drives between warn and
+  cordon, so the warn-and-above set is unchanged and its precision difference is exactly
+  0, never "entirely above 0". Only rules that change both tiers (R1; R3, which is not
+  screenable at h = 60) can pass criterion 1 at both tiers.
 
 Estimates: Phase S about 8 minutes of compute (under 14 GB), Phase 0 under 10 minutes
 for three arms (3-4 GB per snapshot date), the store build about 3 minutes (under 1 GB),
