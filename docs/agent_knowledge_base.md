@@ -409,8 +409,10 @@ Updated as each step lands. Commits are on branch `adi_dev`; times are UTC.
 | Amendment 1 to section 8 | `1165f2c` | Done, before any screening code |
 | Phase 0 code (point-in-time options) | `157ac46`, `787b8b8` | Done; 39 point-in-time tests pass |
 | Phase 0 run: `data/audit/agent_pit_validation_h60/` | `b9cac53` | Done, frozen (checksums) |
-| Phase 1: knowledge store (`src/agent/knowledge/store.py`) | - | Written, lint and types clean; tests next |
-| Phase 1: builder, self-checks, CLI, loop wiring | - | Not started |
+| Phase 1: knowledge store (`src/agent/knowledge/store.py`) | `b62d74e` | Done; 17 tests (self-checks a, b, c, f, j) |
+| Phase 1: builder, real-data self-checks, CLI | `be1d29a` | Done; 5 tests (incl. resume, check g) |
+| Phase 1: build on real data | - | Running |
+| Phase 1: loop wiring (Analyze context, Plan seam, Validate record) | - | Not started |
 | Phase 2: rules and screen | - | Not started |
 
 ### 11.1 Phase S: the frozen stack scorer (2026-11-07 13:40-13:44, commit `b8da3eb`)
@@ -465,4 +467,12 @@ The four arms are indistinguishable within their intervals.
   added). The store is filled by its own backfill from the same score table, so the two
   stay independent and each can be checked against the other.
 - **Amendment 1** (section 8) changed where criterion 1 applies, before any screening.
+- **Episodes have their own outcome rule.** Section 5.2 gave only the row rule (a failure
+  strictly after the day). A drive is usually still flagged on the day it fails, so an
+  episode whose last flag is its failure day would never resolve as failed under that rule;
+  writing the store's tests found this. An episode is failed if the drive fails after its
+  first flag and within the horizon of its last; survived if seen a horizon after its last
+  flag; otherwise censored a week later. Per-row outcomes still follow the label definition.
+- **Reopening a store with default settings** first failed against a store built with other
+  settings; fixed (settings left out mean "as stored"). Also found by the tests.
 
