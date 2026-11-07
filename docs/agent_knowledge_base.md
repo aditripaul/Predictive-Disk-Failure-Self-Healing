@@ -419,6 +419,7 @@ Updated as each step lands. Commits are on branch `adi_dev`; times are UTC.
 | Phase 2: rules and screen | `941a78a`, `d58e0cc`, `4842ea3` | Done; 13 tests |
 | Phase 2: screen run (clean tree) | (outputs) `3090d2a` | Done: no rule passed (11.4) |
 | Full suite before the write-up | - | 846 tests pass (unit and agent-graph integration); lint and types clean |
+| The store tracked as a gzip; `make agent-knowledge`, `pack-knowledge`, `unpack-knowledge` | `8fc17ac` | Done; restore verified by content fingerprint |
 
 ### 11.1 Phase S: the frozen stack scorer (2026-11-07 13:40-13:44, commit `b8da3eb`)
 
@@ -588,7 +589,7 @@ R2b changes 2 drive-days at either delta (60 days of history is barely available
 | Design commit (sections 1-10) | `553004a`; power filled `441468f`; Amendment 1 `1165f2c` |
 | Scorer | `frozen_runs/stack_h60_seed0/`, refit at `b8da3eb` from work dir `train_model_frame_xjxdieoe` (60-day run `804a20ce`), seed 0, net 0.8; `stack.json` SHA-256 `5b587b964b67e8c2`, tiers `747d2ed19d6b7b3e`, report `ebddc0b6c7f617ad` |
 | Validation baseline | `make agent-pit-validation` at `787b8b8`; `data/audit/agent_pit_validation_h60/stack.json` `55bea04b297820a3` |
-| Knowledge store | `scripts/build_agent_knowledge.py build/check/coverage/drift` at `a96d8a3`; `knowledge_checks.json` `aa9a3f80f019bd71`; the store (`data/audit/agent_knowledge.sqlite`, 96 MB) is local |
+| Knowledge store | `scripts/build_agent_knowledge.py build/check/coverage/drift` at `a96d8a3`; `knowledge_checks.json` `aa9a3f80f019bd71`; the store (`data/audit/agent_knowledge.sqlite`, 100.5 MB) is tracked as `data/audit/agent_knowledge_h60/agent_knowledge.sqlite.gz` (24.1 MB, packed at `8fc17ac`; SHA-256 `8e39368aa8d75a3c`, content fingerprint `662ab2647de72126`); `make unpack-knowledge` restores and verifies it |
 | Screen | `scripts/screen_agent_knowledge.py` at `4842ea3`; `validation.json` `a637496d70e35ebd`; descriptive `tier_rules_descriptive.json` `058b9173cd493176` (at `d58e0cc`) |
 | Test-access log | 139 lines before and after: no step read test data |
 | Wall times (UTC, 2026-11-07) | scorer 13:40-13:44; baseline 13:53-13:54; store 14:12-14:16; screen about 2 minutes |

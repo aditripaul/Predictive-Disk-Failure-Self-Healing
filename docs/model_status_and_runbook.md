@@ -1058,6 +1058,9 @@ bash data/audit/agent_knowledge_h60_logs/run_build.sh "$PWD"
 # Phase 2: the pre-registered screen, and the descriptive tier-rule table
 bash data/audit/agent_knowledge_h60_logs/run_screen.sh "$PWD"     # = scripts/screen_agent_knowledge.py
 uv run python scripts/screen_agent_knowledge.py --describe-tier-rules
+# The store: pack it into the tracked gzip, or restore and verify the tracked one
+make pack-knowledge       # data/audit/agent_knowledge.sqlite -> agent_knowledge_h60/agent_knowledge.sqlite.gz
+make unpack-knowledge     # the reverse; checks the SHA-256, then the content fingerprint
 # Tests
 uv run pytest tests/unit/test_stack_scorer.py tests/unit/test_threshold_cost_tiers.py \
   tests/unit/test_run_point_in_time.py tests/unit/test_agent_knowledge_*.py
@@ -1067,8 +1070,11 @@ Outputs, all frozen with a README and `CHECKSUMS.sha256`: `frozen_runs/stack_h60
 (scorer, tiers, cost-sensitivity table; `stack.json` SHA-256 starts `5b587b964b67e8c2`),
 `data/audit/agent_pit_validation_h60/` (`stack.json` `55bea04b297820a3`),
 `data/audit/agent_knowledge_h60/` (`knowledge_checks.json` `aa9a3f80f019bd71`, `validation.json`
-`a637496d70e35ebd`). The score table `data/tmp/stack_scores/scores_h60_seed0.parquet` and the
-store `data/audit/agent_knowledge.sqlite` are local and rebuilt by the commands above.
+`a637496d70e35ebd`). The store is tracked compressed as
+`data/audit/agent_knowledge_h60/agent_knowledge.sqlite.gz` (24.1 MB from 100.5 MB, over GitHub's
+file limit uncompressed; SHA-256 `8e39368aa8d75a3c`, content fingerprint `662ab2647de72126`, both
+in `agent_knowledge_pack.json`); `make unpack-knowledge` restores and verifies it. The score
+table `data/tmp/stack_scores/scores_h60_seed0.parquet` is local and rebuilt by the commands above.
 
 ### 1.2 The two-stage gain is not established
 

@@ -10,8 +10,15 @@ build`, then `check`, `coverage`, `drift`) at commit `a96d8a3`, 2026-11-07 14:12
 (26 weekly chunks, 193 s). Scores: the frozen stacked Stage 2's validation scores
 (`data/tmp/stack_scores/scores_h60_seed0.parquet`, 2026-01-01..05-01, lift tiers warn 0.9342,
 cordon 0.9825, primary 0.9961, candidate threshold 0.2716); presence and failures from silver
-`drive_day` to 2026-06-30, for the 70,969 validation drives. The store itself
-(`data/audit/agent_knowledge.sqlite`, 96 MB) is local and rebuilt by `build`.
+`drive_day` to 2026-06-30, for the 70,969 validation drives.
+
+**The store itself is tracked compressed:** `agent_knowledge.sqlite.gz` (24.1 MB, a
+deterministic gzip of the 100.5 MB SQLite file, which is over GitHub's file limit), with
+`agent_knowledge_pack.json` recording the packed file's SHA-256 (`8e39368aa8d75a3c...`) and the
+store's content fingerprint (`KnowledgeBase.content_hash`, `662ab2647de72126...`). Restore it
+with `make unpack-knowledge` (to `data/audit/agent_knowledge.sqlite`; it checks the SHA-256
+before and the fingerprint after); pack it again with `make pack-knowledge`. A store rebuilt with
+`make agent-knowledge` has the same content fingerprint even where its file bytes differ.
 
 | Table | Rows |
 |---|---|
@@ -69,5 +76,5 @@ lowers recall significantly at every N (N = 7: -10.2 points [-14.1, -6.3]; N = 2
 [-7.0, -1.7]) and does not raise precision: more than half the demoted drive-days belong to
 drives that failed. R2b changes 2 drive-days. This changes no verdict.
 
-`CHECKSUMS.sha256` covers every file here; `sha256sum -c CHECKSUMS.sha256` from this folder.
-The logs print absolute paths and stay local.
+`CHECKSUMS.sha256` covers every file here, the packed store included; `sha256sum -c
+CHECKSUMS.sha256` from this folder. The logs print absolute paths and stay local.
