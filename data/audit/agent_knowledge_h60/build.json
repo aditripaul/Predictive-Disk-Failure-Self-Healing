@@ -1,0 +1,415 @@
+{
+  "chunks": [
+    {
+      "start": "2026-01-01",
+      "end": "2026-01-07",
+      "presence_rows": 470767,
+      "score_rows": 470755,
+      "stored": 10173,
+      "present": 470767,
+      "resolved": {
+        "failure": 14,
+        "presence": 0,
+        "censored_removed": 0,
+        "pending": 10159
+      },
+      "seconds": 4.32
+    },
+    {
+      "start": "2026-01-08",
+      "end": "2026-01-14",
+      "presence_rows": 470816,
+      "score_rows": 470798,
+      "stored": 10807,
+      "present": 470816,
+      "resolved": {
+        "failure": 48,
+        "presence": 0,
+        "censored_removed": 0,
+        "pending": 20918
+      },
+      "seconds": 5.38
+    },
+    {
+      "start": "2026-01-15",
+      "end": "2026-01-21",
+      "presence_rows": 470786,
+      "score_rows": 470758,
+      "stored": 11486,
+      "present": 470786,
+      "resolved": {
+        "failure": 63,
+        "presence": 0,
+        "censored_removed": 0,
+        "pending": 32341
+      },
+      "seconds": 5.66
+    },
+    {
+      "start": "2026-01-22",
+      "end": "2026-01-28",
+      "presence_rows": 472075,
+      "score_rows": 471418,
+      "stored": 11307,
+      "present": 472075,
+      "resolved": {
+        "failure": 185,
+        "presence": 0,
+        "censored_removed": 0,
+        "pending": 43463
+      },
+      "seconds": 5.83
+    },
+    {
+      "start": "2026-01-29",
+      "end": "2026-02-04",
+      "presence_rows": 472213,
+      "score_rows": 470682,
+      "stored": 11265,
+      "present": 472213,
+      "resolved": {
+        "failure": 214,
+        "presence": 0,
+        "censored_removed": 0,
+        "pending": 54514
+      },
+      "seconds": 6.07
+    },
+    {
+      "start": "2026-02-05",
+      "end": "2026-02-11",
+      "presence_rows": 472037,
+      "score_rows": 470453,
+      "stored": 11710,
+      "present": 472037,
+      "resolved": {
+        "failure": 448,
+        "presence": 0,
+        "censored_removed": 0,
+        "pending": 65776
+      },
+      "seconds": 6.5
+    },
+    {
+      "start": "2026-02-12",
+      "end": "2026-02-18",
+      "presence_rows": 474171,
+      "score_rows": 472580,
+      "stored": 12723,
+      "present": 474171,
+      "resolved": {
+        "failure": 641,
+        "presence": 0,
+        "censored_removed": 0,
+        "pending": 77858
+      },
+      "seconds": 6.54
+    },
+    {
+      "start": "2026-02-19",
+      "end": "2026-02-25",
+      "presence_rows": 474820,
+      "score_rows": 472335,
+      "stored": 13650,
+      "present": 474820,
+      "resolved": {
+        "failure": 464,
+        "presence": 0,
+        "censored_removed": 0,
+        "pending": 91044
+      },
+      "seconds": 6.82
+    },
+    {
+      "start": "2026-02-26",
+      "end": "2026-03-04",
+      "presence_rows": 476748,
+      "score_rows": 473953,
+      "stored": 14464,
+      "present": 476748,
+      "resolved": {
+        "failure": 351,
+        "presence": 3997,
+        "censored_removed": 0,
+        "pending": 101160
+      },
+      "seconds": 7.06
+    },
+    {
+      "start": "2026-03-05",
+      "end": "2026-03-11",
+      "presence_rows": 480102,
+      "score_rows": 477300,
+      "stored": 14951,
+      "present": 480102,
+      "resolved": {
+        "failure": 678,
+        "presence": 9731,
+        "censored_removed": 65,
+        "pending": 105637
+      },
+      "seconds": 7.32
+    },
+    {
+      "start": "2026-03-12",
+      "end": "2026-03-18",
+      "presence_rows": 480827,
+      "score_rows": 478029,
+      "stored": 15196,
+      "present": 480827,
+      "resolved": {
+        "failure": 608,
+        "presence": 10756,
+        "censored_removed": 94,
+        "pending": 109440
+      },
+      "seconds": 7.55
+    },
+    {
+      "start": "2026-03-19",
+      "end": "2026-03-25",
+      "presence_rows": 481913,
+      "score_rows": 479023,
+      "stored": 15290,
+      "present": 481913,
+      "resolved": {
+        "failure": 415,
+        "presence": 10617,
+        "censored_removed": 219,
+        "pending": 113573
+      },
+      "seconds": 7.92
+    },
+    {
+      "start": "2026-03-26",
+      "end": "2026-04-01",
+      "presence_rows": 482826,
+      "score_rows": 481137,
+      "stored": 14916,
+      "present": 482826,
+      "resolved": {
+        "failure": 393,
+        "presence": 10824,
+        "censored_removed": 236,
+        "pending": 117255
+      },
+      "seconds": 8.39
+    },
+    {
+      "start": "2026-04-02",
+      "end": "2026-04-08",
+      "presence_rows": 484193,
+      "score_rows": 482785,
+      "stored": 15091,
+      "present": 484193,
+      "resolved": {
+        "failure": 777,
+        "presence": 10755,
+        "censored_removed": 297,
+        "pending": 120753
+      },
+      "seconds": 8.13
+    },
+    {
+      "start": "2026-04-09",
+      "end": "2026-04-15",
+      "presence_rows": 485956,
+      "score_rows": 484543,
+      "stored": 15577,
+      "present": 485956,
+      "resolved": {
+        "failure": 1190,
+        "presence": 11598,
+        "censored_removed": 297,
+        "pending": 123542
+      },
+      "seconds": 8.34
+    },
+    {
+      "start": "2026-04-16",
+      "end": "2026-04-22",
+      "presence_rows": 487325,
+      "score_rows": 486123,
+      "stored": 15897,
+      "present": 487325,
+      "resolved": {
+        "failure": 986,
+        "presence": 12298,
+        "censored_removed": 351,
+        "pending": 126101
+      },
+      "seconds": 8.58
+    },
+    {
+      "start": "2026-04-23",
+      "end": "2026-04-29",
+      "presence_rows": 489427,
+      "score_rows": 489203,
+      "stored": 15471,
+      "present": 489427,
+      "resolved": {
+        "failure": 1485,
+        "presence": 13278,
+        "censored_removed": 396,
+        "pending": 126764
+      },
+      "seconds": 9.13
+    },
+    {
+      "start": "2026-04-30",
+      "end": "2026-05-06",
+      "presence_rows": 490412,
+      "score_rows": 140140,
+      "stored": 4301,
+      "present": 490412,
+      "resolved": {
+        "failure": 1003,
+        "presence": 14261,
+        "censored_removed": 179,
+        "pending": 116018
+      },
+      "seconds": 8.35
+    },
+    {
+      "start": "2026-05-07",
+      "end": "2026-05-13",
+      "presence_rows": 490579,
+      "score_rows": 0,
+      "stored": 0,
+      "present": 490579,
+      "resolved": {
+        "failure": 597,
+        "presence": 14031,
+        "censored_removed": 241,
+        "pending": 101328
+      },
+      "seconds": 7.99
+    },
+    {
+      "start": "2026-05-14",
+      "end": "2026-05-20",
+      "presence_rows": 490576,
+      "score_rows": 0,
+      "stored": 0,
+      "present": 490576,
+      "resolved": {
+        "failure": 801,
+        "presence": 14734,
+        "censored_removed": 1,
+        "pending": 86033
+      },
+      "seconds": 8.14
+    },
+    {
+      "start": "2026-05-21",
+      "end": "2026-05-27",
+      "presence_rows": 490126,
+      "score_rows": 0,
+      "stored": 0,
+      "present": 490126,
+      "resolved": {
+        "failure": 647,
+        "presence": 14146,
+        "censored_removed": 6,
+        "pending": 71235
+      },
+      "seconds": 8.11
+    },
+    {
+      "start": "2026-05-28",
+      "end": "2026-06-03",
+      "presence_rows": 490087,
+      "score_rows": 0,
+      "stored": 0,
+      "present": 490087,
+      "resolved": {
+        "failure": 240,
+        "presence": 13929,
+        "censored_removed": 0,
+        "pending": 57072
+      },
+      "seconds": 8.29
+    },
+    {
+      "start": "2026-06-04",
+      "end": "2026-06-10",
+      "presence_rows": 489698,
+      "score_rows": 0,
+      "stored": 0,
+      "present": 489698,
+      "resolved": {
+        "failure": 244,
+        "presence": 14069,
+        "censored_removed": 36,
+        "pending": 42723
+      },
+      "seconds": 8.3
+    },
+    {
+      "start": "2026-06-11",
+      "end": "2026-06-17",
+      "presence_rows": 488863,
+      "score_rows": 0,
+      "stored": 0,
+      "present": 488863,
+      "resolved": {
+        "failure": 238,
+        "presence": 14938,
+        "censored_removed": 96,
+        "pending": 27487
+      },
+      "seconds": 8.53
+    },
+    {
+      "start": "2026-06-18",
+      "end": "2026-06-24",
+      "presence_rows": 488804,
+      "score_rows": 0,
+      "stored": 0,
+      "present": 488804,
+      "resolved": {
+        "failure": 38,
+        "presence": 14906,
+        "censored_removed": 84,
+        "pending": 12555
+      },
+      "seconds": 8.42
+    },
+    {
+      "start": "2026-06-25",
+      "end": "2026-06-30",
+      "presence_rows": 418911,
+      "score_rows": 0,
+      "stored": 0,
+      "present": 418911,
+      "resolved": {
+        "failure": 19,
+        "presence": 12379,
+        "censored_removed": 105,
+        "pending": 136
+      },
+      "seconds": 7.39
+    }
+  ],
+  "drives_in_scope": 70969,
+  "row_counts": {
+    "metadata": 17,
+    "candidate_days": 234275,
+    "presence_weeks": 1864602,
+    "drive_info": 70969,
+    "failure_days": 483,
+    "cohort_daily": 15593,
+    "outcomes": 234034,
+    "decisions": 0,
+    "ingest_log": 181
+  },
+  "settings": {
+    "run_id": "stack_h60_seed0:score:action_tiers",
+    "thresholds": {
+      "warn": 0.9342461661714807,
+      "cordon": 0.9825312473525056,
+      "primary": 0.9960591538701256
+    },
+    "candidate_threshold": 0.27160416009758
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "fleet": "drives in scores_h60_seed0.parquet on 2026-03-02 (split validation)",
+  "drives_in_scope": 70969,
+  "as_of": "2026-03-02",
+  "fleet_drives": 67732,
+  "with_any_history": 67732,
+  "share_with_any_history": 1.0,
+  "with_60_days_or_more": 66581,
+  "first_seen_within_30_days": 614,
+  "with_an_episode": 355
+}

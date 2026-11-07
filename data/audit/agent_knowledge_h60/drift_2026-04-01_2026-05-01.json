@@ -1,0 +1,41 @@
+{
+  "features": {
+    "candidates_share": {
+      "psi": 7.705669970977826,
+      "classification": "significant_shift"
+    },
+    "warn_share": {
+      "psi": 10.692558019237254,
+      "classification": "significant_shift"
+    },
+    "cordon_share": {
+      "psi": 10.978095323718158,
+      "classification": "significant_shift"
+    },
+    "candidate_p_fail": {
+      "psi": 0.22731749510169055,
+      "classification": "moderate_shift"
+    }
+  },
+  "retrain_recommended": true,
+  "reference": [
+    "2026-01-01",
+    "2026-03-31"
+  ],
+  "current": [
+    "2026-04-01",
+    "2026-05-01"
+  ],
+  "mean_shares": {
+    "reference": {
+      "candidates_share": 0.02710373747027794,
+      "warn_share": 0.0023657411516763956,
+      "cordon_share": 0.0005734049918111649
+    },
+    "current": {
+      "candidates_share": 0.031748536737474596,
+      "warn_share": 0.003087503949575642,
+      "cordon_share": 0.0009201023566611837
+    }
+  }
+}

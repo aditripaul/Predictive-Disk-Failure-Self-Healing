@@ -1,0 +1,374 @@
+{
+  "screen": {
+    "start": "2026-02-01",
+    "select_end": "2026-02-15",
+    "confirm_start": "2026-02-16",
+    "end": "2026-03-02"
+  },
+  "scorer": "frozen_runs/stack_h60_seed0/agent_thresholds_stack_h60_seed0.json",
+  "tier_set": "action_tiers",
+  "thresholds": {
+    "warn": 0.9342461661714807,
+    "cordon": 0.9825312473525056,
+    "migrate": 0.9997497135199567,
+    "drain": 0.9997497135199567
+  },
+  "git_commit": "4842ea35b571650c2e8bf7ce44d14e07828fef88",
+  "git_dirty": false,
+  "select": {
+    "observations": 1009214,
+    "drives": 67828
+  },
+  "confirm": {
+    "observations": 1013502,
+    "drives": 68064,
+    "row_failure_rate": 0.002225945286738457,
+    "with_context": 2534
+  },
+  "r1_tau_selection": {
+    "chosen_by_log_loss": 1.0,
+    "scores": [
+      {
+        "tau": 0.0,
+        "log_loss": 0.00933780605132419
+      },
+      {
+        "tau": 0.1,
+        "log_loss": 0.009287318892261563
+      },
+      {
+        "tau": 0.25,
+        "log_loss": 0.009225680622523621
+      },
+      {
+        "tau": 0.5,
+        "log_loss": 0.009193287746460048
+      },
+      {
+        "tau": 1.0,
+        "log_loss": 0.009180929495025787
+      },
+      {
+        "tau": 2.0,
+        "log_loss": 0.009182259665164788
+      }
+    ]
+  },
+  "rules": {
+    "r1_cohort_prior": {
+      "selection": {
+        "grid": [
+          {
+            "params": {
+              "tau": 0.0
+            },
+            "judged": [
+              "cordon"
+            ],
+            "recall": 0.14149443561208266,
+            "baseline_recall": 0.14149443561208266
+          },
+          {
+            "params": {
+              "tau": 0.1
+            },
+            "judged": [
+              "warn",
+              "cordon"
+            ],
+            "recall": 0.2323794382617912,
+            "baseline_recall": 0.2262851086380498
+          },
+          {
+            "params": {
+              "tau": 0.25
+            },
+            "judged": [
+              "warn",
+              "cordon"
+            ],
+            "recall": 0.23105458399576045,
+            "baseline_recall": 0.2262851086380498
+          },
+          {
+            "params": {
+              "tau": 0.5
+            },
+            "judged": [
+              "warn",
+              "cordon"
+            ],
+            "recall": 0.2313195548489666,
+            "baseline_recall": 0.2262851086380498
+          },
+          {
+            "params": {
+              "tau": 1.0
+            },
+            "judged": [
+              "warn",
+              "cordon"
+            ],
+            "recall": 0.2323794382617912,
+            "baseline_recall": 0.2262851086380498
+          },
+          {
+            "params": {
+              "tau": 2.0
+            },
+            "judged": [
+              "warn",
+              "cordon"
+            ],
+            "recall": 0.23343932167461579,
+            "baseline_recall": 0.2262851086380498
+          }
+        ],
+        "chosen": {
+          "tau": 2.0
+        }
+      },
+      "chosen": {
+        "tau": 2.0
+      },
+      "confirm": {
+        "tiers": {
+          "warn": {
+            "difference": {
+              "precision_a": 0.31452249408050514,
+              "precision_b": 0.3123308851952068,
+              "recall_a": 0.3532801418439716,
+              "recall_b": 0.35815602836879434,
+              "precision_difference": -0.002191608885298346,
+              "precision_ci": [
+                -0.022337409517201565,
+                0.01848839495590305
+              ],
+              "recall_difference": 0.004875886524822737,
+              "recall_ci": [
+                -0.018942026500955386,
+                0.028688308809266455
+              ]
+            },
+            "criterion_1": false,
+            "baseline_false_alarm_rate": 0.001717682937682819,
+            "far_budgets": [
+              0.001,
+              0.002
+            ],
+            "recall_at_far": [
+              {
+                "false_alarm_budget": 0.001,
+                "baseline_recall": 0.28634751773049644,
+                "candidate_recall": 0.30407801418439717,
+                "baseline_precision": 0.3898033243103317,
+                "candidate_precision": 0.4041841901527533,
+                "difference": 0.017730496453900735,
+                "difference_ci": [
+                  -0.007296410161916555,
+                  0.038581789982665815
+                ]
+              },
+              {
+                "false_alarm_budget": 0.002,
+                "baseline_recall": 0.36657801418439717,
+                "candidate_recall": 0.37189716312056736,
+                "baseline_precision": 0.29022717031667394,
+                "candidate_precision": 0.29320368535015995,
+                "difference": 0.005319148936170193,
+                "difference_ci": [
+                  -0.02147420433894598,
+                  0.03447759876712792
+                ]
+              }
+            ],
+            "plain_threshold_at_matched_recall": 0.9306830816232867,
+            "against_plain_threshold": {
+              "precision_a": 0.30228208005985785,
+              "precision_b": 0.3123308851952068,
+              "recall_a": 0.35815602836879434,
+              "recall_b": 0.35815602836879434,
+              "precision_difference": 0.010048805135348948,
+              "precision_ci": [
+                -0.009878663834189968,
+                0.02986241097518386
+              ],
+              "recall_difference": 0.0,
+              "recall_ci": [
+                -0.02537417024710724,
+                0.024154854690405233
+              ]
+            },
+            "criterion_2": false
+          },
+          "cordon": {
+            "difference": {
+              "precision_a": 0.5238828967642527,
+              "precision_b": 0.5432624113475177,
+              "recall_a": 0.15070921985815602,
+              "recall_b": 0.1697695035460993,
+              "precision_difference": 0.019379514583265034,
+              "precision_ci": [
+                -0.025350987029909188,
+                0.06347114384684792
+              ],
+              "recall_difference": 0.01906028368794327,
+              "recall_ci": [
+                0.003172809017223927,
+                0.036769045554316704
+              ]
+            },
+            "criterion_1": false,
+            "baseline_false_alarm_rate": 0.0003055636314012614,
+            "far_budgets": [
+              0.0002,
+              0.0005
+            ],
+            "recall_at_far": [
+              {
+                "false_alarm_budget": 0.0002,
+                "baseline_recall": 0.12278368794326242,
+                "candidate_recall": 0.13430851063829788,
+                "baseline_precision": 0.5779874019612344,
+                "candidate_precision": 0.5997040668248461,
+                "difference": 0.011524822695035464,
+                "difference_ci": [
+                  -0.010872382160695759,
+                  0.032013603553274525
+                ]
+              },
+              {
+                "false_alarm_budget": 0.0005,
+                "baseline_recall": 0.20124113475177305,
+                "candidate_recall": 0.2149822695035461,
+                "baseline_precision": 0.4731024579444219,
+                "candidate_precision": 0.48959089381126825,
+                "difference": 0.013741134751773049,
+                "difference_ci": [
+                  -0.010516682007595866,
+                  0.03538415396055164
+                ]
+              }
+            ],
+            "plain_threshold_at_matched_recall": 0.9804916457263142,
+            "against_plain_threshold": {
+              "precision_a": 0.5079575596816976,
+              "precision_b": 0.5432624113475177,
+              "recall_a": 0.1697695035460993,
+              "recall_b": 0.1697695035460993,
+              "precision_difference": 0.03530485166582009,
+              "precision_ci": [
+                -0.004230948996144239,
+                0.07448846309229339
+              ],
+              "recall_difference": 0.0,
+              "recall_ci": [
+                -0.013834312781455938,
+                0.013283012828020227
+              ]
+            },
+            "criterion_2": false
+          }
+        },
+        "changed_drive_days": 748,
+        "changed_drives": 201,
+        "criterion_1": false,
+        "criterion_2": false,
+        "criterion_3": true
+      },
+      "criterion_4": true,
+      "rule_passed": false,
+      "verdict": "failed"
+    },
+    "r2_chronic_demote": {
+      "selection": {
+        "grid": [
+          {
+            "params": {
+              "n_days": 7
+            },
+            "judged": [
+              "cordon"
+            ],
+            "recall": 0.14149443561208266,
+            "baseline_recall": 0.14149443561208266
+          },
+          {
+            "params": {
+              "n_days": 14
+            },
+            "judged": [
+              "cordon"
+            ],
+            "recall": 0.14149443561208266,
+            "baseline_recall": 0.14149443561208266
+          },
+          {
+            "params": {
+              "n_days": 21
+            },
+            "judged": [
+              "cordon"
+            ],
+            "recall": 0.14149443561208266,
+            "baseline_recall": 0.14149443561208266
+          },
+          {
+            "params": {
+              "n_days": 28
+            },
+            "judged": [
+              "cordon"
+            ],
+            "recall": 0.14149443561208266,
+            "baseline_recall": 0.14149443561208266
+          }
+        ],
+        "chosen": null
+      },
+      "chosen": null,
+      "rule_passed": false,
+      "criterion_4": false,
+      "verdict": "failed: no value beat \"no rule\" on the select half"
+    },
+    "r2b_first_flag_promote": {
+      "selection": {
+        "grid": [
+          {
+            "params": {
+              "delta": 0.05,
+              "min_history_days": 60
+            },
+            "judged": [
+              "cordon"
+            ],
+            "recall": 0.14149443561208266,
+            "baseline_recall": 0.14149443561208266
+          },
+          {
+            "params": {
+              "delta": 0.1,
+              "min_history_days": 60
+            },
+            "judged": [
+              "cordon"
+            ],
+            "recall": 0.14149443561208266,
+            "baseline_recall": 0.14149443561208266
+          }
+        ],
+        "chosen": null
+      },
+      "chosen": null,
+      "rule_passed": false,
+      "criterion_4": false,
+      "verdict": "failed: no value beat \"no rule\" on the select half"
+    },
+    "r3_outcome_memory": {
+      "status": "not_screenable",
+      "reason": "no validation date has an episode resolved 60 days after it closed (section 7.1)",
+      "rule_passed": false,
+      "verdict": "not screenable"
+    }
+  }
+}
