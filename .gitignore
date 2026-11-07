@@ -61,3 +61,4 @@ data/audit/*.sqlite*
 
 delme/
 data/audit/agent_knowledge_h60_logs/build.log
+data/audit/agent_knowledge_h60_logs/screen.log
