@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from langgraph.types import interrupt
@@ -20,6 +21,13 @@ from src.agent.hysteresis import apply_hysteresis, is_in_cooldown, record_action
 from src.agent.state import AgentState
 from src.config import AgentSettings
 from src.models.action_tiers import determine_action_tier
+
+#: A knowledge rule (docs/agent_knowledge_base.md section 7): the proposed tier, the
+#: drive's knowledge context (None without history), the rule's parameters and the action
+#: thresholds in, the adjusted tier out. Applied between the tier decision and hysteresis.
+KnowledgeRule = Callable[
+    [ActionTier, dict[str, Any] | None, dict[str, Any], dict[str, float]], ActionTier
+]
 
 
 def make_monitor_node(deps: AgentDependencies):
@@ -70,6 +78,8 @@ def make_plan_node(
     cooldown_seconds: int | None = None,
     control_fraction: float | None = None,
     control_salt: str | None = None,
+    knowledge_rule: KnowledgeRule | None = None,
+    knowledge_rule_params: dict[str, Any] | None = None,
 ):
     """Thresholds default to configs/agent.yaml (via AgentSettings.load()),
     resolved lazily so tests/demos can still override them explicitly. The
@@ -118,6 +128,16 @@ def make_plan_node(
             action_thresholds=resolved_action_thresholds,
             min_confidence_for_destructive_action=resolved_min_confidence,
         )
+
+        # Knowledge rule (docs/agent_knowledge_base.md section 7): may move the tier using
+        # what the knowledge base knew about this drive, before hysteresis, cooldown and
+        # the control arm see it. None unless a rule passed the pre-registered screen
+        # (configs/agent.yaml knowledge.rule); a drive with no history is never changed.
+        knowledge_context = top_drive.get("knowledge_context")
+        if knowledge_rule is not None and knowledge_context is not None:
+            tier = knowledge_rule(
+                tier, knowledge_context, knowledge_rule_params or {}, resolved_action_thresholds
+            )
 
         # Hysteresis (docs/design_goal.md section 13): an escalation tier
         # only takes effect once sustained for `hysteresis_cycles_required`
@@ -173,6 +193,10 @@ def make_plan_node(
             # The tier this drive would have received had it not been held
             # back; None for every drive that was not.
             "withheld_action": withheld_action,
+            # What the knowledge base knew (None without one), and the drive's date:
+            # recorded for the audit trail; guardrails ignore both.
+            "knowledge_context": knowledge_context,
+            "as_of": top_drive.get("as_of"),
         }
         guardrail_result = deps.guardrail_evaluator(proposal)
 
@@ -262,6 +286,9 @@ def make_validate_node(deps: AgentDependencies):
             post_action_guardrail_result = deps.post_action_guardrail_evaluator(
                 execution_result, validation_result
             )
+
+        if deps.knowledge is not None:
+            deps.knowledge.record_cycle({**state, "decision_record_id": decision_record_id})
 
         return {
             "validation_result": validation_result,

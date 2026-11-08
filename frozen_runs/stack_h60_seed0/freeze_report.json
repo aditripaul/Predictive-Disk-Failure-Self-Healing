@@ -1,0 +1,727 @@
+{
+  "started": "2026-11-07T13:40:51.040227+00:00",
+  "finished": "2026-11-07T13:44:53.757227+00:00",
+  "work_dir": "train_model_frame_xjxdieoe",
+  "horizon_days": 60,
+  "seed": 0,
+  "net": 0.8,
+  "settings": {
+    "n_folds": 3,
+    "stage2_params": {
+      "min_child_samples": 50
+    },
+    "early_stopping_max_negatives": 1500000,
+    "survival_params": {
+      "max_depth": 4,
+      "learning_rate": 0.03,
+      "min_child_weight": 10,
+      "subsample": 0.8,
+      "colsample_bytree": 0.7
+    }
+  },
+  "git_commit": "b8da3ebe0578972523353bfff068a77a4fc73c3b",
+  "git_dirty": false,
+  "reproduction": {
+    "reference": "data/audit/stack_q3_h60/experiment_two_stage.json",
+    "checks": [
+      {
+        "check": "candidate_threshold",
+        "expected": 0.27160416009758004,
+        "actual": 0.27160416009758,
+        "ok": true
+      },
+      {
+        "check": "stage1_trees",
+        "expected": 355,
+        "actual": 355,
+        "ok": true
+      },
+      {
+        "check": "candidates.train_rows",
+        "expected": 176461,
+        "actual": 176461,
+        "ok": true
+      },
+      {
+        "check": "candidates.train_positive_rows",
+        "expected": 49645,
+        "actual": 49645,
+        "ok": true
+      },
+      {
+        "check": "candidates.validation_rows",
+        "expected": 234275,
+        "actual": 234275,
+        "ok": true
+      },
+      {
+        "check": "candidates.validation_positive_rows",
+        "expected": 12787,
+        "actual": 12787,
+        "ok": true
+      },
+      {
+        "check": "lightgbm.stage2_trees",
+        "expected": 43,
+        "actual": 43,
+        "ok": true
+      },
+      {
+        "check": "cox.stage2_trees",
+        "expected": 176,
+        "actual": 176,
+        "ok": true
+      },
+      {
+        "check": "stack.weights.lightgbm",
+        "expected": 0.5,
+        "actual": 0.5,
+        "ok": true
+      },
+      {
+        "check": "stack.weights.cox",
+        "expected": 0.5,
+        "actual": 0.5,
+        "ok": true
+      },
+      {
+        "check": "stack.validation_drive_ap.stack",
+        "expected": 0.5958868881012519,
+        "actual": 0.5958868881012519,
+        "ok": true
+      },
+      {
+        "check": "stack.validation_drive_ap.equal_weights",
+        "expected": 0.5958868881012519,
+        "actual": 0.5958868881012519,
+        "ok": true
+      },
+      {
+        "check": "stack.validation_drive_ap.lightgbm",
+        "expected": 0.5756713483854985,
+        "actual": 0.5756713483854985,
+        "ok": true
+      },
+      {
+        "check": "stack.validation_drive_ap.cox",
+        "expected": 0.5932477711290348,
+        "actual": 0.5932477711290348,
+        "ok": true
+      }
+    ],
+    "passed": true
+  },
+  "reports": {
+    "lightgbm": {
+      "stage1_trees": 355,
+      "candidate_recall": 0.8,
+      "n_folds": 3,
+      "seed": 0,
+      "candidate_threshold": 0.27160416009758,
+      "candidates": {
+        "train_rows": 176461,
+        "train_positive_rows": 49645,
+        "train_positive_share": 0.2813369526410935,
+        "validation_rows": 234275,
+        "validation_positive_rows": 12787,
+        "early_stopping_rows": 234275
+      },
+      "stage2_kind": "lightgbm",
+      "stage2_trees": 43,
+      "status": "ok"
+    },
+    "cox": {
+      "stage1_trees": 355,
+      "candidate_recall": 0.8,
+      "n_folds": 3,
+      "seed": 0,
+      "candidate_threshold": 0.27160416009758,
+      "candidates": {
+        "train_rows": 176461,
+        "train_positive_rows": 49645,
+        "train_positive_share": 0.2813369526410935,
+        "validation_rows": 234275,
+        "validation_positive_rows": 12787,
+        "early_stopping_rows": 234275
+      },
+      "stage2_kind": "cox",
+      "stage2_trees": 176,
+      "status": "ok"
+    },
+    "stack": {
+      "candidate_threshold": 0.27160416009758,
+      "stack": {
+        "members": [
+          "lightgbm",
+          "cox"
+        ],
+        "weights": {
+          "lightgbm": 0.5,
+          "cox": 0.5
+        },
+        "weight_step": 0.1,
+        "validation_drive_ap": {
+          "stack": 0.5958868881012519,
+          "equal_weights": 0.5958868881012519,
+          "lightgbm": 0.5756713483854985,
+          "cox": 0.5932477711290348
+        }
+      },
+      "stage2_trees": 219,
+      "status": "ok"
+    }
+  },
+  "scores_out": "data/tmp/stack_scores/scores_h60_seed0.parquet",
+  "scores_rows": 8242015,
+  "tiers": {
+    "stack": {
+      "failure_rate": 0.006791697783539292,
+      "drives": 70969,
+      "failing_drives": 482,
+      "action_tiers": {
+        "warn": 0.9342461661714807,
+        "cordon": 0.9825312473525056,
+        "migrate": 0.9997497135199567,
+        "drain": 0.9997497135199567
+      },
+      "action_tiers_cost": {
+        "warn": 0.21579771391930053,
+        "cordon": 0.8844780210031187,
+        "migrate": 0.9685975969138216,
+        "drain": 0.9839956564469203
+      },
+      "threshold": 0.9960591538701256,
+      "validation": {
+        "lift": {
+          "warn": {
+            "threshold": 0.9342461661714807,
+            "flagged": 790,
+            "flagged_share": 0.011131620848539503,
+            "caught": 304,
+            "precision": 0.3848101265822785,
+            "recall": 0.6307053941908713
+          },
+          "cordon": {
+            "threshold": 0.9825312473525056,
+            "flagged": 331,
+            "flagged_share": 0.004664008228945032,
+            "caught": 212,
+            "precision": 0.6404833836858006,
+            "recall": 0.43983402489626555
+          },
+          "migrate": {
+            "threshold": 0.9997497135199567,
+            "flagged": 4,
+            "flagged_share": 5.636263720779495e-05,
+            "caught": 4,
+            "precision": 1.0,
+            "recall": 0.008298755186721992
+          },
+          "drain": {
+            "threshold": 0.9997497135199567,
+            "flagged": 4,
+            "flagged_share": 5.636263720779495e-05,
+            "caught": 4,
+            "precision": 1.0,
+            "recall": 0.008298755186721992
+          }
+        },
+        "cost": {
+          "warn": {
+            "threshold": 0.21579771391930053,
+            "flagged": 5777,
+            "flagged_share": 0.08140173878735786,
+            "caught": 396,
+            "precision": 0.06854768911199585,
+            "recall": 0.8215767634854771
+          },
+          "cordon": {
+            "threshold": 0.8844780210031187,
+            "flagged": 1101,
+            "flagged_share": 0.01551381589144556,
+            "caught": 325,
+            "precision": 0.29518619436875565,
+            "recall": 0.6742738589211619
+          },
+          "migrate": {
+            "threshold": 0.9685975969138216,
+            "flagged": 504,
+            "flagged_share": 0.007101692288182164,
+            "caught": 264,
+            "precision": 0.5238095238095238,
+            "recall": 0.5477178423236515
+          },
+          "drain": {
+            "threshold": 0.9839956564469203,
+            "flagged": 314,
+            "flagged_share": 0.004424467020811904,
+            "caught": 208,
+            "precision": 0.6624203821656051,
+            "recall": 0.4315352697095436
+          }
+        },
+        "primary": {
+          "threshold": 0.9960591538701256,
+          "flagged": 110,
+          "flagged_share": 0.001549972523214361,
+          "caught": 91,
+          "precision": 0.8272727272727273,
+          "recall": 0.1887966804979253
+        }
+      },
+      "cost_ratios": {
+        "warn": 100,
+        "cordon": 20,
+        "migrate": 5,
+        "drain": 2
+      },
+      "lift_targets": {
+        "warn": 56.6,
+        "cordon": 94.3,
+        "migrate": 151.0,
+        "drain": 226.4
+      }
+    },
+    "lightgbm": {
+      "failure_rate": 0.006791697783539292,
+      "drives": 70969,
+      "failing_drives": 482,
+      "action_tiers": {
+        "warn": 0.7388098892527479,
+        "cordon": 0.8448122120876642,
+        "migrate": null,
+        "drain": null
+      },
+      "action_tiers_cost": {
+        "warn": 0.21579771391930053,
+        "cordon": 0.5242292188066182,
+        "migrate": 0.7946671072614264,
+        "drain": 0.8286786345299371
+      },
+      "threshold": 0.8761833326352555,
+      "validation": {
+        "lift": {
+          "warn": {
+            "threshold": 0.7388098892527479,
+            "flagged": 783,
+            "flagged_share": 0.011032986233425862,
+            "caught": 301,
+            "precision": 0.384418901660281,
+            "recall": 0.6244813278008299
+          },
+          "cordon": {
+            "threshold": 0.8448122120876642,
+            "flagged": 316,
+            "flagged_share": 0.004452648339415801,
+            "caught": 203,
+            "precision": 0.6424050632911392,
+            "recall": 0.4211618257261411
+          },
+          "migrate": {
+            "threshold": null,
+            "flagged": 0,
+            "caught": 0,
+            "precision": null,
+            "recall": 0.0
+          },
+          "drain": {
+            "threshold": null,
+            "flagged": 0,
+            "caught": 0,
+            "precision": null,
+            "recall": 0.0
+          }
+        },
+        "cost": {
+          "warn": {
+            "threshold": 0.21579771391930053,
+            "flagged": 5777,
+            "flagged_share": 0.08140173878735786,
+            "caught": 396,
+            "precision": 0.06854768911199585,
+            "recall": 0.8215767634854771
+          },
+          "cordon": {
+            "threshold": 0.5242292188066182,
+            "flagged": 1499,
+            "flagged_share": 0.02112189829362116,
+            "caught": 344,
+            "precision": 0.2294863242161441,
+            "recall": 0.7136929460580913
+          },
+          "migrate": {
+            "threshold": 0.7946671072614264,
+            "flagged": 604,
+            "flagged_share": 0.008510758218377037,
+            "caught": 283,
+            "precision": 0.4685430463576159,
+            "recall": 0.5871369294605809
+          },
+          "drain": {
+            "threshold": 0.8286786345299371,
+            "flagged": 373,
+            "flagged_share": 0.0052558159196268795,
+            "caught": 228,
+            "precision": 0.6112600536193029,
+            "recall": 0.4730290456431535
+          }
+        },
+        "primary": {
+          "threshold": 0.8761833326352555,
+          "flagged": 68,
+          "flagged_share": 0.0009581648325325142,
+          "caught": 54,
+          "precision": 0.7941176470588235,
+          "recall": 0.11203319502074689
+        }
+      },
+      "cost_ratios": {
+        "warn": 100,
+        "cordon": 20,
+        "migrate": 5,
+        "drain": 2
+      },
+      "lift_targets": {
+        "warn": 56.6,
+        "cordon": 94.3,
+        "migrate": 151.0,
+        "drain": 226.4
+      }
+    },
+    "cox": {
+      "failure_rate": 0.006791697783539292,
+      "drives": 70969,
+      "failing_drives": 482,
+      "action_tiers": {
+        "warn": 0.8008369111894673,
+        "cordon": 0.8848697152402154,
+        "migrate": 0.9770571431405759,
+        "drain": 0.9770571431405759
+      },
+      "action_tiers_cost": {
+        "warn": 0.46501818106446124,
+        "cordon": 0.7208417651166714,
+        "migrate": 0.8469152037522429,
+        "drain": 0.8766770456646074
+      },
+      "threshold": 0.926450888621124,
+      "validation": {
+        "lift": {
+          "warn": {
+            "threshold": 0.8008369111894673,
+            "flagged": 785,
+            "flagged_share": 0.011061167552029759,
+            "caught": 302,
+            "precision": 0.38471337579617837,
+            "recall": 0.6265560165975104
+          },
+          "cordon": {
+            "threshold": 0.8848697152402154,
+            "flagged": 327,
+            "flagged_share": 0.004607645591737237,
+            "caught": 210,
+            "precision": 0.6422018348623854,
+            "recall": 0.43568464730290457
+          },
+          "migrate": {
+            "threshold": 0.9770571431405759,
+            "flagged": 2,
+            "flagged_share": 2.8181318603897476e-05,
+            "caught": 2,
+            "precision": 1.0,
+            "recall": 0.004149377593360996
+          },
+          "drain": {
+            "threshold": 0.9770571431405759,
+            "flagged": 2,
+            "flagged_share": 2.8181318603897476e-05,
+            "caught": 2,
+            "precision": 1.0,
+            "recall": 0.004149377593360996
+          }
+        },
+        "cost": {
+          "warn": {
+            "threshold": 0.46501818106446124,
+            "flagged": 2441,
+            "flagged_share": 0.03439529935605687,
+            "caught": 364,
+            "precision": 0.14911921343711593,
+            "recall": 0.7551867219917012
+          },
+          "cordon": {
+            "threshold": 0.7208417651166714,
+            "flagged": 1114,
+            "flagged_share": 0.015696994462370894,
+            "caught": 327,
+            "precision": 0.29353680430879714,
+            "recall": 0.6784232365145229
+          },
+          "migrate": {
+            "threshold": 0.8469152037522429,
+            "flagged": 554,
+            "flagged_share": 0.007806225253279601,
+            "caught": 271,
+            "precision": 0.4891696750902527,
+            "recall": 0.5622406639004149
+          },
+          "drain": {
+            "threshold": 0.8766770456646074,
+            "flagged": 366,
+            "flagged_share": 0.005157181304513238,
+            "caught": 227,
+            "precision": 0.6202185792349727,
+            "recall": 0.470954356846473
+          }
+        },
+        "primary": {
+          "threshold": 0.926450888621124,
+          "flagged": 105,
+          "flagged_share": 0.0014795192267046174,
+          "caught": 86,
+          "precision": 0.819047619047619,
+          "recall": 0.17842323651452283
+        }
+      },
+      "cost_ratios": {
+        "warn": 100,
+        "cordon": 20,
+        "migrate": 5,
+        "drain": 2
+      },
+      "lift_targets": {
+        "warn": 56.6,
+        "cordon": 94.3,
+        "migrate": 151.0,
+        "drain": 226.4
+      }
+    }
+  },
+  "cost_sensitivity": {
+    "stack": [
+      {
+        "ratio": 2,
+        "threshold": 0.9839956564469203,
+        "flagged": 314,
+        "flagged_share": 0.004424467020811904,
+        "caught": 208,
+        "precision": 0.6624203821656051,
+        "recall": 0.4315352697095436
+      },
+      {
+        "ratio": 5,
+        "threshold": 0.9685975969138216,
+        "flagged": 504,
+        "flagged_share": 0.007101692288182164,
+        "caught": 264,
+        "precision": 0.5238095238095238,
+        "recall": 0.5477178423236515
+      },
+      {
+        "ratio": 10,
+        "threshold": 0.9375107724329153,
+        "flagged": 766,
+        "flagged_share": 0.010793445025292734,
+        "caught": 304,
+        "precision": 0.3968668407310705,
+        "recall": 0.6307053941908713
+      },
+      {
+        "ratio": 20,
+        "threshold": 0.8844780210031187,
+        "flagged": 1101,
+        "flagged_share": 0.01551381589144556,
+        "caught": 325,
+        "precision": 0.29518619436875565,
+        "recall": 0.6742738589211619
+      },
+      {
+        "ratio": 50,
+        "threshold": 0.7678662853446823,
+        "flagged": 1711,
+        "flagged_share": 0.024109118065634292,
+        "caught": 351,
+        "precision": 0.20514319111630624,
+        "recall": 0.7282157676348547
+      },
+      {
+        "ratio": 100,
+        "threshold": 0.21579771391930053,
+        "flagged": 5777,
+        "flagged_share": 0.08140173878735786,
+        "caught": 396,
+        "precision": 0.06854768911199585,
+        "recall": 0.8215767634854771
+      }
+    ],
+    "lightgbm": [
+      {
+        "ratio": 2,
+        "threshold": 0.8286786345299371,
+        "flagged": 373,
+        "flagged_share": 0.0052558159196268795,
+        "caught": 228,
+        "precision": 0.6112600536193029,
+        "recall": 0.4730290456431535
+      },
+      {
+        "ratio": 5,
+        "threshold": 0.7946671072614264,
+        "flagged": 604,
+        "flagged_share": 0.008510758218377037,
+        "caught": 283,
+        "precision": 0.4685430463576159,
+        "recall": 0.5871369294605809
+      },
+      {
+        "ratio": 10,
+        "threshold": 0.7433555547233583,
+        "flagged": 764,
+        "flagged_share": 0.010765263706688837,
+        "caught": 301,
+        "precision": 0.39397905759162305,
+        "recall": 0.6244813278008299
+      },
+      {
+        "ratio": 20,
+        "threshold": 0.5242292188066182,
+        "flagged": 1499,
+        "flagged_share": 0.02112189829362116,
+        "caught": 344,
+        "precision": 0.2294863242161441,
+        "recall": 0.7136929460580913
+      },
+      {
+        "ratio": 50,
+        "threshold": 0.48166889421524295,
+        "flagged": 1742,
+        "flagged_share": 0.0245459285039947,
+        "caught": 353,
+        "precision": 0.2026406429391504,
+        "recall": 0.7323651452282157
+      },
+      {
+        "ratio": 100,
+        "threshold": 0.21579771391930053,
+        "flagged": 5777,
+        "flagged_share": 0.08140173878735786,
+        "caught": 396,
+        "precision": 0.06854768911199585,
+        "recall": 0.8215767634854771
+      }
+    ],
+    "cox": [
+      {
+        "ratio": 2,
+        "threshold": 0.8766770456646074,
+        "flagged": 366,
+        "flagged_share": 0.005157181304513238,
+        "caught": 227,
+        "precision": 0.6202185792349727,
+        "recall": 0.470954356846473
+      },
+      {
+        "ratio": 5,
+        "threshold": 0.8469152037522429,
+        "flagged": 554,
+        "flagged_share": 0.007806225253279601,
+        "caught": 271,
+        "precision": 0.4891696750902527,
+        "recall": 0.5622406639004149
+      },
+      {
+        "ratio": 10,
+        "threshold": 0.7870766547894417,
+        "flagged": 852,
+        "flagged_share": 0.012005241725260326,
+        "caught": 309,
+        "precision": 0.3626760563380282,
+        "recall": 0.6410788381742739
+      },
+      {
+        "ratio": 20,
+        "threshold": 0.7208417651166714,
+        "flagged": 1114,
+        "flagged_share": 0.015696994462370894,
+        "caught": 327,
+        "precision": 0.29353680430879714,
+        "recall": 0.6784232365145229
+      },
+      {
+        "ratio": 50,
+        "threshold": 0.5903750587123124,
+        "flagged": 1729,
+        "flagged_share": 0.024362749933069368,
+        "caught": 351,
+        "precision": 0.20300751879699247,
+        "recall": 0.7282157676348547
+      },
+      {
+        "ratio": 100,
+        "threshold": 0.46501818106446124,
+        "flagged": 2441,
+        "flagged_share": 0.03439529935605687,
+        "caught": 364,
+        "precision": 0.14911921343711593,
+        "recall": 0.7551867219917012
+      }
+    ],
+    "cascade (frozen LightGBM run, its validation rows)": [
+      {
+        "ratio": 2,
+        "threshold": 0.8424387632589245,
+        "flagged": 415,
+        "flagged_share": 0.005847623610308726,
+        "caught": 240,
+        "precision": 0.5783132530120482,
+        "recall": 0.4979253112033195
+      },
+      {
+        "ratio": 5,
+        "threshold": 0.8084553943674886,
+        "flagged": 578,
+        "flagged_share": 0.008144401076526371,
+        "caught": 278,
+        "precision": 0.4809688581314879,
+        "recall": 0.5767634854771784
+      },
+      {
+        "ratio": 10,
+        "threshold": 0.7771866859517342,
+        "flagged": 698,
+        "flagged_share": 0.00983528019276022,
+        "caught": 297,
+        "precision": 0.42550143266475643,
+        "recall": 0.6161825726141079
+      },
+      {
+        "ratio": 20,
+        "threshold": 0.5861179171699626,
+        "flagged": 1285,
+        "flagged_share": 0.01810649720300413,
+        "caught": 334,
+        "precision": 0.25992217898832687,
+        "recall": 0.6929460580912863
+      },
+      {
+        "ratio": 50,
+        "threshold": 0.49605143506401284,
+        "flagged": 1690,
+        "flagged_share": 0.023813214220293366,
+        "caught": 352,
+        "precision": 0.20828402366863905,
+        "recall": 0.7302904564315352
+      },
+      {
+        "ratio": 100,
+        "threshold": 0.23646357716816457,
+        "flagged": 5497,
+        "flagged_share": 0.07745635418281221,
+        "caught": 395,
+        "precision": 0.07185737675095506,
+        "recall": 0.8195020746887967
+      }
+    ]
+  },
+  "test_access": "none: x_test.npy is never opened"
+}

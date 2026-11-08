@@ -973,6 +973,109 @@ uv run python scripts/cluster_action_policy.py --run-dir x --scores x --figures-
 The validation step resumes from `ablation_partial.json` if interrupted (and was
 rerun once with `--overwrite` after a naming fix, resuming all 35 candidates).
 
+### 1.1.7 A Knowledge component for the agent (2026-11-07; no rule passed, outputs frozen)
+
+Design, rule, results and provenance: `docs/agent_knowledge_base.md`. The question: can a
+knowledge base learned from Q1+Q2 2026 and kept up to date one day at a time make the agent's
+actions more precise in Q3 2026 without losing catches? The MAPE-K loop had no K: no outcome
+ever fed back into a decision. The work built the K (a time-indexed store, wired into the
+loop as read-only context) and screened knowledge rules on validation under a rule fixed
+before any screening (design section 8, with a dated Amendment 1 made before any code
+existed). **No rule passed, so there was no Q3 look, and the agent's decisions are
+unchanged.** Everything ran on validation; the test-access log stayed at 139 lines.
+
+**Scorer: the 60-day stacked Stage 2** (user's choice; 1.1.4a), refitted from the `804a20ce`
+work dir without opening the test matrix and frozen in `frozen_runs/stack_h60_seed0/`. The
+refit reproduces the 1.1.4a seed-0 run in 14 of 14 checks (weights 0.5 / 0.5, validation AP
+0.5959, every count and tree number), and reloading the folder gives the saved scores exactly.
+New tiers on validation, lift and cost-based (`tune_cost_tiers`; the cost ratios are
+placeholders, an operations decision): at warn and cordon the stack, its LightGBM and Cox
+members are nearly identical (38.5% / ~63%, ~64% / 42-44%), and at equal cost they are worth
+the same (ratio 20: 5,724 / 5,725 / 5,753; frozen cascade 5,729).
+
+**Validation point-in-time baseline** (9 weekly snapshots 2026-01-05..03-02, 60-day horizon,
+validation drives only, base rate 0.196%): the four arms are indistinguishable.
+
+| Arm | >= warn P / R | >= cordon P [95% CI] / R |
+|---|---|---|
+| Stack | 28.3% / 31.2% | 53.7% [44, 64] / 13.4% |
+| LightGBM Stage 2 | 28.2% / 31.0% | 49.5% [40, 60] / 12.3% |
+| Cox Stage 2 | 28.6% / 30.8% | 56.2% [46, 67] / 12.9% |
+| Cascade `804a20ce` | 28.6% / 29.8% | 49.6% [40, 60] / 11.6% |
+
+**The knowledge store** (`src/agent/knowledge/`): only dated facts (candidate days, weekly
+presence, failure days, cohort counts, outcomes, decisions); episodes, contexts and outcomes are
+derived for the requested date, so a day-by-day build equals a one-pass build and a view never
+sees a later fact; columns computed over the whole data range (`event_type`, `feature_maturity`,
+the broadcast `failure_date`) are never read. Built from the stack's validation scores
+(234,275 candidate days, exactly the stack run's validation candidates) and silver presence to
+2026-06-30, in 193 s. **Every self-check passes:** incremental equals batch, as-of replay (500
+drives, 26 dates), 234,034 outcomes with 0 disagreements against the gold labels, idempotence,
+model-versus-table scores. Checks found and fixed three flaws before the result: episodes need
+their own outcome rule (a drive is usually still flagged on its failure day), "censored" is not
+final (930 rows of 112 drives came back after a telemetry gap longer than a week), and a store
+reopened with default settings was refused.
+
+What the store shows: 1,419 episodes on 797 drives as of 2026-06-30; **of the 222 with 7 or more
+days above cordon, 138 failed and 83 survived**. A long episode is mostly a real failure.
+
+**The screen** (confirm half 2026-02-16..03-02, 1,013,502 drive-days):
+
+| Rule | Verdict |
+|---|---|
+| R1 cohort prior (shrink toward the drive model's rate) | Failed: warn precision -0.2 [-2.2, +1.8], cordon +1.9 [-2.5, +6.3]; not better than a plain threshold at matched false-alarm rate (the 4.10 result again) |
+| R2 demote chronic cordon drives | Failed at selection (no value beat "no rule") |
+| R2b promote a first near-cordon flag | Failed at selection |
+| R3 one band lower after a survived episode | Not screenable at 60 days (no validation episode resolves in time) |
+
+The selection criterion (recall at the tier's own false-alarm rate) compares rankings, and a
+pure tier rule keeps a demoted drive above the rest of its new tier, so R2 and R2b could not win
+there whatever their merit. A descriptive look outside the verdict (`--describe-tier-rules`)
+settles R2 anyway: at the fixed cordon threshold it **lowers recall at every N** (N = 7: -10.2
+points [-14.1, -6.3]; N = 28: -4.1 [-7.0, -1.7]) and raises no precision, because more than half
+the drive-days it demotes belong to drives that failed. R2b changes 2 drive-days.
+
+**Reading.** ADR 0003 said re-filtering the model's flags would not help and that only evidence
+the model has not seen could; 60-180 days of a drive's own history was the candidate, and it
+points the wrong way (chronic means failing). The plumbing stays: outcomes and final trust
+scores can now be resolved from recorded decisions (`build_agent_knowledge.py resolve`), a drift
+report on the daily Stage 1, warn and cordon shares exists (it flags the rise from 2.71% to
+3.17% of drives at Stage 1 between Q1 and April), and the loop can carry a rule if a future one
+passes. `configs/agent.yaml knowledge.backend` and `knowledge.rule` stay `none`.
+
+Commands (in order; each launcher is beside its log):
+
+```bash
+# Phase S: freeze the 60-day stack as a scorer (validation only)
+bash data/audit/stack_scorer_h60_logs/run_freeze.sh "$PWD"
+#   = uv run python scripts/freeze_stack_scorer.py --work-dir data/tmp/train_model_frame_xjxdieoe
+# Phase 0: point-in-time baseline on validation drives, four arms
+bash data/audit/agent_pit_validation_h60_logs/run_pit.sh "$PWD"     # = make agent-pit-validation
+# Phase 1: build and check the knowledge store, coverage, drift
+bash data/audit/agent_knowledge_h60_logs/run_build.sh "$PWD"
+#   = scripts/build_agent_knowledge.py build --overwrite; check; coverage --as-of 2026-03-02;
+#     coverage --as-of 2026-05-01; drift --reference 2026-01-01:2026-03-31 --current 2026-04-01:2026-05-01
+# Phase 2: the pre-registered screen, and the descriptive tier-rule table
+bash data/audit/agent_knowledge_h60_logs/run_screen.sh "$PWD"     # = scripts/screen_agent_knowledge.py
+uv run python scripts/screen_agent_knowledge.py --describe-tier-rules
+# The store: pack it into the tracked gzip, or restore and verify the tracked one
+make pack-knowledge       # data/audit/agent_knowledge.sqlite -> agent_knowledge_h60/agent_knowledge.sqlite.gz
+make unpack-knowledge     # the reverse; checks the SHA-256, then the content fingerprint
+# Tests
+uv run pytest tests/unit/test_stack_scorer.py tests/unit/test_threshold_cost_tiers.py \
+  tests/unit/test_run_point_in_time.py tests/unit/test_agent_knowledge_*.py
+```
+
+Outputs, all frozen with a README and `CHECKSUMS.sha256`: `frozen_runs/stack_h60_seed0/`
+(scorer, tiers, cost-sensitivity table; `stack.json` SHA-256 starts `5b587b964b67e8c2`),
+`data/audit/agent_pit_validation_h60/` (`stack.json` `55bea04b297820a3`),
+`data/audit/agent_knowledge_h60/` (`knowledge_checks.json` `aa9a3f80f019bd71`, `validation.json`
+`a637496d70e35ebd`). The store is tracked compressed as
+`data/audit/agent_knowledge_h60/agent_knowledge.sqlite.gz` (24.1 MB from 100.5 MB, over GitHub's
+file limit uncompressed; SHA-256 `8e39368aa8d75a3c`, content fingerprint `662ab2647de72126`, both
+in `agent_knowledge_pack.json`); `make unpack-knowledge` restores and verifies it. The score
+table `data/tmp/stack_scores/scores_h60_seed0.parquet` is local and rebuilt by the commands above.
+
 ### 1.2 The two-stage gain is not established
 
 Two paired bootstraps now exist, both over the same resampled drives with
@@ -1154,6 +1257,7 @@ Where each section's numbers come from:
 | 1.1.4 (Q1+Q2 -> Q3 runs) | Training reports `data/audit/data_quality_reports/model_evaluation_report_h<H>_q1q2_q3.json` and `action_tiers_h<H>_q1q2_q3.json`; cascade and survival Stage 2 `data/audit/cascade_q3_h30/`, `_h44/`, `_h60/`; horizon comparison `data/audit/horizon_q3/`; runs `frozen_runs/c459046e.../`, `a2cd06d5.../`, `804a20ce.../` |
 | 1.1.4a (stacked Stage 2, not confirmed, frozen) | `data/audit/stack_q3_h30/`, `_h44/`, `_h60/`; launcher, logs and `CHECKSUMS.sha256` in `data/audit/stack_q3_logs/` (tracked) |
 | 1.1.5 (deep dive) | `data/audit/deep_dive_q3_h30/` |
+| 1.1.7 and 4.13 (knowledge component) | Scorer `frozen_runs/stack_h60_seed0/`; validation baseline `data/audit/agent_pit_validation_h60/`; store checks and rule screen `data/audit/agent_knowledge_h60/`; launchers in `data/audit/{stack_scorer_h60,agent_pit_validation_h60,agent_knowledge_h60}_logs/`; design and rule `docs/agent_knowledge_base.md` |
 | 1.1.6 (cluster action policy) | `data/audit/cluster_policy_h30/` |
 | 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` |
 | 4.7 - 4.10 (point-in-time policy, family calibration) | `data/audit/agent_point_in_time*`, `agent_pit_validation*`, `family_calibration.json` |
@@ -1224,6 +1328,21 @@ gives the precision each tier would be expected to reach:
 
 The per-run curves are in `frozen_runs/c459046e.../figures/`
 (`validation_precision_recall.png`, `test_precision_recall.png`).
+
+**Cost-based tiers (2026-11-07, Section 1.1.7).** `src/models/threshold.py::tune_cost_tiers`
+places each tier where its action pays for itself on validation (`r x caught - false alarms`,
+i.e. flag while marginal precision >= 1 / (1 + r)), with `r` per action in
+`configs/model.yaml threshold.action_cost_ratio`. The ratios there (warn 100, cordon 20,
+migrate 5, drain 2) are placeholders for an operations decision. `threshold.tier_rule: lift`
+(the default) keeps the lift tiers above; `cost` makes the agent read a scorer's
+`action_tiers_cost`. On the 60-day stack at r = 20, cordon would sit at 67% recall (30%
+precision) instead of 44% (64%): the strict tiers' low recall is a choice of targets, not a
+property of the model. The optimum depends on the failure rate (Q3's is half validation's).
+
+**Where a knowledge rule would enter.** Between the score tier and hysteresis
+(`src/agent/nodes.py`, `make_plan_node(knowledge_rule=...)`), so hysteresis, cooldown and the
+control arm see the adjusted tier. No rule is enabled (`configs/agent.yaml knowledge.rule:
+none`); none passed the screen of Section 1.1.7.
 
 ## 2. How to run the pipeline
 
@@ -2582,6 +2701,17 @@ to validity are in `docs/cascade_wide_net.md`; results are in its Section 9.
   weaker (1 of 3 seeds) and it is not confirmed.
 - Goal still unmet.
 
+### 4.13 A Knowledge component and a screen of knowledge rules (run 2026-11-07; no rule passed)
+
+Recorded in Section 1.1.7 and `docs/agent_knowledge_base.md` (sections 11-13). In short: a
+time-indexed knowledge store for the MAPE-K loop, built from the frozen 60-day stacked Stage 2's
+validation scores, passes every self-check; wired into the loop it changes no decision. Three
+knowledge rules were screened on validation under a pre-registered rule; none passed (R1 no
+precision gain; R2 and R2b failed at selection, and R2 descriptively costs 4-10 points of recall
+because chronic cordon drives mostly fail; R3 not screenable at 60 days). No Q3 look was taken.
+This extends ADR 0003's list with a drive's own long-run history, which carries information the
+30-day features do not but points toward failure, not away from it (ADR 0004).
+
 ## 5. What we learned
 
 ### 5.1 Evaluation is per drive, not per drive-day
@@ -3019,6 +3149,21 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   no longer horizon ranks better.
 - **The raw `failure` flag excluded from the feature list**: it marks the failure day
   itself, a label in disguise.
+
+**Agent knowledge (2026-11-07, Section 1.1.7):**
+
+- **Cost ratios per action** (`configs/model.yaml threshold.action_cost_ratio`) are placeholders;
+  setting them is an operations decision, after which `threshold.tier_rule: cost` can be judged
+  point-in-time against the lift tiers.
+- **Control fraction before a real executor**: recorded decisions and outcomes now exist in the
+  knowledge store; set `control_arm.control_fraction` (0.03 recommended) in the same commit that
+  connects a real executor, or outcomes become self-censored (ADR 0004).
+- **R3 and longer-history rules** need more history than validation holds at a 60-day horizon;
+  they become screenable only on an untouched later period with the store running through it.
+- **The Q3 step of the screen is not built**, since no rule passed; it needs the stack's Q3
+  scores and the store advanced through Q3, with one logged look.
+- `GuardrailSettings.load` takes PRED_THRESHOLD from `configs/agent.yaml`
+  `action_thresholds.migrate` (0.80), not from the trained tiers. Noted, not changed.
 
 **Model and evaluation:**
 

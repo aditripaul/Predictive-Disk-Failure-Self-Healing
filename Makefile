@@ -1,4 +1,4 @@
-.PHONY: install lint format install-hooks check-paths test test-unit test-integration test-chaos test-golden test-property \
+.PHONY: install lint format install-hooks check-paths agent-pit-validation agent-knowledge pack-knowledge unpack-knowledge test test-unit test-integration test-chaos test-golden test-property \
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
@@ -279,6 +279,53 @@ agent-fleet:
 #   make agent-pit ARGS="--step-days 3 --bootstrap 2000"
 agent-pit:
 	uv run python pipelines/run_point_in_time.py $(ARGS)
+
+# Point-in-time baseline on VALIDATION drives for the knowledge-base screen
+# (docs/agent_knowledge_base.md, Phase 0): 9 weekly snapshots 2026-01-05..03-02 at the
+# 60-day horizon (every horizon ends by 2026-05-01, the end of validation), validation
+# holdout drives only, so no test access. Four arms: the frozen stacked Stage 2 (also
+# cross-checked against its model on 2026-02-23), the LightGBM and Cox Stage 2 of the
+# same refit, and the frozen 60-day LightGBM cascade 804a20ce.
+PIT_H60 := --horizon-days 60 --start-date 2026-01-05 --end-date 2026-03-02 --step-days 7 \
+	--drives-from-split validation --outcome-cutoff 2026-05-01
+STACK_DIR := frozen_runs/stack_h60_seed0
+STACK_SCORES := data/tmp/stack_scores/scores_h60_seed0.parquet
+PIT_OUT := data/audit/agent_pit_validation_h60
+agent-pit-validation:
+	uv run python pipelines/run_point_in_time.py $(PIT_H60) --label stack_h60_seed0 \
+		--scores-path $(STACK_SCORES) --score-column score --model-dir $(STACK_DIR) \
+		--cross-check-dates 2026-02-23 \
+		--thresholds-path $(STACK_DIR)/agent_thresholds_stack_h60_seed0.json \
+		--out $(PIT_OUT)/stack.json --observations-dir $(PIT_OUT)/stack \
+		--observations-out $(PIT_OUT)/stack_observations.parquet $(ARGS)
+	uv run python pipelines/run_point_in_time.py $(PIT_H60) --label lightgbm_h60_seed0 \
+		--scores-path $(STACK_SCORES) --score-column score_lightgbm \
+		--thresholds-path $(STACK_DIR)/agent_thresholds_lightgbm_h60_seed0.json \
+		--out $(PIT_OUT)/lightgbm.json --observations-dir $(PIT_OUT)/lightgbm \
+		--observations-out $(PIT_OUT)/lightgbm_observations.parquet $(ARGS)
+	uv run python pipelines/run_point_in_time.py $(PIT_H60) --label cox_h60_seed0 \
+		--scores-path $(STACK_SCORES) --score-column score_cox \
+		--thresholds-path $(STACK_DIR)/agent_thresholds_cox_h60_seed0.json \
+		--out $(PIT_OUT)/cox.json --observations-dir $(PIT_OUT)/cox \
+		--observations-out $(PIT_OUT)/cox_observations.parquet $(ARGS)
+	uv run python pipelines/run_point_in_time.py $(PIT_H60) --label cascade_804a20ce \
+		--scores-path data/tmp/lightgbm_scores_h60_h60_q1q2_q3.parquet --score-column score \
+		--thresholds-path frozen_runs/804a20cec10048abb1bc3ccf510f96e1/action_tiers.json \
+		--out $(PIT_OUT)/cascade.json --observations-dir $(PIT_OUT)/cascade \
+		--observations-out $(PIT_OUT)/cascade_observations.parquet $(ARGS)
+
+# The agent's knowledge store (docs/agent_knowledge_base.md): build it, pack it into the
+# tracked deterministic gzip (data/audit/agent_knowledge_h60/agent_knowledge.sqlite.gz, with its
+# SHA-256 and content fingerprint in agent_knowledge_pack.json), or restore and verify it.
+agent-knowledge:
+	uv run python scripts/build_agent_knowledge.py build --overwrite $(ARGS)
+	uv run python scripts/build_agent_knowledge.py check
+
+pack-knowledge:
+	uv run python scripts/build_agent_knowledge.py pack
+
+unpack-knowledge:
+	uv run python scripts/build_agent_knowledge.py unpack $(ARGS)
 
 # Per-family recalibration, fitted on VALIDATION-window snapshots and judged on
 # the test snapshots (runbook 4.10). Makes the validation snapshots first, into

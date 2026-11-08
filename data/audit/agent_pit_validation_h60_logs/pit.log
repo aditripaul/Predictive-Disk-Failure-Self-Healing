@@ -1,0 +1,213 @@
+uv run python pipelines/run_point_in_time.py --horizon-days 60 --start-date 2026-01-05 --end-date 2026-03-02 --step-days 7 --drives-from-split validation --outcome-cutoff 2026-05-01 --label stack_h60_seed0 \
+	--scores-path data/tmp/stack_scores/scores_h60_seed0.parquet --score-column score --model-dir frozen_runs/stack_h60_seed0 \
+	--cross-check-dates 2026-02-23 \
+	--thresholds-path frozen_runs/stack_h60_seed0/agent_thresholds_stack_h60_seed0.json \
+	--out data/audit/agent_pit_validation_h60/stack.json --observations-dir data/audit/agent_pit_validation_h60/stack \
+	--observations-out data/audit/agent_pit_validation_h60/stack_observations.parquet 
+2026/11/07 19:23:36 INFO mlflow.agent.hint: Load the `instrumenting-with-mlflow-tracing` skill at .venv/lib64/python3.14/site-packages/mlflow/assistant/skills/instrumenting-with-mlflow-tracing/SKILL.md before writing any tracing code; it ships with this MLflow install. Set MLFLOW_DISABLE_AGENT_HINT=1 to silence this.
+[2m2026-11-07T13:53:36.046981Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+[2m2026-11-07T13:53:36.058923Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_thresholds      [0m [36mrun_id[0m=[35mstack_h60_seed0[0m [36mthresholds[0m=[35m{'warn': 0.9342461661714807, 'cordon': 0.9825312473525056, 'migrate': 0.9997497135199567, 'drain': 0.9997497135199567}[0m
+[2m2026-11-07T13:53:38.004802Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67258[0m [36mdate[0m=[35m2026-01-05[0m [36mfailing[0m=[35m116[0m
+[2m2026-11-07T13:53:38.215566Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67246[0m [36mdate[0m=[35m2026-01-12[0m [36mfailing[0m=[35m124[0m
+[2m2026-11-07T13:53:38.426659Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67215[0m [36mdate[0m=[35m2026-01-19[0m [36mfailing[0m=[35m122[0m
+[2m2026-11-07T13:53:38.634301Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67295[0m [36mdate[0m=[35m2026-01-26[0m [36mfailing[0m=[35m120[0m
+[2m2026-11-07T13:53:38.846937Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67201[0m [36mdate[0m=[35m2026-02-02[0m [36mfailing[0m=[35m113[0m
+[2m2026-11-07T13:53:39.052433Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67181[0m [36mdate[0m=[35m2026-02-09[0m [36mfailing[0m=[35m136[0m
+[2m2026-11-07T13:53:39.260180Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67589[0m [36mdate[0m=[35m2026-02-16[0m [36mfailing[0m=[35m143[0m
+[2m2026-11-07T13:53:39.478657Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67477[0m [36mdate[0m=[35m2026-02-23[0m [36mfailing[0m=[35m152[0m
+[2m2026-11-07T13:53:39.699769Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67732[0m [36mdate[0m=[35m2026-03-02[0m [36mfailing[0m=[35m165[0m
+[2m2026-11-07T13:53:39.731046Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_observations_saved[0m [36mcolumns[0m=[35m['drive_id', 'date', 'p_fail', 'drive_model', 'model_family', 'capacity_gb', 'power_on_hours', 'reallocated_sector_count', 'current_pending_sector_count', 'offline_uncorrectable', 'reported_uncorrectable_errors', 'command_timeout', 'reallocation_event_count', 'label'][0m [36mpath[0m=[35mdata/audit/agent_pit_validation_h60/stack_observations.parquet[0m [36mrows[0m=[35m606194[0m
+
+== point-in-time, 60-day horizon, model run stack_h60_seed0
+   9 snapshots 2026-01-05 .. 2026-03-02, every 7 days
+   606,194 drive-snapshots over 68,428 drives; 1,191 failing
+   base rate 0.196%  (precision lives at this rate)
+
+>= tier    flagged  caught    precision (95% CI)      recall (95% CI)       FAR   PLR  lift
+warn         1,313     372     28.3% [ 23%, 33%]    31.2% [ 26%, 36%]  1.56e-03   201   144
+cordon         296     159     53.7% [ 44%, 64%]    13.4% [ 10%, 17%]  2.26e-04   590   273
+migrate          0       0      0.0% [  0%,  0%]     0.0% [  0%,  0%]  0.00e+00     -     0
+drain            0       0      0.0% [  0%,  0%]     0.0% [  0%,  0%]  0.00e+00     -     0
+
+per snapshot, >= cordon:
+  date             alive    failed   flagged    caught precision    recall
+  2026-01-05      67,258       116        18        12     66.7%     10.3%
+  2026-01-12      67,246       124        21        12     57.1%      9.7%
+  2026-01-19      67,215       122        28        17     60.7%     13.9%
+  2026-01-26      67,295       120        32        17     53.1%     14.2%
+  2026-02-02      67,201       113        33        13     39.4%     11.5%
+  2026-02-09      67,181       136        35        19     54.3%     14.0%
+  2026-02-16      67,589       143        46        22     47.8%     15.4%
+  2026-02-23      67,477       152        39        20     51.3%     13.2%
+  2026-03-02      67,732       165        44        27     61.4%     16.4%
+
+one look vs two (min of T-7d and T), recall at matched false-alarm rate, 536,912 drive-pairs
+   FAR budget  one look  two looks       difference (95% CI)
+        1e-04      8.1%       6.3%       -1.7% [-3.0%,+0.5%]
+        2e-04     12.8%      13.1%       +0.3% [-2.0%,+1.7%]
+        5e-04     19.2%      19.9%       +0.7% [-1.5%,+2.4%]
+        1e-03     25.8%      24.8%       -1.0% [-3.0%,+0.1%]
+        3e-03     38.3%      35.8%       -2.5% [-4.0%,-0.7%]
+  A difference whose interval excludes zero is a second look adding information;
+  one that straddles it is only a stricter threshold.
+
+written to data/audit/agent_pit_validation_h60/stack.json
+uv run python pipelines/run_point_in_time.py --horizon-days 60 --start-date 2026-01-05 --end-date 2026-03-02 --step-days 7 --drives-from-split validation --outcome-cutoff 2026-05-01 --label lightgbm_h60_seed0 \
+	--scores-path data/tmp/stack_scores/scores_h60_seed0.parquet --score-column score_lightgbm \
+	--thresholds-path frozen_runs/stack_h60_seed0/agent_thresholds_lightgbm_h60_seed0.json \
+	--out data/audit/agent_pit_validation_h60/lightgbm.json --observations-dir data/audit/agent_pit_validation_h60/lightgbm \
+	--observations-out data/audit/agent_pit_validation_h60/lightgbm_observations.parquet 
+2026/11/07 19:23:48 INFO mlflow.agent.hint: Load the `instrumenting-with-mlflow-tracing` skill at .venv/lib64/python3.14/site-packages/mlflow/assistant/skills/instrumenting-with-mlflow-tracing/SKILL.md before writing any tracing code; it ships with this MLflow install. Set MLFLOW_DISABLE_AGENT_HINT=1 to silence this.
+[2m2026-11-07T13:53:48.570894Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+[2m2026-11-07T13:53:48.583077Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_thresholds      [0m [36mrun_id[0m=[35mlightgbm_h60_seed0[0m [36mthresholds[0m=[35m{'warn': 0.7388098892527479, 'cordon': 0.8448122120876642, 'migrate': 1.01, 'drain': 1.01}[0m
+[2m2026-11-07T13:53:49.170647Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67258[0m [36mdate[0m=[35m2026-01-05[0m [36mfailing[0m=[35m116[0m
+[2m2026-11-07T13:53:49.379495Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67246[0m [36mdate[0m=[35m2026-01-12[0m [36mfailing[0m=[35m124[0m
+[2m2026-11-07T13:53:49.592964Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67215[0m [36mdate[0m=[35m2026-01-19[0m [36mfailing[0m=[35m122[0m
+[2m2026-11-07T13:53:49.796196Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67295[0m [36mdate[0m=[35m2026-01-26[0m [36mfailing[0m=[35m120[0m
+[2m2026-11-07T13:53:49.996149Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67201[0m [36mdate[0m=[35m2026-02-02[0m [36mfailing[0m=[35m113[0m
+[2m2026-11-07T13:53:50.207419Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67181[0m [36mdate[0m=[35m2026-02-09[0m [36mfailing[0m=[35m136[0m
+[2m2026-11-07T13:53:50.420929Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67589[0m [36mdate[0m=[35m2026-02-16[0m [36mfailing[0m=[35m143[0m
+[2m2026-11-07T13:53:50.624387Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67477[0m [36mdate[0m=[35m2026-02-23[0m [36mfailing[0m=[35m152[0m
+[2m2026-11-07T13:53:50.833746Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67732[0m [36mdate[0m=[35m2026-03-02[0m [36mfailing[0m=[35m165[0m
+[2m2026-11-07T13:53:50.864402Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_observations_saved[0m [36mcolumns[0m=[35m['drive_id', 'date', 'p_fail', 'drive_model', 'model_family', 'capacity_gb', 'power_on_hours', 'reallocated_sector_count', 'current_pending_sector_count', 'offline_uncorrectable', 'reported_uncorrectable_errors', 'command_timeout', 'reallocation_event_count', 'label'][0m [36mpath[0m=[35mdata/audit/agent_pit_validation_h60/lightgbm_observations.parquet[0m [36mrows[0m=[35m606194[0m
+
+== point-in-time, 60-day horizon, model run lightgbm_h60_seed0
+   9 snapshots 2026-01-05 .. 2026-03-02, every 7 days
+   606,194 drive-snapshots over 68,428 drives; 1,191 failing
+   base rate 0.196%  (precision lives at this rate)
+
+>= tier    flagged  caught    precision (95% CI)      recall (95% CI)       FAR   PLR  lift
+warn         1,310     369     28.2% [ 23%, 33%]    31.0% [ 26%, 36%]  1.56e-03   199   143
+cordon         295     146     49.5% [ 40%, 60%]    12.3% [  9%, 16%]  2.46e-04   498   252
+migrate          0       0      0.0% [  0%,  0%]     0.0% [  0%,  0%]  0.00e+00     -     0
+drain            0       0      0.0% [  0%,  0%]     0.0% [  0%,  0%]  0.00e+00     -     0
+
+per snapshot, >= cordon:
+  date             alive    failed   flagged    caught precision    recall
+  2026-01-05      67,258       116        17        12     70.6%     10.3%
+  2026-01-12      67,246       124        22        11     50.0%      8.9%
+  2026-01-19      67,215       122        27        14     51.9%     11.5%
+  2026-01-26      67,295       120        33        15     45.5%     12.5%
+  2026-02-02      67,201       113        32        10     31.2%      8.8%
+  2026-02-09      67,181       136        33        17     51.5%     12.5%
+  2026-02-16      67,589       143        45        22     48.9%     15.4%
+  2026-02-23      67,477       152        38        19     50.0%     12.5%
+  2026-03-02      67,732       165        48        26     54.2%     15.8%
+
+one look vs two (min of T-7d and T), recall at matched false-alarm rate, 536,912 drive-pairs
+   FAR budget  one look  two looks       difference (95% CI)
+        1e-04      7.8%       6.4%       -1.3% [-2.5%,+0.4%]
+        2e-04     11.0%      10.4%       -0.6% [-2.7%,+3.0%]
+        5e-04     19.1%      19.7%       +0.6% [-1.2%,+2.6%]
+        1e-03     26.2%      24.7%       -1.5% [-3.2%,-0.0%]
+        3e-03     38.5%      35.8%       -2.7% [-4.0%,-0.8%]
+  A difference whose interval excludes zero is a second look adding information;
+  one that straddles it is only a stricter threshold.
+
+written to data/audit/agent_pit_validation_h60/lightgbm.json
+uv run python pipelines/run_point_in_time.py --horizon-days 60 --start-date 2026-01-05 --end-date 2026-03-02 --step-days 7 --drives-from-split validation --outcome-cutoff 2026-05-01 --label cox_h60_seed0 \
+	--scores-path data/tmp/stack_scores/scores_h60_seed0.parquet --score-column score_cox \
+	--thresholds-path frozen_runs/stack_h60_seed0/agent_thresholds_cox_h60_seed0.json \
+	--out data/audit/agent_pit_validation_h60/cox.json --observations-dir data/audit/agent_pit_validation_h60/cox \
+	--observations-out data/audit/agent_pit_validation_h60/cox_observations.parquet 
+2026/11/07 19:23:56 INFO mlflow.agent.hint: Load the `instrumenting-with-mlflow-tracing` skill at .venv/lib64/python3.14/site-packages/mlflow/assistant/skills/instrumenting-with-mlflow-tracing/SKILL.md before writing any tracing code; it ships with this MLflow install. Set MLFLOW_DISABLE_AGENT_HINT=1 to silence this.
+[2m2026-11-07T13:53:56.154149Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+[2m2026-11-07T13:53:56.166467Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_thresholds      [0m [36mrun_id[0m=[35mcox_h60_seed0[0m [36mthresholds[0m=[35m{'warn': 0.8008369111894673, 'cordon': 0.8848697152402154, 'migrate': 0.9770571431405759, 'drain': 0.9770571431405759}[0m
+[2m2026-11-07T13:53:56.745679Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67258[0m [36mdate[0m=[35m2026-01-05[0m [36mfailing[0m=[35m116[0m
+[2m2026-11-07T13:53:56.959002Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67246[0m [36mdate[0m=[35m2026-01-12[0m [36mfailing[0m=[35m124[0m
+[2m2026-11-07T13:53:57.172313Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67215[0m [36mdate[0m=[35m2026-01-19[0m [36mfailing[0m=[35m122[0m
+[2m2026-11-07T13:53:57.386989Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67295[0m [36mdate[0m=[35m2026-01-26[0m [36mfailing[0m=[35m120[0m
+[2m2026-11-07T13:53:57.590831Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67201[0m [36mdate[0m=[35m2026-02-02[0m [36mfailing[0m=[35m113[0m
+[2m2026-11-07T13:53:57.797467Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67181[0m [36mdate[0m=[35m2026-02-09[0m [36mfailing[0m=[35m136[0m
+[2m2026-11-07T13:53:58.011958Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67589[0m [36mdate[0m=[35m2026-02-16[0m [36mfailing[0m=[35m143[0m
+[2m2026-11-07T13:53:58.225062Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67477[0m [36mdate[0m=[35m2026-02-23[0m [36mfailing[0m=[35m152[0m
+[2m2026-11-07T13:53:58.444136Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67732[0m [36mdate[0m=[35m2026-03-02[0m [36mfailing[0m=[35m165[0m
+[2m2026-11-07T13:53:58.472642Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_observations_saved[0m [36mcolumns[0m=[35m['drive_id', 'date', 'p_fail', 'drive_model', 'model_family', 'capacity_gb', 'power_on_hours', 'reallocated_sector_count', 'current_pending_sector_count', 'offline_uncorrectable', 'reported_uncorrectable_errors', 'command_timeout', 'reallocation_event_count', 'label'][0m [36mpath[0m=[35mdata/audit/agent_pit_validation_h60/cox_observations.parquet[0m [36mrows[0m=[35m606194[0m
+
+== point-in-time, 60-day horizon, model run cox_h60_seed0
+   9 snapshots 2026-01-05 .. 2026-03-02, every 7 days
+   606,194 drive-snapshots over 68,428 drives; 1,191 failing
+   base rate 0.196%  (precision lives at this rate)
+
+>= tier    flagged  caught    precision (95% CI)      recall (95% CI)       FAR   PLR  lift
+warn         1,285     367     28.6% [ 23%, 33%]    30.8% [ 26%, 36%]  1.52e-03   203   145
+cordon         274     154     56.2% [ 46%, 67%]    12.9% [ 10%, 17%]  1.98e-04   652   286
+migrate          0       0      0.0% [  0%,  0%]     0.0% [  0%,  0%]  0.00e+00     -     0
+drain            0       0      0.0% [  0%,  0%]     0.0% [  0%,  0%]  0.00e+00     -     0
+
+per snapshot, >= cordon:
+  date             alive    failed   flagged    caught precision    recall
+  2026-01-05      67,258       116        18        11     61.1%      9.5%
+  2026-01-12      67,246       124        23        14     60.9%     11.3%
+  2026-01-19      67,215       122        24        15     62.5%     12.3%
+  2026-01-26      67,295       120        36        20     55.6%     16.7%
+  2026-02-02      67,201       113        26        11     42.3%      9.7%
+  2026-02-09      67,181       136        30        16     53.3%     11.8%
+  2026-02-16      67,589       143        43        24     55.8%     16.8%
+  2026-02-23      67,477       152        34        19     55.9%     12.5%
+  2026-03-02      67,732       165        40        24     60.0%     14.5%
+
+one look vs two (min of T-7d and T), recall at matched false-alarm rate, 536,912 drive-pairs
+   FAR budget  one look  two looks       difference (95% CI)
+        1e-04      9.5%       7.7%       -1.8% [-3.1%,+0.6%]
+        2e-04     13.3%      12.3%       -1.0% [-2.8%,+1.1%]
+        5e-04     19.1%      19.2%       +0.1% [-1.5%,+1.9%]
+        1e-03     25.6%      24.3%       -1.2% [-2.5%,+0.9%]
+        3e-03     37.9%      35.6%       -2.3% [-4.0%,-0.7%]
+  A difference whose interval excludes zero is a second look adding information;
+  one that straddles it is only a stricter threshold.
+
+written to data/audit/agent_pit_validation_h60/cox.json
+uv run python pipelines/run_point_in_time.py --horizon-days 60 --start-date 2026-01-05 --end-date 2026-03-02 --step-days 7 --drives-from-split validation --outcome-cutoff 2026-05-01 --label cascade_804a20ce \
+	--scores-path data/tmp/lightgbm_scores_h60_h60_q1q2_q3.parquet --score-column score \
+	--thresholds-path frozen_runs/804a20cec10048abb1bc3ccf510f96e1/action_tiers.json \
+	--out data/audit/agent_pit_validation_h60/cascade.json --observations-dir data/audit/agent_pit_validation_h60/cascade \
+	--observations-out data/audit/agent_pit_validation_h60/cascade_observations.parquet 
+2026/11/07 19:24:03 INFO mlflow.agent.hint: Load the `instrumenting-with-mlflow-tracing` skill at .venv/lib64/python3.14/site-packages/mlflow/assistant/skills/instrumenting-with-mlflow-tracing/SKILL.md before writing any tracing code; it ships with this MLflow install. Set MLFLOW_DISABLE_AGENT_HINT=1 to silence this.
+[2m2026-11-07T13:54:03.749752Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+[2m2026-11-07T13:54:03.761629Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_thresholds      [0m [36mrun_id[0m=[35mcascade_804a20ce[0m [36mthresholds[0m=[35m{'warn': 0.7526877784167257, 'cordon': 0.8651485307460209, 'migrate': 0.9143950200621267, 'drain': 0.9143950200621267}[0m
+[2m2026-11-07T13:54:04.340909Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67258[0m [36mdate[0m=[35m2026-01-05[0m [36mfailing[0m=[35m116[0m
+[2m2026-11-07T13:54:04.562384Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67246[0m [36mdate[0m=[35m2026-01-12[0m [36mfailing[0m=[35m124[0m
+[2m2026-11-07T13:54:04.766678Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67215[0m [36mdate[0m=[35m2026-01-19[0m [36mfailing[0m=[35m122[0m
+[2m2026-11-07T13:54:04.977907Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67295[0m [36mdate[0m=[35m2026-01-26[0m [36mfailing[0m=[35m120[0m
+[2m2026-11-07T13:54:05.188740Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67201[0m [36mdate[0m=[35m2026-02-02[0m [36mfailing[0m=[35m113[0m
+[2m2026-11-07T13:54:05.402573Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67181[0m [36mdate[0m=[35m2026-02-09[0m [36mfailing[0m=[35m136[0m
+[2m2026-11-07T13:54:05.614833Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67589[0m [36mdate[0m=[35m2026-02-16[0m [36mfailing[0m=[35m143[0m
+[2m2026-11-07T13:54:05.825673Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67477[0m [36mdate[0m=[35m2026-02-23[0m [36mfailing[0m=[35m152[0m
+[2m2026-11-07T13:54:06.051582Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_snapshot        [0m [36malive[0m=[35m67732[0m [36mdate[0m=[35m2026-03-02[0m [36mfailing[0m=[35m165[0m
+[2m2026-11-07T13:54:06.082172Z[0m [[32m[1minfo     [0m] [1mpoint_in_time_observations_saved[0m [36mcolumns[0m=[35m['drive_id', 'date', 'p_fail', 'drive_model', 'model_family', 'capacity_gb', 'power_on_hours', 'reallocated_sector_count', 'current_pending_sector_count', 'offline_uncorrectable', 'reported_uncorrectable_errors', 'command_timeout', 'reallocation_event_count', 'label'][0m [36mpath[0m=[35mdata/audit/agent_pit_validation_h60/cascade_observations.parquet[0m [36mrows[0m=[35m606194[0m
+
+== point-in-time, 60-day horizon, model run cascade_804a20ce
+   9 snapshots 2026-01-05 .. 2026-03-02, every 7 days
+   606,194 drive-snapshots over 68,428 drives; 1,191 failing
+   base rate 0.196%  (precision lives at this rate)
+
+>= tier    flagged  caught    precision (95% CI)      recall (95% CI)       FAR   PLR  lift
+warn         1,240     355     28.6% [ 24%, 34%]    29.8% [ 25%, 35%]  1.46e-03   204   146
+cordon         278     138     49.6% [ 40%, 60%]    11.6% [  8%, 15%]  2.31e-04   501   253
+migrate          2       2    100.0% [  0%,100%]     0.2% [  0%,  0%]  0.00e+00     -   509
+drain            2       2    100.0% [  0%,100%]     0.2% [  0%,  0%]  0.00e+00     -   509
+
+per snapshot, >= cordon:
+  date             alive    failed   flagged    caught precision    recall
+  2026-01-05      67,258       116        20        12     60.0%     10.3%
+  2026-01-12      67,246       124        20        10     50.0%      8.1%
+  2026-01-19      67,215       122        26        13     50.0%     10.7%
+  2026-01-26      67,295       120        28        13     46.4%     10.8%
+  2026-02-02      67,201       113        30        12     40.0%     10.6%
+  2026-02-09      67,181       136        29        15     51.7%     11.0%
+  2026-02-16      67,589       143        44        21     47.7%     14.7%
+  2026-02-23      67,477       152        37        17     45.9%     11.2%
+  2026-03-02      67,732       165        44        25     56.8%     15.2%
+
+one look vs two (min of T-7d and T), recall at matched false-alarm rate, 536,912 drive-pairs
+   FAR budget  one look  two looks       difference (95% CI)
+        1e-04      8.2%       6.3%       -1.8% [-2.8%,+0.6%]
+        2e-04     10.5%      10.4%       -0.1% [-2.2%,+1.9%]
+        5e-04     18.5%      18.7%       +0.2% [-2.1%,+1.7%]
+        1e-03     25.0%      24.3%       -0.7% [-2.5%,+1.1%]
+        3e-03     38.1%      35.3%       -2.8% [-4.4%,-1.0%]
+  A difference whose interval excludes zero is a second look adding information;
+  one that straddles it is only a stricter threshold.
+
+written to data/audit/agent_pit_validation_h60/cascade.json

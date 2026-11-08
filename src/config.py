@@ -38,6 +38,9 @@ class AgentSettings:
     min_confidence_for_destructive_action: float
     control_fraction: float
     control_salt: str
+    knowledge_backend: str = "none"
+    knowledge_path: str = "data/audit/agent_knowledge.sqlite"
+    knowledge_rule: str = "none"
 
     @classmethod
     def load(cls) -> AgentSettings:
@@ -61,6 +64,12 @@ class AgentSettings:
                 "control_fraction", DEFAULT_CONTROL_FRACTION
             ),
             control_salt=raw.get("control_arm", {}).get("salt", DEFAULT_SALT),
+            # Absent in configs written before the knowledge base existed: no store.
+            knowledge_backend=raw.get("knowledge", {}).get("backend", "none"),
+            knowledge_path=raw.get("knowledge", {}).get(
+                "path", "data/audit/agent_knowledge.sqlite"
+            ),
+            knowledge_rule=raw.get("knowledge", {}).get("rule", "none"),
         )
 
 

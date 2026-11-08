@@ -1,0 +1,120 @@
+{
+  "note": "DESCRIPTIVE, not part of any verdict. The select-half criterion (recall at the tier's\nown false-alarm rate) compares rankings, and a tier rule's transform keeps a demoted\ndrive just below the next threshold, above every other drive of the lower tier, so at a\nmatched false-alarm rate the demoted drives are re-admitted and a pure tier rule can\nnever beat \"no rule\" there. This reports what criterion 1 would see instead: every grid\nvalue of R2 and R2b at the fixed cordon threshold on the confirm half.",
+  "rules": {
+    "r2_chronic_demote {\"n_days\": 7}": {
+      "changed_cordon_drive_days": 396,
+      "changed_drives": 58,
+      "changed_that_failed": 230,
+      "precision_a": 0.5238828967642527,
+      "precision_b": 0.43478260869565216,
+      "recall_a": 0.15070921985815602,
+      "recall_b": 0.04875886524822695,
+      "precision_difference": -0.08910028806860054,
+      "precision_ci": [
+        -0.18102894888635074,
+        0.010800967077619477
+      ],
+      "recall_difference": -0.10195035460992907,
+      "recall_ci": [
+        -0.14050734410542293,
+        -0.06313687042961967
+      ]
+    },
+    "r2_chronic_demote {\"n_days\": 14}": {
+      "changed_cordon_drive_days": 242,
+      "changed_drives": 30,
+      "changed_that_failed": 135,
+      "precision_a": 0.5238828967642527,
+      "precision_b": 0.5036855036855037,
+      "recall_a": 0.15070921985815602,
+      "recall_b": 0.09086879432624113,
+      "precision_difference": -0.020197393078749015,
+      "precision_ci": [
+        -0.09669989914594497,
+        0.06314182514760588
+      ],
+      "recall_difference": -0.05984042553191489,
+      "recall_ci": [
+        -0.09160431575272845,
+        -0.031116664590219206
+      ]
+    },
+    "r2_chronic_demote {\"n_days\": 21}": {
+      "changed_cordon_drive_days": 189,
+      "changed_drives": 20,
+      "changed_that_failed": 107,
+      "precision_a": 0.5238828967642527,
+      "precision_b": 0.5065217391304347,
+      "recall_a": 0.15070921985815602,
+      "recall_b": 0.10328014184397163,
+      "precision_difference": -0.01736115763381796,
+      "precision_ci": [
+        -0.08904548748835443,
+        0.05805311263751041
+      ],
+      "recall_difference": -0.04742907801418439,
+      "recall_ci": [
+        -0.07775332903780069,
+        -0.020653259739405915
+      ]
+    },
+    "r2_chronic_demote {\"n_days\": 28}": {
+      "changed_cordon_drive_days": 161,
+      "changed_drives": 16,
+      "changed_that_failed": 93,
+      "precision_a": 0.5238828967642527,
+      "precision_b": 0.5061475409836066,
+      "recall_a": 0.15070921985815602,
+      "recall_b": 0.10948581560283688,
+      "precision_difference": -0.01773535578064611,
+      "precision_ci": [
+        -0.08054071912038491,
+        0.04985969894417836
+      ],
+      "recall_difference": -0.041223404255319146,
+      "recall_ci": [
+        -0.07041766081487316,
+        -0.016929541973194726
+      ]
+    },
+    "r2b_first_flag_promote {\"delta\": 0.05, \"min_history_days\": 60}": {
+      "changed_cordon_drive_days": 2,
+      "changed_drives": 2,
+      "changed_that_failed": 0,
+      "precision_a": 0.5238828967642527,
+      "precision_b": 0.522273425499232,
+      "recall_a": 0.15070921985815602,
+      "recall_b": 0.15070921985815602,
+      "precision_difference": -0.0016094712650207565,
+      "precision_ci": [
+        -0.004424080718191711,
+        0.0
+      ],
+      "recall_difference": 0.0,
+      "recall_ci": [
+        0.0,
+        0.0
+      ]
+    },
+    "r2b_first_flag_promote {\"delta\": 0.1, \"min_history_days\": 60}": {
+      "changed_cordon_drive_days": 2,
+      "changed_drives": 2,
+      "changed_that_failed": 0,
+      "precision_a": 0.5238828967642527,
+      "precision_b": 0.522273425499232,
+      "recall_a": 0.15070921985815602,
+      "recall_b": 0.15070921985815602,
+      "precision_difference": -0.0016094712650207565,
+      "precision_ci": [
+        -0.004424080718191711,
+        0.0
+      ],
+      "recall_difference": 0.0,
+      "recall_ci": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "git_commit": "d58e0ccc40865838fe3386a34264bd6831a0c70a"
+}

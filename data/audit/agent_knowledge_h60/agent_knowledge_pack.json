@@ -1,0 +1,26 @@
+{
+  "packed_file": "agent_knowledge.sqlite.gz",
+  "packed_sha256": "8e39368aa8d75a3c04f5bdc69b3fae4f2dc47a70dcb77f0bafc15bf2a20f33d6",
+  "packed_bytes": 24089747,
+  "store_bytes": 100532224,
+  "store_sha256": "34c3bf76109c43396f748cdf1a0271bf6d44e760155d68644a9ba883824b141f",
+  "content_hash": "662ab2647de7212669f0db99a7d5b71fb3480c7339b23619ddcc64b434729fd6",
+  "row_counts": {
+    "metadata": 17,
+    "candidate_days": 234275,
+    "presence_weeks": 1864602,
+    "drive_info": 70969,
+    "failure_days": 483,
+    "cohort_daily": 15593,
+    "outcomes": 234034,
+    "decisions": 0,
+    "ingest_log": 181
+  },
+  "run_id": "stack_h60_seed0:score:action_tiers",
+  "built_from": [
+    "2026-01-01",
+    "2026-05-01"
+  ],
+  "presence_end": "2026-06-30",
+  "restore": "make unpack-knowledge"
+}

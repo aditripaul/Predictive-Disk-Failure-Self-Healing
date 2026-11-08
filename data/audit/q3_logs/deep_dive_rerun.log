@@ -1,0 +1,117 @@
+scripts/deep_dive_q3.py:207: DeprecationWarning: `is_in` with a collection of the same datatype is ambiguous and deprecated.
+Please use `implode` to return to previous behavior.
+
+See https://github.com/pola-rs/polars/issues/22149 for more information.
+  failing.filter(~pl.col("drive_id").is_in(no_signal["drive_id"]))[
+scripts/deep_dive_q3.py:379: DeprecationWarning: `is_in` with a collection of the same datatype is ambiguous and deprecated.
+Please use `implode` to return to previous behavior.
+
+See https://github.com/pola-rs/polars/issues/22149 for more information.
+  new = test.filter(pl.col("drive_id").is_in(test_new_ids))
+scripts/deep_dive_q3.py:380: DeprecationWarning: `is_in` with a collection of the same datatype is ambiguous and deprecated.
+Please use `implode` to return to previous behavior.
+
+See https://github.com/pola-rs/polars/issues/22149 for more information.
+  old = test.filter(~pl.col("drive_id").is_in(test_new_ids))
+# Deep dive: 30-day Q1+Q2 -> Q3 run
+
+Run `frozen_runs/c459046e4f1645169151e7be25ff064d`, thresholds frozen: stage1 0.235, warn 0.653, cordon 0.836, primary 0.919. Per drive, Q3 2026 test (07-01..08-31) unless stated.
+
+## 1. Missed failures (1,105 failing drives)
+
+| Group | Drives | Share | Any core counter > 0 | Counter rose in window | Active defects (median) | Telemetry coverage | Power-on age (years, median) | Warned before window | Median lead (days) |
+|---|---|---|---|---|---|---|---|---|---|
+| caught at primary | 138 | 12.5% | 92.0% | 75.4% | 4324 | 0.83 | 5.5 | 42.8% | 14 |
+| caught at cordon only | 331 | 30.0% | 96.7% | 72.2% | 1866 | 0.81 | 5.5 | 42.6% | 16 |
+| caught at warn only | 204 | 18.5% | 99.5% | 66.7% | 703 | 0.95 | 5.2 | 43.1% | 21 |
+| passed Stage 1, below warn | 210 | 19.0% | 82.4% | 38.6% | 40 | 0.99 | 3.6 | 12.9% | 26 |
+| never passed Stage 1 | 222 | 20.1% | 21.6% | 1.4% | 0 | 0.96 | 2.9 | 0.0% | - |
+
+Failing drives with every core counter at zero throughout their window: 234 (21.2%). Stage 1 passes 25.6% of them against 94.5% of the rest.
+
+By drive family (10 with the most failing drives):
+
+| Family | Failing | Stage 1 recall | Warn recall | Primary recall | No core signal |
+|---|---|---|---|---|---|
+| Seagate HDD | 537 | 80.8% | 63.7% | 18.4% | 23.6% |
+| Toshiba HDD | 247 | 71.7% | 54.7% | 10.5% | 26.7% |
+| Western Digital HDD | 165 | 78.2% | 42.4% | 1.2% | 17.6% |
+| HGST HDD | 153 | 92.2% | 82.4% | 7.2% | 5.9% |
+| WUH721816ALE6L4 | 3 | 66.7% | 0.0% | 0.0% | 100.0% |
+
+## 2. False alarms (367,583 healthy drives)
+
+| Point | Flagged healthy | Still active | Removed without failure | Failed later | Any core counter > 0 (fleet) | Counter rose | Power-on age, years (fleet) |
+|---|---|---|---|---|---|---|---|
+| stage1 | 22,463 | 97.6% | 2.3% | 23 | 59.8% (8.9%) | 39.6% | 3.9 (3.5) |
+| warn | 3,208 | 90.4% | 9.0% | 20 | 99.8% (8.9%) | 87.5% | 5.4 (3.5) |
+| cordon | 877 | 79.6% | 18.5% | 17 | 99.3% (8.9%) | 86.7% | 5.7 (3.5) |
+| primary | 96 | 60.4% | 35.4% | 4 | 97.9% (8.9%) | 81.2% | 5.5 (3.5) |
+
+Families among the warn false alarms (lift = share of false alarms / share of healthy fleet):
+
+| Family | Flagged | Share | Fleet share | Lift |
+|---|---|---|---|---|
+| HGST HDD | 925 | 28.8% | 6.9% | 4.2 |
+| Seagate HDD | 884 | 27.6% | 30.3% | 0.9 |
+| Toshiba HDD | 793 | 24.7% | 36.1% | 0.7 |
+| Western Digital HDD | 604 | 18.8% | 25.7% | 0.7 |
+| WUH721816ALE6L4 | 2 | 0.1% | 0.2% | 0.4 |
+
+Families among the primary false alarms (lift = share of false alarms / share of healthy fleet):
+
+| Family | Flagged | Share | Fleet share | Lift |
+|---|---|---|---|---|
+| Seagate HDD | 64 | 66.7% | 30.3% | 2.2 |
+| Toshiba HDD | 24 | 25.0% | 36.1% | 0.7 |
+| HGST HDD | 8 | 8.3% | 6.9% | 1.2 |
+
+## 3. Week by week (thresholds fixed; a drive is failing in a week if it has a positive row in it)
+
+| Split | Week from | Drives | Failing | Base rate | Stage 1 pass | Primary P / R | Cordon P / R | Warn P / R |
+|---|---|---|---|---|---|---|---|---|
+| test | 2026-07-01 | 355,740 | 461 | 0.130% | 3.38% | 41.8% / 8.2% | 28.6% / 33.4% | 14.5% / 51.8% |
+| test | 2026-07-08 | 357,868 | 456 | 0.127% | 3.49% | 37.1% / 7.2% | 27.0% / 32.9% | 13.1% / 49.3% |
+| test | 2026-07-15 | 360,131 | 415 | 0.115% | 3.39% | 37.0% / 8.2% | 24.4% / 32.0% | 11.8% / 48.7% |
+| test | 2026-07-22 | 360,076 | 410 | 0.114% | 3.58% | 35.7% / 7.3% | 22.1% / 29.8% | 10.8% / 45.4% |
+| test | 2026-07-29 | 360,142 | 425 | 0.118% | 3.63% | 42.9% / 7.8% | 23.4% / 28.9% | 11.0% / 44.9% |
+| test | 2026-08-05 | 361,622 | 410 | 0.113% | 3.74% | 36.1% / 6.3% | 23.8% / 27.6% | 11.4% / 47.8% |
+| test | 2026-08-12 | 362,037 | 376 | 0.104% | 3.84% | 42.6% / 6.1% | 22.5% / 27.1% | 10.7% / 47.9% |
+| test | 2026-08-19 | 362,312 | 363 | 0.100% | 3.84% | 56.8% / 6.9% | 27.9% / 30.0% | 11.8% / 51.0% |
+| test | 2026-08-26 | 364,071 | 352 | 0.097% | 3.76% | 57.8% / 7.4% | 30.2% / 33.0% | 13.0% / 53.4% |
+| validation | 2026-01-01 | 67,397 | 57 | 0.085% | 2.68% | 57.1% / 7.0% | 33.3% / 17.5% | 13.2% / 29.8% |
+| validation | 2026-01-08 | 67,408 | 72 | 0.107% | 2.80% | 50.0% / 2.8% | 31.2% / 13.9% | 15.7% / 30.6% |
+| validation | 2026-01-15 | 67,374 | 74 | 0.110% | 2.76% | 66.7% / 5.4% | 33.3% / 14.9% | 17.0% / 31.1% |
+| validation | 2026-01-22 | 67,622 | 77 | 0.114% | 2.66% | 83.3% / 6.5% | 31.8% / 18.2% | 18.5% / 35.1% |
+| validation | 2026-01-29 | 67,599 | 78 | 0.115% | 2.35% | 63.6% / 9.0% | 31.7% / 16.7% | 20.1% / 38.5% |
+| validation | 2026-02-05 | 67,571 | 83 | 0.123% | 2.00% | 44.4% / 4.8% | 30.2% / 15.7% | 19.3% / 39.8% |
+| validation | 2026-02-12 | 67,957 | 84 | 0.124% | 2.24% | 50.0% / 4.8% | 35.4% / 27.4% | 20.3% / 48.8% |
+| validation | 2026-02-19 | 68,010 | 70 | 0.103% | 2.24% | 57.1% / 5.7% | 36.2% / 30.0% | 17.0% / 50.0% |
+| validation | 2026-02-26 | 68,244 | 66 | 0.097% | 2.19% | 62.5% / 7.6% | 36.4% / 30.3% | 14.8% / 40.9% |
+| validation | 2026-03-05 | 68,481 | 81 | 0.118% | 2.44% | 60.0% / 7.4% | 35.5% / 27.2% | 17.3% / 45.7% |
+| validation | 2026-03-12 | 68,788 | 98 | 0.142% | 2.58% | 44.4% / 4.1% | 35.2% / 32.7% | 21.0% / 55.1% |
+| validation | 2026-03-19 | 68,719 | 103 | 0.150% | 2.75% | 44.4% / 3.9% | 35.4% / 28.2% | 18.4% / 45.6% |
+| validation | 2026-03-26 | 69,085 | 139 | 0.201% | 3.03% | 42.9% / 2.2% | 42.5% / 36.7% | 26.6% / 61.9% |
+| validation | 2026-04-02 | 69,223 | 157 | 0.227% | 3.19% | 60.0% / 3.8% | 47.4% / 40.1% | 28.1% / 63.7% |
+| validation | 2026-04-09 | 69,499 | 140 | 0.201% | 3.32% | 50.0% / 5.7% | 46.7% / 40.0% | 25.9% / 63.6% |
+| validation | 2026-04-16 | 69,953 | 138 | 0.197% | 3.29% | 62.5% / 7.2% | 43.0% / 35.5% | 24.5% / 58.0% |
+| validation | 2026-04-23 | 70,201 | 126 | 0.179% | 3.38% | 58.8% / 7.9% | 36.6% / 32.5% | 22.5% / 57.9% |
+| validation | 2026-04-30 | 70,130 | 87 | 0.124% | 3.03% | 37.5% / 3.4% | 30.3% / 23.0% | 19.4% / 49.4% |
+
+## 4. Validation against test
+
+| | Window | Drives | Failing | Base rate | AUROC | Recall at 0.01% / 0.1% false alarms | Primary P / R / false-alarm rate | Warn P / R |
+|---|---|---|---|---|---|---|---|---|
+| validation | 121 d | 70,977 | 418 | 0.589% | 0.922 | 3.8% / 30.6% | 75.0% / 10.0% / 0.020% | 33.3% / 63.6% |
+| validation, last 62 days | 62 d | 70,638 | 295 | 0.418% | 0.947 | 4.1% / 36.6% | 68.3% / 9.5% / 0.018% | 30.1% / 69.2% |
+| test | 62 d | 368,688 | 1,105 | 0.300% | 0.926 | 4.2% / 30.4% | 59.0% / 12.5% / 0.026% | 17.3% / 60.9% |
+
+| Point | Validation precision | Test precision | Test restated at the validation base rate | Validation restated at the test base rate |
+|---|---|---|---|---|
+| warn | 33.3% | 17.3% | 29.2% | 20.2% |
+| cordon | 55.7% | 34.8% | 51.3% | 38.9% |
+| primary | 75.0% | 59.0% | 73.9% | 60.4% |
+
+Drives first seen after 2026-05-01 (in no training or validation row): 18,698, 33 failing. Primary: precision 60.0%, recall 9.1%, false-alarm rate 0.011% (older drives 59.0%, 12.6%, 0.027%). Warn recall 51.5% against 61.2%.
+
+written to data/audit/deep_dive_q3_h30 (4 figures)
