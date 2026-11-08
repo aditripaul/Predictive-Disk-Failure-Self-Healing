@@ -18,14 +18,21 @@ The only ignored files are model binaries (`*.npz`, `*.pkl`, `*.pt`, `*.pth`,
 today) and `*.sqlite*`. The test-access log is tracked too; `.gitattributes`
 merges it with `merge=union` because it is append-only.
 
-**Logs.** A log is tracked only if it has no absolute path in it. Fifteen logs do
-(warnings, `uv` and MLflow messages print the repository root): the
-`agent_models_h30_seed0/*.log`, `q3_logs/cascade_h*.log`, `train_h*.log`,
-`deep_dive*.log`, `cluster_policy_validation.log` and
-`cascade_logs/cascade_wide_net_h30.log`. They stay local and are ignored by
-name in `.gitignore`; regenerate them with the command of the folder that wrote
-them. The stack logs in `stack_q3_logs/` are tracked after one such line was
-deleted from each (see its README). The other logs are tracked as they are.
+**Logs.** Every run log is tracked, with paths inside the repository written
+repo-relative (`data/tmp/x`, `.venv/...`; the repository root itself as `./`).
+Warnings, `uv` and MLflow messages print the repository's absolute location, so
+on 2026-11-08 the 20 logs that had such a path (`agent_models_h30_seed0/*.log`,
+`q3_logs/cascade_h*.log`, `train_h*.log`, `deep_dive*.log`,
+`cluster_policy_validation.log`, `cascade_logs/cascade_wide_net_h30.log`,
+`stack_scorer_h60_logs/freeze.log`, `agent_pit_validation_h60_logs/pit.log`,
+`agent_knowledge_h60_logs/screen.log`) were rewritten with
+`python3 scripts/scrub_paths.py --in-place`, and `build.log` beside the last was
+added as it was; 104 lines changed, each only in that path, and nothing else.
+The stack logs in `stack_q3_logs/` were cleaned by hand earlier (see its README).
+For a new run, `configure_logging` already writes repo-relative paths; a
+launcher should still pipe its output through the scrubber, which also catches
+messages printed before logging is set up:
+`set -o pipefail; cmd 2>&1 | python3 scripts/scrub_paths.py > run.log`.
 Each run folder's per-run training plots are tracked here as well as in
 `frozen_runs/<run id>/figures/`.
 
@@ -74,9 +81,9 @@ Q1+Q2 -> Q3 runs and are tracked; `h30_seed0` is the April-May window run.
 |---|---|---|
 | `cascade_q3_h30/`, `_h44/`, `_h60/` | The cascade and survival Stage 2 experiment on Q3 2026, one folder per horizon (3 seeds): `experiment_two_stage.json` (every report), `tables.md` (the tables), `code.patch` (uncommitted code at run time), `mlflow_run.json` (the MLflow run it was logged as), `figures/` (seed 0). **Tracked.** | `make experiment-model EXPERIMENT_ARGS="... --two-stage --two-stage-out data/audit/cascade_q3_h<H>"` |
 | `stack_q3_h30/`, `_h44/`, `_h60/`, `stack_q3_logs/` | The stacked Stage 2 (LightGBM + Cox) on Q3 2026, same layout as `cascade_q3_h<H>/` (3 seeds), plus `stack_q3_logs/` with the launcher `run_stack.sh`, one log per horizon, `CHECKSUMS.sha256` and a README. Outputs frozen (runbook 1.1.4a). **Tracked.** | `bash data/audit/stack_q3_logs/run_stack.sh "$PWD"` |
-| `agent_pit_validation_h60/`, `agent_pit_validation_h60_logs/` | Point-in-time baseline on validation drives at the 60-day horizon for the knowledge-base screen (`docs/agent_knowledge_base.md`, Phase 0): four arms (stacked Stage 2, its LightGBM and Cox members, the 60-day cascade), JSON reports and merged observations, README and checksums; per-date partitions and the log stay local. **Tracked.** | `make agent-pit-validation` |
-| `../../frozen_runs/stack_h60_seed0/`, `stack_scorer_h60_logs/` | The frozen stacked Stage 2 scorer and its launcher (Phase S); the log stays local. **Tracked.** | `scripts/freeze_stack_scorer.py` |
-| `agent_knowledge_h60/`, `agent_knowledge_h60_logs/` | The agent's knowledge store (`docs/agent_knowledge_base.md`, Phases 1-2): build summary, self-checks, coverage, drift, the pre-registered rule screen (`validation.json`, `tables.md`) and a descriptive look at the tier rules; README and checksums, and the store itself packed as `agent_knowledge.sqlite.gz` (24 MB; SHA-256 and content fingerprint in `agent_knowledge_pack.json`; `make unpack-knowledge` restores it to `data/audit/agent_knowledge.sqlite`, which stays local). The logs stay local. **Tracked.** | `scripts/build_agent_knowledge.py`, `scripts/screen_agent_knowledge.py` (launchers in the logs folder); `make agent-knowledge`, `make pack-knowledge`, `make unpack-knowledge` |
+| `agent_pit_validation_h60/`, `agent_pit_validation_h60_logs/` | Point-in-time baseline on validation drives at the 60-day horizon for the knowledge-base screen (`docs/agent_knowledge_base.md`, Phase 0): four arms (stacked Stage 2, its LightGBM and Cox members, the 60-day cascade), JSON reports and merged observations, README and checksums; per-date partitions stay local; the log is tracked. **Tracked.** | `make agent-pit-validation` |
+| `../../frozen_runs/stack_h60_seed0/`, `stack_scorer_h60_logs/` | The frozen stacked Stage 2 scorer and its launcher and log (Phase S). **Tracked.** | `scripts/freeze_stack_scorer.py` |
+| `agent_knowledge_h60/`, `agent_knowledge_h60_logs/` | The agent's knowledge store (`docs/agent_knowledge_base.md`, Phases 1-2): build summary, self-checks, coverage, drift, the pre-registered rule screen (`validation.json`, `tables.md`) and a descriptive look at the tier rules; README and checksums, and the store itself packed as `agent_knowledge.sqlite.gz` (24 MB; SHA-256 and content fingerprint in `agent_knowledge_pack.json`; `make unpack-knowledge` restores it to `data/audit/agent_knowledge.sqlite`, which stays local). The logs are tracked. **Tracked.** | `scripts/build_agent_knowledge.py`, `scripts/screen_agent_knowledge.py` (launchers in the logs folder); `make agent-knowledge`, `make pack-knowledge`, `make unpack-knowledge` |
 | `cascade_wide_net_h30/` | The earlier wide Stage 1 net experiment on the April-May window (`docs/cascade_wide_net.md`). **Tracked.** | same command, default output folder |
 | `horizon_q3/` | The paired 30 / 44 / 60-day comparison on the same Q3 drives: `horizon_comparison.json`, `tables.md`, `figures/`. **Tracked.** | `scripts/compare_horizons.py` |
 | `cluster_policy_h30/` | Cluster-based action policy (runbook 1.1.6, `docs/cluster_action_policy.md`): ablation, clusters, tier x cluster matrix, action map from validation, Q3 comparison with the tier-only policy and the pre-registered rule. `validation.json`, `cluster_model.json`, `action_map.json`, `q3_evaluation.json`, `ablation_partial.json`, `tables.md`, `figures/`. **Tracked.** | `scripts/cluster_action_policy.py` (`--validation-only`, `--figures-only`; resumes an interrupted ablation) |

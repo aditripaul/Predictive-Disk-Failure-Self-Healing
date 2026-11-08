@@ -77,4 +77,6 @@ lowers recall significantly at every N (N = 7: -10.2 points [-14.1, -6.3]; N = 2
 drives that failed. R2b changes 2 drive-days. This changes no verdict.
 
 `CHECKSUMS.sha256` covers every file here, the packed store included; `sha256sum -c
-CHECKSUMS.sha256` from this folder. The logs print absolute paths and stay local.
+CHECKSUMS.sha256` from this folder. The logs (`../agent_knowledge_h60_logs/build.log`,
+`screen.log`) are tracked, their paths made repo-relative on 2026-11-08 with
+`scripts/scrub_paths.py` (this README and its checksum updated to say so).

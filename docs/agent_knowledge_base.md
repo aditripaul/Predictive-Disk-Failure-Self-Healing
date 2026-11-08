@@ -594,4 +594,4 @@ R2b changes 2 drive-days at either delta (60 days of history is barely available
 | Test-access log | 139 lines before and after: no step read test data |
 | Wall times (UTC, 2026-11-07) | scorer 13:40-13:44; baseline 13:53-13:54; store 14:12-14:16; screen about 2 minutes |
 | Tests | 846 pass (unit and agent-graph integration) at the end of the work; lint and types clean |
-| Outputs | Each folder has a README and `CHECKSUMS.sha256`; logs stay local (absolute paths) |
+| Outputs | Each folder has a README and `CHECKSUMS.sha256`; logs tracked since 2026-11-08, with repo-relative paths (`scripts/scrub_paths.py`) |

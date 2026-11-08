@@ -36,5 +36,6 @@ lower than the per-drive recall of the frozen scorer's README.
 
 The per-date partitions (`<arm>/date=*.parquet`) duplicate the merged observation files and
 stay local (`.gitignore`); `make agent-pit-validation` reuses them on a rerun. The run log
-prints absolute paths and stays local too. `CHECKSUMS.sha256` covers every tracked file
-here; verify with `sha256sum -c CHECKSUMS.sha256` from this folder.
+(`../agent_pit_validation_h60_logs/pit.log`) is tracked, its paths made repo-relative on
+2026-11-08 with `scripts/scrub_paths.py` (this README and its checksum updated to say so).
+`CHECKSUMS.sha256` covers every tracked file here; verify with `sha256sum -c CHECKSUMS.sha256` from this folder.

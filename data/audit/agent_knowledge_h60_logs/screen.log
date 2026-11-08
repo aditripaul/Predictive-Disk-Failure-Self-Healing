@@ -1,0 +1,7 @@
+2026/11/07 19:52:28 INFO mlflow.agent.hint: Load the `instrumenting-with-mlflow-tracing` skill at .venv/lib64/python3.14/site-packages/mlflow/assistant/skills/instrumenting-with-mlflow-tracing/SKILL.md before writing any tracing code; it ships with this MLflow install. Set MLFLOW_DISABLE_AGENT_HINT=1 to silence this.
+[2m2026-11-07T14:22:28.029228Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+r1_cohort_prior          failed
+r2_chronic_demote        failed: no value beat "no rule" on the select half
+r2b_first_flag_promote   failed: no value beat "no rule" on the select half
+r3_outcome_memory        not screenable
+written to data/audit/agent_knowledge_h60/validation.json and tables.md

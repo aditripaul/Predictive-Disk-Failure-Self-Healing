@@ -1,0 +1,104 @@
+[2m2026-11-07T14:12:26.414510Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+[2m2026-11-07T14:12:30.993107Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-01-07[0m [36mpresence_rows[0m=[35m470767[0m [36mpresent[0m=[35m470767[0m [36mscore_rows[0m=[35m470755[0m [36mseconds[0m=[35m4.32[0m [36mstart[0m=[35m2026-01-01[0m [36mstored[0m=[35m10173[0m
+[2m2026-11-07T14:12:36.376204Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-01-14[0m [36mpresence_rows[0m=[35m470816[0m [36mpresent[0m=[35m470816[0m [36mscore_rows[0m=[35m470798[0m [36mseconds[0m=[35m5.38[0m [36mstart[0m=[35m2026-01-08[0m [36mstored[0m=[35m10807[0m
+[2m2026-11-07T14:12:42.037478Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-01-21[0m [36mpresence_rows[0m=[35m470786[0m [36mpresent[0m=[35m470786[0m [36mscore_rows[0m=[35m470758[0m [36mseconds[0m=[35m5.66[0m [36mstart[0m=[35m2026-01-15[0m [36mstored[0m=[35m11486[0m
+[2m2026-11-07T14:12:47.866504Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-01-28[0m [36mpresence_rows[0m=[35m472075[0m [36mpresent[0m=[35m472075[0m [36mscore_rows[0m=[35m471418[0m [36mseconds[0m=[35m5.83[0m [36mstart[0m=[35m2026-01-22[0m [36mstored[0m=[35m11307[0m
+[2m2026-11-07T14:12:53.934918Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-02-04[0m [36mpresence_rows[0m=[35m472213[0m [36mpresent[0m=[35m472213[0m [36mscore_rows[0m=[35m470682[0m [36mseconds[0m=[35m6.07[0m [36mstart[0m=[35m2026-01-29[0m [36mstored[0m=[35m11265[0m
+[2m2026-11-07T14:13:00.432536Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-02-11[0m [36mpresence_rows[0m=[35m472037[0m [36mpresent[0m=[35m472037[0m [36mscore_rows[0m=[35m470453[0m [36mseconds[0m=[35m6.5[0m [36mstart[0m=[35m2026-02-05[0m [36mstored[0m=[35m11710[0m
+[2m2026-11-07T14:13:06.974195Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-02-18[0m [36mpresence_rows[0m=[35m474171[0m [36mpresent[0m=[35m474171[0m [36mscore_rows[0m=[35m472580[0m [36mseconds[0m=[35m6.54[0m [36mstart[0m=[35m2026-02-12[0m [36mstored[0m=[35m12723[0m
+[2m2026-11-07T14:13:13.791359Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-02-25[0m [36mpresence_rows[0m=[35m474820[0m [36mpresent[0m=[35m474820[0m [36mscore_rows[0m=[35m472335[0m [36mseconds[0m=[35m6.82[0m [36mstart[0m=[35m2026-02-19[0m [36mstored[0m=[35m13650[0m
+[2m2026-11-07T14:13:20.851657Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-03-04[0m [36mpresence_rows[0m=[35m476748[0m [36mpresent[0m=[35m476748[0m [36mscore_rows[0m=[35m473953[0m [36mseconds[0m=[35m7.06[0m [36mstart[0m=[35m2026-02-26[0m [36mstored[0m=[35m14464[0m
+[2m2026-11-07T14:13:28.172841Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-03-11[0m [36mpresence_rows[0m=[35m480102[0m [36mpresent[0m=[35m480102[0m [36mscore_rows[0m=[35m477300[0m [36mseconds[0m=[35m7.32[0m [36mstart[0m=[35m2026-03-05[0m [36mstored[0m=[35m14951[0m
+[2m2026-11-07T14:13:35.721968Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-03-18[0m [36mpresence_rows[0m=[35m480827[0m [36mpresent[0m=[35m480827[0m [36mscore_rows[0m=[35m478029[0m [36mseconds[0m=[35m7.55[0m [36mstart[0m=[35m2026-03-12[0m [36mstored[0m=[35m15196[0m
+[2m2026-11-07T14:13:43.644498Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-03-25[0m [36mpresence_rows[0m=[35m481913[0m [36mpresent[0m=[35m481913[0m [36mscore_rows[0m=[35m479023[0m [36mseconds[0m=[35m7.92[0m [36mstart[0m=[35m2026-03-19[0m [36mstored[0m=[35m15290[0m
+[2m2026-11-07T14:13:52.034391Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-04-01[0m [36mpresence_rows[0m=[35m482826[0m [36mpresent[0m=[35m482826[0m [36mscore_rows[0m=[35m481137[0m [36mseconds[0m=[35m8.39[0m [36mstart[0m=[35m2026-03-26[0m [36mstored[0m=[35m14916[0m
+[2m2026-11-07T14:14:00.169273Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-04-08[0m [36mpresence_rows[0m=[35m484193[0m [36mpresent[0m=[35m484193[0m [36mscore_rows[0m=[35m482785[0m [36mseconds[0m=[35m8.13[0m [36mstart[0m=[35m2026-04-02[0m [36mstored[0m=[35m15091[0m
+[2m2026-11-07T14:14:08.505143Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-04-15[0m [36mpresence_rows[0m=[35m485956[0m [36mpresent[0m=[35m485956[0m [36mscore_rows[0m=[35m484543[0m [36mseconds[0m=[35m8.34[0m [36mstart[0m=[35m2026-04-09[0m [36mstored[0m=[35m15577[0m
+[2m2026-11-07T14:14:17.083665Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-04-22[0m [36mpresence_rows[0m=[35m487325[0m [36mpresent[0m=[35m487325[0m [36mscore_rows[0m=[35m486123[0m [36mseconds[0m=[35m8.58[0m [36mstart[0m=[35m2026-04-16[0m [36mstored[0m=[35m15897[0m
+[2m2026-11-07T14:14:26.219065Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-04-29[0m [36mpresence_rows[0m=[35m489427[0m [36mpresent[0m=[35m489427[0m [36mscore_rows[0m=[35m489203[0m [36mseconds[0m=[35m9.13[0m [36mstart[0m=[35m2026-04-23[0m [36mstored[0m=[35m15471[0m
+[2m2026-11-07T14:14:34.566817Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-05-06[0m [36mpresence_rows[0m=[35m490412[0m [36mpresent[0m=[35m490412[0m [36mscore_rows[0m=[35m140140[0m [36mseconds[0m=[35m8.35[0m [36mstart[0m=[35m2026-04-30[0m [36mstored[0m=[35m4301[0m
+[2m2026-11-07T14:14:42.562049Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-05-13[0m [36mpresence_rows[0m=[35m490579[0m [36mpresent[0m=[35m490579[0m [36mscore_rows[0m=[35m0[0m [36mseconds[0m=[35m7.99[0m [36mstart[0m=[35m2026-05-07[0m [36mstored[0m=[35m0[0m
+[2m2026-11-07T14:14:50.700102Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-05-20[0m [36mpresence_rows[0m=[35m490576[0m [36mpresent[0m=[35m490576[0m [36mscore_rows[0m=[35m0[0m [36mseconds[0m=[35m8.14[0m [36mstart[0m=[35m2026-05-14[0m [36mstored[0m=[35m0[0m
+[2m2026-11-07T14:14:58.808556Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-05-27[0m [36mpresence_rows[0m=[35m490126[0m [36mpresent[0m=[35m490126[0m [36mscore_rows[0m=[35m0[0m [36mseconds[0m=[35m8.11[0m [36mstart[0m=[35m2026-05-21[0m [36mstored[0m=[35m0[0m
+[2m2026-11-07T14:15:07.101628Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-06-03[0m [36mpresence_rows[0m=[35m490087[0m [36mpresent[0m=[35m490087[0m [36mscore_rows[0m=[35m0[0m [36mseconds[0m=[35m8.29[0m [36mstart[0m=[35m2026-05-28[0m [36mstored[0m=[35m0[0m
+[2m2026-11-07T14:15:15.405284Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-06-10[0m [36mpresence_rows[0m=[35m489698[0m [36mpresent[0m=[35m489698[0m [36mscore_rows[0m=[35m0[0m [36mseconds[0m=[35m8.3[0m [36mstart[0m=[35m2026-06-04[0m [36mstored[0m=[35m0[0m
+[2m2026-11-07T14:15:23.934281Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-06-17[0m [36mpresence_rows[0m=[35m488863[0m [36mpresent[0m=[35m488863[0m [36mscore_rows[0m=[35m0[0m [36mseconds[0m=[35m8.53[0m [36mstart[0m=[35m2026-06-11[0m [36mstored[0m=[35m0[0m
+[2m2026-11-07T14:15:32.356171Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-06-24[0m [36mpresence_rows[0m=[35m488804[0m [36mpresent[0m=[35m488804[0m [36mscore_rows[0m=[35m0[0m [36mseconds[0m=[35m8.42[0m [36mstart[0m=[35m2026-06-18[0m [36mstored[0m=[35m0[0m
+[2m2026-11-07T14:15:39.747228Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-06-30[0m [36mpresence_rows[0m=[35m418911[0m [36mpresent[0m=[35m418911[0m [36mscore_rows[0m=[35m0[0m [36mseconds[0m=[35m7.39[0m [36mstart[0m=[35m2026-06-25[0m [36mstored[0m=[35m0[0m
+built data/audit/agent_knowledge.sqlite: {'metadata': 17, 'candidate_days': 234275, 'presence_weeks': 1864602, 'drive_info': 70969, 'failure_days': 483, 'cohort_daily': 15593, 'outcomes': 234034, 'decisions': 0, 'ingest_log': 181}  (data/audit/agent_knowledge_h60/build.json)
+[2m2026-11-07T14:15:40.013294Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+  a_incremental_equals_batch   PASS
+  b_as_of_replay               PASS
+  d_outcomes_vs_gold_labels    PASS
+  f_idempotence                PASS
+  h_score_agreement            PASS
+all passed: True  (data/audit/agent_knowledge_h60/knowledge_checks.json)
+[2m2026-11-07T14:16:07.905224Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+{
+  "fleet": "drives in scores_h60_seed0.parquet on 2026-03-02 (split validation)",
+  "drives_in_scope": 70969,
+  "as_of": "2026-03-02",
+  "fleet_drives": 67732,
+  "with_any_history": 67732,
+  "share_with_any_history": 1.0,
+  "with_60_days_or_more": 66581,
+  "first_seen_within_30_days": 614,
+  "with_an_episode": 355
+} 
+(data/audit/agent_knowledge_h60/coverage_2026-03-02.json)
+[2m2026-11-07T14:16:08.593333Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+{
+  "fleet": "drives in scores_h60_seed0.parquet on 2026-05-01 (split validation)",
+  "drives_in_scope": 70969,
+  "as_of": "2026-05-01",
+  "fleet_drives": 70066,
+  "with_any_history": 70066,
+  "share_with_any_history": 1.0,
+  "with_60_days_or_more": 67564,
+  "first_seen_within_30_days": 1209,
+  "with_an_episode": 555
+} 
+(data/audit/agent_knowledge_h60/coverage_2026-05-01.json)
+[2m2026-11-07T14:16:09.388636Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+{
+  "features": {
+    "candidates_share": {
+      "psi": 7.705669970977826,
+      "classification": "significant_shift"
+    },
+    "warn_share": {
+      "psi": 10.692558019237254,
+      "classification": "significant_shift"
+    },
+    "cordon_share": {
+      "psi": 10.978095323718158,
+      "classification": "significant_shift"
+    },
+    "candidate_p_fail": {
+      "psi": 0.22731749510169055,
+      "classification": "moderate_shift"
+    }
+  },
+  "retrain_recommended": true,
+  "reference": [
+    "2026-01-01",
+    "2026-03-31"
+  ],
+  "current": [
+    "2026-04-01",
+    "2026-05-01"
+  ],
+  "mean_shares": {
+    "reference": {
+      "candidates_share": 0.02710373747027794,
+      "warn_share": 0.0023657411516763956,
+      "cordon_share": 0.0005734049918111649
+    },
+    "current": {
+      "candidates_share": 0.031748536737474596,
+      "warn_share": 0.003087503949575642,
+      "cordon_share": 0.0009201023566611837
+    }
+  }
+} 
+(data/audit/agent_knowledge_h60/drift_2026-04-01_2026-05-01.json)
