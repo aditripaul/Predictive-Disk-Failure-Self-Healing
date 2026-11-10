@@ -13,7 +13,8 @@ validation set. A new experiment gets a new run tag and a new folder.
 
 | Run id | Tag | What | Window and horizon | Test result (per drive) | Size |
 |---|---|---|---|---|---|
-| `c459046e4f1645169151e7be25ff064d` | `h30_q1q2_q3` | LightGBM two-stage with a 0.8 Stage 1 net (details below). **The current model**: the latest run for the primary horizon, so `score-fleet` and the agent use it | Train / validation holdout (20% of drives) 2026-01-01..05-01, test Q3 2026 (07-01..08-31), 30-day | 59.0% precision at 12.5% recall | 2.6 MB |
+| `6ea7a5bcfb954deeb4a4208e4d802744` | `chrono_h30` | LightGBM two-stage with a 0.8 Stage 1 net on the **chronological split with gaps** (runbook 1.1.9; frozen 2026-11-10). **The latest 30-day training run**, so `score-fleet` and the agent load it by default | Train rows 2026-01-01..04-20, validation 05-21..06-16, test 07-17..08-31, 30-day gaps, no drive holdout, 30-day | 59.9% precision at 13.3% recall (68% goal not met) | 2.8 MB |
+| `c459046e4f1645169151e7be25ff064d` | `h30_q1q2_q3` | LightGBM two-stage with a 0.8 Stage 1 net (details below). The model of runbook 1.1.4 to 1.1.7, and the latest run for the primary horizon until 2026-11-10 | Train / validation holdout (20% of drives) 2026-01-01..05-01, test Q3 2026 (07-01..08-31), 30-day | 59.0% precision at 12.5% recall | 2.6 MB |
 | `a2cd06d53e624c09b0d12f81076def8a` | `h44_q1q2_q3` | Same, 44-day label | Same rows, test 07-01..08-17 | 62.6% at 9.9% | 2.7 MB |
 | `804a20cec10048abb1bc3ccf510f96e1` | `h60_q1q2_q3` | Same, 60-day label | Same rows, test 07-01..08-01 | 63.3% at 9.0% | 2.4 MB |
 | `839d92bcd305494a8930d0dfbbb3f2a6` | `h30_seed0` | LightGBM two-stage, 0.5 net | Train to 2026-01-15, validation 02-15..03-31, test 04-01..05-31 (61 days), 30-day | 57.1% at 12.0% | 1.3 MB |
@@ -33,6 +34,8 @@ No run here has been scored on an untouched period: Q3 2026 was the test set of
 the first three, and the blend of the last has not been read on Q3 at all.
 
 ## The current model: `c459046e` (`h30_q1q2_q3`)
+
+> Since 2026-11-10 the latest 30-day training run is `6ea7a5bc` (row above; its own README has the same table), so `score-fleet` and the agent load that one. This section describes the drive-holdout model `c459046e`, which runbook Sections 1.1.4 to 1.1.7 quote.
 
 It answers one question per drive: will this drive fail within 30 days? A
 drive-day row is positive if the drive fails within 30 days of it. Per drive, a

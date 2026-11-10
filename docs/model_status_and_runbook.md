@@ -11,8 +11,9 @@
 >
 > The split design behind the Q3 results (drive holdout, 62-day test) and a
 > stricter chronological split (the config since 2026-11-10, run the same day; the 68% goal was not
-> met) are in Sections 1.1.8 and 1.1.9. The model of record is still `c459046e`, trained under the
-> drive-holdout design; the chronological run is not frozen.
+> met) are in Sections 1.1.8 and 1.1.9. The run is frozen as `frozen_runs/6ea7a5bc…` (2026-11-10). It is now the
+> latest 30-day training run, which `score-fleet` and the agent load; `c459046e` is the drive-holdout model of
+> Sections 1.1.4 to 1.1.7.
 
 This document records what was run on real Backblaze data, what was learned,
 what is still open, and how to run the pipeline end to end. Numbers are
@@ -1246,9 +1247,9 @@ comparison. Its values are in the `splits` comment of `configs/model.yaml`.
 
 `configs/model.yaml` has held the chronological split with gaps since 2026-11-10, and the run below was
 made the same day. The intent, split and decisions were written before it; the result table at the end
-was filled after. The run is not frozen, so the model of record is still frozen run `c459046e`
-(Section 1.1.4), trained under the drive-holdout design of Section 1.1.8, and the numbers elsewhere in
-this document are from that design or an earlier one unless a line says otherwise.
+was filled after. The run is frozen as `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744` (2026-11-10). The numbers of Sections
+1.1.4 to 1.1.7 are from the drive-holdout design (`c459046e`, also frozen), and the numbers elsewhere in this
+document are from that design or an earlier one unless a line says otherwise.
 
 #### Design intent
 
@@ -1347,7 +1348,10 @@ Other tools under this config:
 #### Result (run 2026-11-10, 13:27 to 14:44 IST)
 
 **The 68% goal is not met on the chronological split, by any Stage 2 model, on validation or on test.**
-The run is not frozen (no `frozen_runs/` entry), so the model of record is still `c459046e`. Everything
+The run is frozen as `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744` (2026-11-10, checksummed, both stages
+load from it); the stack of Stage 2 variants is not saved as a scorer. `score-fleet` and the agent take the
+latest training run for the horizon by MLflow start time, which is now this run, not `c459046e`: freezing
+does not change that, and no one chose it (`frozen_runs/README.md`). Everything
 below is per drive, 30-day horizon, test period 07-17 to 08-31 (864 failing of 368,124 drives) unless a
 line says validation (684 failing of 356,811).
 
@@ -1360,8 +1364,8 @@ line says validation (684 failing of 356,811).
 | Gold features | `make build-features` | `pipelines/build_gold_features.py` | 27 min | `data/gold/features/`, statistics on rows before 2026-04-21 |
 | Labels | `make build-labels` | `pipelines/build_labels.py` | 2.4 min | `data/gold/labels/` (380,478,465 rows), `data/audit/dataset_versions/20261110T082656102066Z.json` |
 | Separation check | `make check-splits` | `scripts/check_split_separation.py` | instant | `OK: train, validation and test are separate` |
-| Stage 1 and LightGBM Stage 2 | `make chrono-train` | `make train TRAIN_TAG=chrono_h30 TRAIN_ARGS="--horizon-days 30 --keep-work-dir --save-scores"` | 20.5 min | MLflow `08aedf53015243a3a12b467468421163`; report, tiers and model card tagged `chrono_h30`; work dir `data/tmp/train_model_frame_4pf36rc4` (local) |
-| Stage 2 variants and the stack | `make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_4pf36rc4` | `make experiment-model EXPERIMENT_ARGS="--work-dir <work dir> --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack --two-stage-out data/audit/stack_chrono_h30"` | 27 min | `data/audit/stack_chrono_h30/` (nets 0.5 and 0.8, 3 seeds) |
+| Stage 1 and LightGBM Stage 2 | `make chrono-train` | `make train TRAIN_TAG=chrono_h30 TRAIN_ARGS="--horizon-days 30 --keep-work-dir --save-scores"` | 20.5 min | MLflow `6ea7a5bcfb954deeb4a4208e4d802744`; frozen as `frozen_runs/6ea7a5bc…`; report, tiers and model card tagged `chrono_h30`; work dir `data/tmp/train_model_frame_4pf36rc4` (local) |
+| Stage 2 variants and the stack | `make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_4pf36rc4` | `make experiment-model EXPERIMENT_ARGS="--work-dir <work dir> --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack --two-stage-out data/audit/stack_chrono_h30"` | 27 min | `data/audit/stack_chrono_h30/` (nets 0.5 and 0.8, 3 seeds; MLflow `08aedf53015243a3a12b467468421163`) |
 | Figures | `make plot-chrono-split` | `scripts/plot_chrono_split.py` | seconds | `docs/figures/chrono_split/` |
 
 All of it is `make chrono-run` (Section "How to reproduce it" below). Code at git `4e37458`. The launcher
@@ -1816,7 +1820,7 @@ Where each section's numbers come from:
 | 1.1.6 (cluster action policy) | `data/audit/cluster_policy_h30/` |
 | 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` |
 | 4.7 - 4.10 (point-in-time policy, family calibration) | `data/audit/agent_point_in_time*`, `agent_pit_validation*`, `family_calibration.json` |
-| 1.1.9 (chronological split run) | Training report `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json` and `action_tiers_chrono_h30.json`; model card `data/audit/model_cards/v1_h30d_chrono_h30.md`; Stage 2 variants `data/audit/stack_chrono_h30/`; launcher and logs `data/audit/chrono_logs/`; figures `docs/figures/chrono_split/`; reproduce with `make chrono-run` |
+| 1.1.9 (chronological split run) | Training report `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json` and `action_tiers_chrono_h30.json`; model card `data/audit/model_cards/v1_h30d_chrono_h30.md`; Stage 2 variants `data/audit/stack_chrono_h30/`; frozen run `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/`; launcher and logs `data/audit/chrono_logs/`; figures `docs/figures/chrono_split/`; reproduce with `make chrono-run` |
 | Every look at test | `data/audit/test_access_log.jsonl` (tracked, append-only) |
 
 What git tracks under `data/audit/` and what stays local is listed in its
@@ -3695,8 +3699,10 @@ What could still change the picture:
   families), or accept a warn and cordon policy with the precision above.
 - **No frozen record before the test look.** The settings and checks exist; committing thresholds, weights
   and model hashes before the test scorer runs, and counting every look, is not built.
-- **The run is not frozen.** The model of record is still `c459046e`. `scripts/freeze_stack_scorer.py`
-  defaults to the 60-day stack; freezing the 30-day stack on this split needs its options checked.
+- **Which 30-day model the code loads has not been decided.** The run is frozen, but `score-fleet` and the
+  agent load the latest 30-day training run, so they now load `6ea7a5bc` rather than `c459046e`; pinning one
+  run id is not built. The stack is not saved as a scorer: `scripts/freeze_stack_scorer.py` defaults to the
+  60-day stack, and freezing the 30-day stack on this split needs its options checked.
 - **Not run under strict separation:** the 44- and 60-day horizons (`make train` refuses them: their gaps
   are longer than the 30-day embargo), the merged approach (LSTM, TCN, AFT blends), and a comparison with
   the drive-holdout run at a matched false-alarm rate.

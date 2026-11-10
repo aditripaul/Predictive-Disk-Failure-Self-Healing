@@ -3,8 +3,9 @@
 Status: 2026-11-10 (current model tested on Q3 2026; stacked Stage 2, deep
 dive and cluster policy, runbook Sections 1.1.4 to 1.1.6 and 1.9). The config now holds the
 chronological split of runbook 1.1.9, which was run on 2026-11-10 and did not meet the goal (stack 55.4%
-at 16.2% recall, LightGBM two-stage 59.9% at 13.3%, test); that run is not frozen, so the model described
-below is still the drive-holdout run `c459046e`.
+at 16.2% recall, LightGBM two-stage 59.9% at 13.3%, test); that run is frozen as `frozen_runs/6ea7a5bc…`. The model
+described below is the drive-holdout run `c459046e`, which is no longer the latest 30-day run that
+`score-fleet` and the agent load.
 This is the entry point for a reviewer. It describes what
 the project built, how a decision flows through it, what was measured on real
 data, and what is not done. Detailed results are in
