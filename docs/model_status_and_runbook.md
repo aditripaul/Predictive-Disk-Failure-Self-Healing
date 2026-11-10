@@ -51,7 +51,7 @@ the MLflow store on the machine that holds the data (that store held no runs).
 | Test | 57.1% | 178 of 1,479 | 134 | 0.923 | 0.339 |
 
 Test recall is 12.0%. The goal (90% precision at >= 10% recall) is **not met**,
-and the second-stage gain remains unconfirmed (Section 1.2).
+and the second-stage gain was unconfirmed when this run was made; it is confirmed at 30 days only (Section 1.2).
 
 **Do not retrain this run, and do not re-tag over it.** The run carries
 `frozen_spec.json` (thresholds, the 246 feature columns, the calibrator),
@@ -1490,7 +1490,7 @@ comparison):
 
 The ceiling column is the share of failing test drives the net passes, so no Stage 2 model can catch more:
 85.1% at the 0.8 net, 56.8% at the 0.5 net. The roughly 15% it never passes are the silent failures of
-Section 1.2.
+Section 1.1.5.
 
 ##### The LightGBM two-stage model (`make train`)
 
@@ -1800,7 +1800,7 @@ those rows. They are not evidence of performance; the validation and test figure
   rest are false alarms. To reach 68% precision with the same 140 caught, the stack would have to flag about 206
   drives, 66 of them false alarms, against 113 now.
 - **Stage 1 works as designed,** and the agent's four tiers all fire on this split.
-- **What would change it.** The silent failures Stage 1 never passes (Section 1.2; about 15% of failing test
+- **What would change it.** The silent failures Stage 1 never passes (Section 1.1.5; about 15% of failing test
   drives here) cap recall, and the failing drives it passes look like the 9% of healthy drives beside them. A
   threshold or a split cannot move that; it needs signal the 246 features do not carry.
 - **Limits.** Three seeds, one test period, and Q3 is not a fresh test (146 logged looks). A recall of 10 to
@@ -1855,37 +1855,31 @@ seed, so three). The launcher of the 2026-11-10 run is `data/audit/chrono_logs/r
 | Figures | `docs/figures/chrono_split/` (its README lists each source); `make plot-chrono-split` redraws the five new ones |
 | Every look at test | `data/audit/test_access_log.jsonl` |
 
-### 1.2 The two-stage gain is not established
+### 1.2 The two-stage gain: small, and confirmed only at the 30-day horizon
 
-Two paired bootstraps now exist, both over the same resampled drives with
-both models at matched test recall, and they disagree about significance:
+Stage 2's gain over Stage 1 alone, at the same recall, per drive, with a paired 95% interval over the same resampled
+drives (the "Stage 2 gain at the primary point" rows of Sections 1.1.4 and 1.1.9):
 
-| Run | Features | Stage 1 | Two-stage | Gap | 95% CI |
-|---|---|---|---|---|---|
-| `0ee06c01` | 212 | 0.389 | 0.496 | 0.107 | [0.032, 0.185] |
-| Earlier frozen run (2026-10-09) | 246 | 0.450 | 0.486 | 0.036 | **[-0.055, 0.128]** |
+| Run | Horizon | Stage 2 gain at the primary point [95% CI] |
+|---|---|---|
+| Chronological run `6ea7a5bc` (Section 1.1.9) | 30 days | **+5.1 points [+0.9, +9.4]** (Stage 1 alone 54.8%, two-stage 59.9%, recall 13.3%) |
+| Drive-holdout run `c459046e` (Section 1.1.4) | 30 days | +4.2 [-0.1, +8.5] |
+| Drive-holdout run `a2cd06d5` | 44 days | +1.1 [-5.0, +6.9] |
+| Drive-holdout run `804a20ce` | 60 days | -3.8 [-10.5, +3.0] |
 
-The second interval includes 0, so the gain is **not** confirmed on the
-current feature set. The two runs do not contradict each other - each point
-estimate sits inside the other's interval, which is consistent with a true
-gain somewhere near 0.03 to 0.08 that the first run measured at the high end.
-What is no longer defensible is the earlier claim that a single paired test
-had settled it.
+- **At 30 days the gain is about 4 to 5 points in both designs, and on the chronological split its interval excludes
+  zero** (the lower end is 0.9, so it is small and rests on one test period). On the drive-holdout test it only
+  just included zero (-0.1).
+- **At 44 and 60 days no gain is shown:** both intervals include zero and the 60-day point estimate is negative.
+- **The variants do not add to it at the goal's level.** The LightGBM + Cox stack gains at 5% and 20% recall, but at
+  the 10% level it is 1.4 points below the LightGBM Stage 2 (Section 1.1.9).
+- **Earlier evidence, kept as history.** Two paired bootstraps on the old quarter-aligned runs disagreed: `0ee06c01`
+  (212 features) gave a gap of 0.107 [0.032, 0.185] and an earlier frozen run (2026-10-09, 246 features) 0.036
+  [-0.055, 0.128] at matched recall. A five-seed repeat (Section 4.5) showed a gain in every seed (42.4% to 47.7%,
+  about 5 points). The five-seed paired comparison this section once proposed (`make full-experiment ...
+  --two-stage-seeds 5`) was never run as written; the intervals above replace it.
 
-Standing evidence, in order of strength: the five-seed repeat (Section 4.5)
-showed a gain in every seed (42.4% to 47.7%, about 5 points); the two paired
-tests give 0.107 and 0.036. Neither point estimate is negative, so the second
-stage does not appear to hurt - but "about 5 points, not yet significant on a
-single run" is the honest summary, not "real, not noise".
-
-The decisive experiment is already built and has not been run: paired
-comparison across seeds, which separates the gain from seed variance rather
-than reporting one of the two:
-
-    make full-experiment FULL_EXPERIMENT_ARGS="--variants reg_spw --skip-baseline --two-stage --two-stage-seeds 5"
-
-Until that runs, treat the second stage as retained on weak evidence rather
-than as a measured improvement.
+The second stage stays the default for the 30-day model on that evidence. It is not shown to help at 44 and 60 days.
 
 ### 1.3 Calibration
 
@@ -1910,13 +1904,15 @@ why the raw score is never read as a probability and the isotonic map is reporte
 
 ### 1.4 Sealed, and not yet measured
 
-- **Nothing is sealed at present.** Q3 2026 was the sealed quarter for run
-  `839d92bc`; its single-shot evaluation was skipped by decision on 2026-11-06
-  and Q3 is the test set of Section 1.1.4 (`splits.test_split: sealed`).
-  `make evaluate-frozen` refuses a sealed evaluation while that is so. Rows
-  dated on or after `splits.sealed_start` are still labeled `split=sealed`,
-  and that date is also the cutoff of the fleet-wide feature statistics. The
-  rules a future untouched quarter must apply are in
+- **Nothing is sealed at present, and no test period is fresh.** Q3 2026 was the sealed quarter for run
+  `839d92bc`; its single-shot evaluation was skipped by decision on 2026-11-06 and Q3 became the test set of
+  Section 1.1.4. The current test is 2026-07-17 to 08-31 of the chronological split (Section 1.1.9), inside that
+  same quarter, so the quarter has been looked at repeatedly (146 logged looks, below).
+  `splits.test_split: sealed` still reads the rows from the first test day, `make evaluate-frozen` refuses a
+  sealed evaluation while that is so, and rows dated on or after `splits.sealed_start` (07-01) are still labeled
+  `split=sealed`, including 07-01 to 07-16, which no model uses (the 30-day gap after validation). The cutoff of
+  the fleet-wide feature statistics is now `splits.feature_stats_end` (04-21), not that date. **The first Q4 2026
+  download is the only clean test.** The rules a future untouched period must apply are in
   `docs/q3_horizon_and_cascade_run.md` section 6.
 - **Cross-vendor result: pending.** The SMART-Z split
   (`split=external_smartz`) is built by `build_labels`, and
@@ -1927,18 +1923,23 @@ why the raw score is never read as a probability and the isotonic map is reporte
 - **Every look at test is recorded.** Each test-split computation appends a
   line to `data/audit/test_access_log.jsonl` (`src/models/access_log.py`), so
   the number of comparisons behind a reported gain is a fact rather than a
-  recollection.
+  recollection. It held 146 entries on 2026-11-10; the validation-only runs of
+  Section 1.1.9 (point-in-time baseline, knowledge store, stack freeze) added none.
 
 ### 1.5 What moved the number, and what did not
 
 - **Moved it:** fixing the training collapse (Section 5.2), and the 30-day
-  horizon (34% to 46% near 10% recall on the same test period). The second
-  stage then added about 5 points at the primary threshold (Sections 1.2 and
-  4.5) and is now the default.
+  horizon (34% to 46% near 10% recall on the same Q3 test period). The second
+  stage then added about 4 to 5 points at the primary threshold at 30 days, and
+  nothing shown at 44 and 60 (Section 1.2), and is the default.
 - **Did not:** hyperparameters, XGBoost, per-family models, a second quarter
   of data, more SMART attributes and features, persistence rules, a survival
   model, anomaly detection (Sections 4.1 to 4.3 and 5), `smart_196`, and
   per-family action-tier thresholds.
+- **Also did not move it (Section 1.1.9, chronological split):** strict train, validation and test separation
+  (test AUROC 0.923 against 0.926; 59.9% at 13.3% against 59.0% at 12.5%), the Cox Stage 2 and the LightGBM + Cox
+  stack at the goal's 10% recall level (the stack is 1.4 points below the LightGBM Stage 2). The goal (68% at 10% or more recall on the stack) is not met on
+  validation, where the stack gives about 52%, or on test.
 - **Per-family thresholds made it worse** (ADR 0002): 7 of 81 models cleared
   the 50-failing-drive gate, and against fleet-wide thresholds on the same
   test drives they lost 7 to 8 points of recall for under 1 point of
@@ -1950,8 +1951,8 @@ why the raw score is never read as a probability and the isotonic map is reporte
 
 ### 1.6 Found by the attribute screen (2026-10-09)
 
-- **Guardrails could not act on ANY of the fleet (both causes fixed, needs a
-  rebuild).** Two multiplicative factors in `feature_confidence` each pinned
+- **Guardrails could not act on ANY of the fleet (both causes fixed and rebuilt
+  since).** Two multiplicative factors in `feature_confidence` each pinned
   it below the 0.80 destructive-action floor. (1) `attribute_coverage_factor`
   divided by every priority attribute, including Seagate's
   `smart_187`/`smart_188` (~32% coverage), capping non-Seagate drive-days at
@@ -1968,7 +1969,12 @@ why the raw score is never read as a probability and the isotonic map is reporte
   30-day telemetry warm-up (a drive needs 24 of the trailing 30 days for
   coverage >= 0.80, so its first 23 days are below it: 23/181 = 12.7%), which
   is intended. The largest model in the fleet, `WDC WUH722222ALE6L4` at 8.1M
-  drive-days, went from 0% to 87% actionable.
+  drive-days, went from 0% to 87% actionable. **Re-measured on 2026-11-10** on the gold table rebuilt for the
+  chronological run (126,826,155 drive-days, `scripts/check_confidence_distribution.py`): **92.8%** reach the floor
+  (29.5% under the pre-fix formula), 0.0% newly blocked, and `WDC WUH722222ALE6L4` (now 16.5M drive-days) is at 92.8%.
+  The share below the floor is smaller than the 13% above, which fits the table now spanning a longer history over
+  which the same 30-day warm-up weighs less (not broken down further). One model, `TOSHIBA MG11ACA16TE` (12,576
+  drive-days, attribute coverage 0.50), reaches the floor on none of its drive-days under either formula.
 - **`smart_196` (reallocation event count) is now a priority attribute.** It
   out-separates four of the five existing ones (0.306) at double the coverage
   of `smart_187`, reaching the drives where the Seagate attributes are null.
@@ -1976,10 +1982,10 @@ why the raw score is never read as a probability and the isotonic map is reporte
   spatial grain (1.33x per chassis against 3.35x per vault), so it is a cohort
   effect from filling a vault with one drive batch, not local correlation -
   and model and age are already featurized.
-- Both code changes need a full re-ingest through train to take effect, which
-  **invalidated the frozen run that preceded the earlier frozen run (2026-10-09, no longer available)**. Do it before Q3
-  is ingested;
-  afterwards it costs the sealed evaluation. Full reasoning, including the
+- Both code changes needed a full re-ingest through train to take effect, which
+  **invalidated the frozen run that preceded the earlier frozen run (2026-10-09, no longer available)**. Every run of
+  Section 1.1 was trained after them. The old warning to do it before Q3 was ingested no longer applies: Q3 was
+  opened (Section 1.4). Full reasoning, including the
   hypotheses the screen refuted, is in
   `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md`.
 
@@ -1991,17 +1997,17 @@ why the raw score is never read as a probability and the isotonic map is reporte
   `threshold.action_tier_lift` (56.6 / 94.3 / 151.0 / 226.4) replaces the
   earlier per-tier precision targets, because precision moves with the base
   rate and lift does not. On validation they reproduce the former targets
-  (0.15 / 0.25 / 0.40 / 0.60), so the thresholds should not move. Test lift
-  is reported beside test precision.
+  (0.15 / 0.25 / 0.40 / 0.60, a validation base rate of about 0.265%), so the thresholds should not move. Test
+  lift is reported beside test precision. At the chronological split's validation base rate of 0.19% the same lifts
+  convert to 10.9, 18.1, 28.9 and 43.4% (Section 1.1.9), and the migrate and drain targets become reachable.
 - **Evaluated base rates differ from the label report.** The split date
-  windows (`configs/model.yaml`, `splits`) decide which rows are scored. Test
-  keeps dates up to 2026-05-31, and its last 30 days are censored for healthy
-  drives, so the label table keeps only the failing drives' positives there.
-  The label report's test rate (0.150%) therefore counts positives the
-  evaluation never scores. The rate the evaluation scores is 0.094% on test
-  and 0.132% on validation (`data_build.evaluated_failure_rate` in the
-  evaluation report). Quote the evaluated rate, and compare models across
-  splits on drive-level lift rather than on raw precision.
+  windows (`configs/model.yaml`, `splits`) decide which rows are scored, and the last 30 days of the data are
+  censored for healthy drives, so the label table keeps only the failing drives' positives there. The label
+  report's rate therefore counts positives the evaluation never scores. The rate the evaluation scores is in
+  `data_build.evaluated_failure_rate` of the evaluation report: on the chronological split (test ends 08-31, 30 days
+  before the data ends) it is 0.19% on validation (684 of 356,811 drives) and 0.23% on test (864 of 368,124). (The
+  retired quarter-aligned run had 0.132% and 0.094%.) Quote the evaluated rate, and compare models across splits
+  on drive-level lift rather than on raw precision.
 - **The length of the TEST WINDOW moves the base rate, so precision is not
   comparable across split dates.** A drive counts as failing if any of its
   test rows falls inside a failure's horizon, so a longer test period catches
@@ -2012,6 +2018,10 @@ why the raw score is never read as a probability and the isotonic map is reporte
   barely moves - 0.836, 0.717 and 0.683 x 10^-4 across 21-, 45- and 61-day
   windows - which is how you can tell the jump is the window and not the
   fleet.
+
+  The chronological split still has unequal windows (27 days of validation against 46 of test), so its two base
+  rates are not matched either: 0.19% over 27 days is 0.0071% per window day, 0.23% over 46 days is 0.0051%.
+  Compare validation and test in ROC space (AUROC 0.906 on validation, 0.923 on test), not on precision alone.
 
   This is the same mechanism as a longer label horizon (Section 2.4), which
   the project went looking for deliberately, arriving instead through a
@@ -3955,11 +3965,10 @@ What was tried, in the order it was tested:
    clear gain (Section 4.3).
 5. ~~Survival model, anomaly detection~~: no better than the classifier
    (Section 4.3).
-6. **Two-stage model:** adopted, but not confirmed. A five-seed repeat
+6. **Two-stage model:** adopted; the gain is small and confirmed only at 30 days. A five-seed repeat
    showed a gain in every seed (about +5 points at the primary threshold,
-   Section 4.5); a direct paired-bootstrap test on the current feature set
-   gave an interval that includes 0 (Section 1.2). Kept as the default on
-   the standing evidence, not reported as a settled result.
+   Section 4.5); on the chronological split the paired interval at 30 days excludes 0
+   (+5.1 [+0.9, +9.4]), and at 44 and 60 days it includes 0 (Section 1.2).
 
 7. **Sequence model (LSTM):** run and recorded. Alone it is no better than
    LightGBM; blended with it, it adds a small recall gain (about 2 points at a

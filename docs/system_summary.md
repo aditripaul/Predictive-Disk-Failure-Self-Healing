@@ -365,11 +365,9 @@ were still in service when the data ended.
   model (75.0% against 59.0% at the primary threshold) about 90% of the gap was the base rate; the
   ranking transfers. On the current model validation reads 51.5% against 59.9% on test. On the earlier, now-void run only about half of a smaller
   gap was explained.
-- **The two-stage gain is not confirmed.** A direct, paired significance test
-  disagrees between the void run (gap excludes 0) and the earlier frozen run
-  (gap includes 0), and on Q3 the gain appears only below about 20% recall;
-  the second stage stays the default on a five-seed repeat, not on any paired
-  test alone.
+- **The two-stage gain is small and confirmed only at the 30-day horizon.** On the chronological run it is +5.1 points
+  at matched recall [+0.9, +9.4]; on the previous model +4.2 [-0.1, +8.5]; at 44 and 60 days the intervals include 0
+  (runbook 1.2). The stack does not add at the goal's 10% level.
 - **Migrate and drain did not operate on the previous model, and their targets are placeholders on the current one.**
   On the previous model their lift targets converted at the validation failure rate to precision met only at the very
   top of the curve (migrate) or not at all (drain), so both flagged 6 drives a quarter and the agent warned and
