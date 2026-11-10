@@ -297,6 +297,31 @@ splits:
   # train_start bounds train and validation; the test cap is always applied.
   purge_label_window: false
   validation_after_train_only: false
+  # Strict separation (docs/dataset_strategy.md section 9.5; runbook 1.1.8). All three default
+  # to today's behaviour. `make check-splits` reports what a given setting would break.
+  # - test_embargo_days: no test row within this many days after validation_end. A validation
+  #   row's label looks `horizon` days ahead, so this must be at least the horizon.
+  # - feature_stats_end: fleet-wide feature statistics (z-scores, expected SMART attributes)
+  #   use rows before this date. null falls back to sealed_start, which includes validation.
+  # - strict_separation: true makes `make train` fail before any work if a check fails.
+  test_embargo_days: 0
+  feature_stats_end: null
+  strict_separation: false
+  #
+  # The chronological split with gaps (30-day horizon), for a drive-holdout-free run. Replace the
+  # keys above and in this block with these, then rebuild labels and gold features
+  # (`make build-features build-labels`) and run `make check-splits`:
+  #   train_start: "2026-01-01"       train rows 01-01 .. 04-20 (the purge drops 04-21 .. 05-20)
+  #   train_end: "2026-05-20"
+  #   validation_end: "2026-06-16"    validation rows 05-21 .. 06-16
+  #   test_embargo_days: 30           test rows 07-17 .. 08-31
+  #   test_end: "2026-08-31"
+  #   test_split: sealed              sealed_start stays 2026-07-01
+  #   holdout_fraction: 0             no drive holdout
+  #   purge_label_window: true
+  #   validation_after_train_only: true
+  #   feature_stats_end: "2026-04-21"
+  #   strict_separation: true
 
 sequence_model:
   window_days: 30

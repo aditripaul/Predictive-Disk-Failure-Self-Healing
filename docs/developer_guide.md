@@ -127,6 +127,7 @@ would fail with "ruff: command not found."
 | `make agent-knowledge` | Builds the Knowledge store (`scripts/build_agent_knowledge.py build --overwrite`) then runs its self-checks (§6.6) |
 | `make pack-knowledge` / `unpack-knowledge` | Pack the store into the tracked gzip under `data/audit/agent_knowledge_h60/`, or restore and verify it (§6.6) |
 | `make plot-late-hits` | Late-hit figures for flagged drives; `ARGS="--tier migrate --max-lanes 20"` |
+| `make check-splits` | Checks that train, validation and test stay separate under `configs/model.yaml` `splits` (config and label table; `ARGS="--horizon-days 60"`). Exits 1 only when `splits.strict_separation` is on (`src/labels/split_checks.py`; `docs/dataset_strategy.md` section 9.5) |
 | `make install-hooks` | Points git at `scripts/githooks/` (once per clone). The pre-commit and commit-msg hooks refuse a commit that adds an absolute path |
 | `make check-paths` | Runs that absolute-path check by hand on the staged changes, or `RANGE=main..HEAD` |
 | `make family-calibration` | Per-family recalibration fitted on validation snapshots, judged on test (§6.5) |

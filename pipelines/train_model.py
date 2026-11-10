@@ -70,7 +70,6 @@ docs/adr/0001-training-memory-isolation.md.
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import gc
 import json
 import re
@@ -89,6 +88,13 @@ import yaml
 import mlflow
 from src.labels.dataset_version import latest_dataset_version
 from src.labels.event_types import FAILURE_EVENT_TYPES
+from src.labels.split_checks import (
+    check_label_table_separation,
+    check_split_config,
+    raise_on_violations,
+    strict_separation_enabled,
+)
+from src.labels.splits import resolved_test_end, split_boundary, split_period_predicate
 from src.logging_config import configure_logging, get_logger
 from src.models.access_log import record_test_access
 from src.models.calibration import IsotonicCalibrator
@@ -478,25 +484,7 @@ def _rate(split_meta: dict) -> float | None:
     return positives / rows
 
 
-def _split_boundary(model_config: dict, name: str) -> dt.date | None:
-    value = model_config.get("splits", {}).get(name)
-    return dt.date.fromisoformat(str(value)) if value else None
-
-
-def resolved_test_end(model_config: dict, horizon_days: int) -> dt.date | None:
-    """Last date of the test split: `splits.test_end`, capped at
-    `splits.observation_end - horizon_days` when that is set. A later row's
-    horizon runs past the data, so a healthy row there has no label (it is
-    dropped) while a failing one keeps its positive label - those dates would
-    add failing drives with no healthy rows beside them. The cap lets runs of
-    different horizons share one config and each use all the test data its
-    labels allow (30 days: 08-31, 60 days: 08-01 for data ending 09-30)."""
-    test_end = _split_boundary(model_config, "test_end")
-    observation_end = _split_boundary(model_config, "observation_end")
-    if observation_end is None:
-        return test_end
-    cap = observation_end - dt.timedelta(days=horizon_days)
-    return cap if test_end is None else min(test_end, cap)
+_split_boundary = split_boundary
 
 
 def test_source_split(model_config: dict) -> str:
@@ -507,44 +495,7 @@ def test_source_split(model_config: dict) -> str:
     return str(model_config.get("splits", {}).get("test_split") or "test")
 
 
-def _split_period_predicate(
-    split_name: str, model_config: dict, horizon_days: int
-) -> pl.Expr | None:
-    """The dates each split may use, beyond the label table's own `split`
-    column. `split_name` is the role ("train", "validation", "test"), not
-    the label-table split the test rows come from (`test_source_split`).
-
-    - **train:** rows on or after `train_start` (when set). With
-      `purge_label_window` (default on), only rows dated at least
-      `horizon_days` before `train_end`: a later row's label is decided by
-      what happens after `train_end`, inside a later validation period.
-      Turn it off when validation shares the training dates.
-    - **validation:** rows on or after `train_start` (when set). With
-      `validation_after_train_only` (default on), only rows after
-      `train_end`; the label table also puts the held-out drives' rows from
-      the training period here, and thresholds chosen on those carried over
-      to test worse than ones chosen on a later period.
-    - **test:** only rows up to `resolved_test_end`."""
-    splits = model_config.get("splits", {})
-    train_start = _split_boundary(model_config, "train_start")
-    train_end = _split_boundary(model_config, "train_end")
-    predicates: list[pl.Expr] = []
-    if split_name in ("train", "validation") and train_start is not None:
-        predicates.append(pl.col("date") >= train_start)
-    if split_name == "train" and train_end and splits.get("purge_label_window", True):
-        predicates.append(pl.col("date") <= train_end - dt.timedelta(days=horizon_days))
-    if split_name == "validation" and train_end and splits.get("validation_after_train_only", True):
-        predicates.append(pl.col("date") > train_end)
-    if split_name == "test":
-        test_end = resolved_test_end(model_config, horizon_days)
-        if test_end is not None:
-            predicates.append(pl.col("date") <= test_end)
-    if not predicates:
-        return None
-    combined = predicates[0]
-    for predicate in predicates[1:]:
-        combined = combined & predicate
-    return combined
+_split_period_predicate = split_period_predicate
 
 
 def _row_group_parts(
@@ -982,6 +933,19 @@ def main() -> None:
         raise SystemExit(
             f"--horizon-days {horizon_days} has no labels: build-labels computes "
             f"horizons_days={model_config['horizons_days']} (configs/model.yaml)."
+        )
+    if strict_separation_enabled(model_config):
+        # splits.strict_separation: fail before any work if a period shares labels or
+        # statistics with a later one (docs/dataset_strategy.md section 9.5).
+        raise_on_violations(
+            check_split_config(model_config, horizon_days)
+            + check_label_table_separation(
+                pl.scan_parquet(Path(data_config["gold_dir"]) / "labels" / "part.parquet"),
+                model_config,
+                horizon_days,
+                test_split=test_source_split(model_config),
+            ),
+            where=f"the {horizon_days}-day run",
         )
     paths = _output_paths(
         Path(data_config["audit_dir"]),

@@ -75,6 +75,13 @@ test set and `make evaluate-frozen` refuses them; without it (the earlier
 window), test is the rows after `validation_end` up to `test_end`, and the
 sealed rows are scored once, later, by `make evaluate-frozen` (section 2.5).
 
+Three more keys make the split strict (`docs/dataset_strategy.md` section 9.5), all off by default:
+`test_embargo_days` keeps test rows more than that many days after `validation_end`;
+`feature_stats_end` stops the fleet-wide feature statistics at the train boundary (it needs a
+`make build-features` rebuild); `strict_separation: true` makes `make train` fail before any work if
+`make check-splits` would fail. The chronological values for the 30-day horizon are in a comment
+in `configs/model.yaml`, and `holdout_fraction: 0` then holds no drive out.
+
 `make train` applies these dates when it extracts each split: train and
 validation start at `train_start`; with `purge_label_window: true` training
 stops one horizon before `train_end`, with `validation_after_train_only: true`

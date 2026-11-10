@@ -10,8 +10,8 @@
 > number to its file under `data/audit/` and `frozen_runs/`.
 >
 > The split design behind the Q3 results (drive holdout, 62-day test) and a
-> stricter chronological alternative that is proposed and not built are in
-> Section 1.1.8.
+> stricter chronological alternative (settings and checks built 2026-11-10, not yet rebuilt or
+> run) are in Section 1.1.8.
 
 This document records what was run on real Backblaze data, what was learned,
 what is still open, and how to run the pipeline end to end. Numbers are
@@ -1080,7 +1080,7 @@ file limit uncompressed; SHA-256 `8e39368aa8d75a3c`, content fingerprint `662ab2
 in `agent_knowledge_pack.json`); `make unpack-knowledge` restores and verifies it. The score
 table `data/tmp/stack_scores/scores_h60_seed0.parquet` is local and rebuilt by the commands above.
 
-### 1.1.8 The split design: drive holdout with a Q3 test (in use), and a chronological split with gaps (proposed, not built) (2026-11-10)
+### 1.1.8 The split design: drive holdout with a Q3 test (in use), and a chronological split with gaps (settings built, not yet run) (2026-11-10)
 
 Every result in Sections 1.1.4 to 1.1.7 comes from one split design. This section records it
 as it is, what it costs, and a stricter alternative that was worked out on 2026-11-10 and **not
@@ -1146,7 +1146,7 @@ drives among 70,977 validation drives, measured 2026-11-10).
 Section 1.1.4 and the paired stack comparison of Section 1.1.4a), the largest test window (1,105
 failing drives at 30 days), and continuity with every frozen run.
 
-#### The alternative: a chronological split with gaps (proposed, not built)
+#### The alternative: a chronological split with gaps (settings built, not yet run)
 
 Train, validation and test are consecutive periods, with a gap of one label horizon at each
 boundary. A row's 30-day label is decided by events up to 30 days later, so a boundary is clean only
@@ -1174,21 +1174,26 @@ would be tuned on test-period outcomes. A strict version of that split needs bot
 03-01 (974 failing drives), validation 04-01 to 04-09 (777), test 05-10 to 06-30 (1,070; 636 if labels
 may not be read past 05-31).
 
-**What strict separation needs (none of it exists yet)**
+**What strict separation needs, and what is built (2026-11-10, branch `chrono_split`)**
 
-1. **Label purge on:** `purge_label_window: true` and `validation_after_train_only: true`. The code
-   supports both.
-2. **An embargo between validation and test:** a setting for the test start (for example
-   `splits.test_embargo_days`). The code has no such setting, so validation-to-test label overlap is
-   currently unchecked.
-3. **A feature-statistics cutoff at the train boundary:** a `feature_stats_end` setting used in place
-   of `sealed_start` in `pipelines/build_gold_features.py`, then a gold-feature rebuild. Rolling
+1. **Label purge on:** `purge_label_window: true` and `validation_after_train_only: true`. Already
+   supported.
+2. **An embargo between validation and test:** `splits.test_embargo_days` (default 0). Test rows must
+   fall more than that many days after `validation_end`; `split_period_predicate` applies it. Built.
+3. **A feature-statistics cutoff at the train boundary:** `splits.feature_stats_end` (default `null`,
+   falling back to `sealed_start`), used by `pipelines/build_gold_features.py` through
+   `feature_stats_cutoff`. Built; the gold features must be rebuilt for it to take effect. Rolling
    windows look backward only and are unaffected.
-4. **Automated checks that fail the run:** no drive-day in two splits; each split's last label date
-   before the next split's start; the statistics cutoff at or before `train_end`; no test row inside
-   the embargo.
+4. **Checks that fail the run:** `splits.strict_separation: true` makes `make train` run
+   `check_split_config` and `check_label_table_separation` (`src/labels/split_checks.py`) before any
+   work, and `make check-splits` runs them on demand (`scripts/check_split_separation.py`; exit 1
+   when strict and a check fails, informational otherwise). They check the purge and holdout flags,
+   the embargo against the horizon, the statistics cutoff against the last train row, and, on the
+   label table, that each role's first row is more than one horizon after the previous role's last
+   row. The label table's `split` column holds one value per drive-day, so a drive-day cannot be in
+   two splits; that is not a separate check. Built; 24 unit tests (`tests/unit/test_split_checks.py`).
 5. **A frozen record before the test look:** thresholds, blend weights and model hashes committed
-   before the test scorer runs, with the test access log counting every look.
+   before the test scorer runs, with the test access log counting every look. **Not built.**
 
 **What it changes.** Validation and test base rates get close (about 0.19% and 0.23% of drives in
 the proposed layout, against 0.59% and 0.30%; each is failing drives over drives in the window, the
@@ -1214,16 +1219,21 @@ gold features about 29 min (`q3_build_gold.log`), labels about 3 min (`build_lab
 the stack run about 39 min (`stack_h30.log`): about 2 hours. Not timed: freezing the stack as a
 scorer, the checks and the unit tests (about 2 min). The code changes are development time.
 
-**Keeping both designs runnable.** The new settings would be opt-in with defaults equal to today's
-behaviour: an embargo of 0 days, and a statistics cutoff that falls back to `sealed_start`. The
-checks would apply to the chronological profile only, because the drive-holdout design shares dates
-by construction. Tests would pin the old split predicates and cutoff. The frozen runs are files on
+**Keeping both designs runnable.** The new settings are opt-in with defaults equal to the old
+behaviour: an embargo of 0 days, a statistics cutoff that falls back to `sealed_start`, and
+`strict_separation: false`. The checks run in `make train` only when `strict_separation` is on, because
+the drive-holdout design shares dates by construction. Tests pin the old split predicates, the
+per-horizon test end and the old cutoff (`test_without_an_embargo_the_test_predicate_is_what_it_was`
+and its neighbours), and `holdout_fraction: 0` now holds no drive out. The frozen runs are files on
 disk and are untouched. Switching designs means rebuilding the labels (about 3 min) and the gold
 features (about 29 min), because the label `split` column and the feature statistics depend on the
 config; unless the pipelines can write to separate output folders (not checked), the two designs share
 `data/gold/`. A re-run of the old design would reproduce the method, not the same files.
 
-**Status.** Proposed on 2026-11-10; nothing built, rebuilt or trained for it. The recommendation for
+**Status.** On 2026-11-10 the settings, the checks and their tests were built (items 2 to 4 above; the
+full test suite passes). `configs/model.yaml` still holds the drive-holdout design, with the
+chronological values in a comment; labels and gold features have not been rebuilt, and nothing has
+been trained on it. The recommendation for
 the 68% goal (Section 7) is the chronological split, for the base-rate reason above; the
 drive-holdout design stays the record for Sections 1.1.4 to 1.1.7 and the one to use for the horizon
 comparison.

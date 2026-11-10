@@ -1,4 +1,4 @@
-.PHONY: install lint format install-hooks check-paths agent-pit-validation agent-knowledge pack-knowledge unpack-knowledge test test-unit test-integration test-chaos test-golden test-property \
+.PHONY: install lint format install-hooks check-paths check-splits agent-pit-validation agent-knowledge pack-knowledge unpack-knowledge test test-unit test-integration test-chaos test-golden test-property \
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
@@ -28,6 +28,11 @@ install-hooks:
 
 check-paths:
 	python3 scripts/check_no_absolute_paths.py $(if $(RANGE),--range $(RANGE),)
+
+# Train, validation and test stay separate under configs/model.yaml splits (docs/dataset_strategy.md 9.5).
+# make check-splits ARGS="--horizon-days 60"
+check-splits:
+	uv run python scripts/check_split_separation.py $(ARGS)
 
 # --- tests -------------------------------------------------------------------
 # `test` runs everything; the test-* targets run one layer at a time (see

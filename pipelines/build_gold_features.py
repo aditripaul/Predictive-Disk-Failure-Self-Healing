@@ -82,6 +82,7 @@ from src.features.velocity import (
     add_temperature_spike,
 )
 from src.features.windows import add_rolling_aggregates
+from src.labels.splits import feature_stats_cutoff as _feature_stats_cutoff
 from src.logging_config import configure_logging, get_logger
 from src.resource_limits import apply_memory_limit_from_config
 
@@ -160,6 +161,14 @@ def sealed_start() -> dt.date | None:
     the frozen runs. None (no sealed split configured) means all rows."""
     value = yaml.safe_load(MODEL_CONFIG_PATH.read_text()).get("splits", {}).get("sealed_start")
     return dt.date.fromisoformat(str(value)) if value else None
+
+
+def feature_stats_cutoff() -> dt.date | None:
+    """Rows before this date feed the fleet-wide feature statistics: `splits.feature_stats_end`
+    when set, else `splits.sealed_start` (`sealed_start()`, the behaviour before the setting
+    existed). A chronological split sets it to the day after the last training row, so no
+    validation or test row shapes the training features (docs/dataset_strategy.md 9.5)."""
+    return _feature_stats_cutoff(yaml.safe_load(MODEL_CONFIG_PATH.read_text()))
 
 
 def build_gold_features(
@@ -425,7 +434,7 @@ def _stage_expected(wide_batch_paths: list[Path], out_path: Path) -> None:
     )
     t0 = time.perf_counter()
     source = pl.concat([pl.scan_parquet(p) for p in wide_batch_paths], how="vertical")
-    cutoff = sealed_start()
+    cutoff = feature_stats_cutoff()
     if cutoff is not None:
         source = source.filter(pl.col("date") < cutoff)
     model_expected_attributes(source, attributes).write_parquet(out_path)
@@ -489,7 +498,7 @@ def _stage_finalize(tmp_dir: Path, gold_batch_paths: list[Path], out_path: Path)
     # Statistics use rows before the sealed split only (see `sealed_start`);
     # the z-score is still APPLIED to every row, sealed ones included.
     zscore_source = pl.concat([pl.scan_parquet(p) for p in gold_batch_paths], how="vertical")
-    cutoff = sealed_start()
+    cutoff = feature_stats_cutoff()
     if cutoff is not None:
         zscore_source = zscore_source.filter(pl.col("date") < cutoff)
     zscore_stats = model_family_zscore_stats(zscore_source, zscore_plan) if zscore_plan else None
