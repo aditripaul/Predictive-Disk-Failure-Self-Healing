@@ -123,6 +123,12 @@ would fail with "ruff: command not found."
 | `make agent-demo` | One MAPE-K cycle against the hardcoded demo fleet (§6) |
 | `make agent-fleet` | The MAPE-K loop on the real gold features and trained model, executor simulated (§6.5) |
 | `make agent-pit` | The flagging policy measured at fixed dates, with drive-cluster intervals (§6.5) |
+| `make agent-pit-validation` | The point-in-time baseline on validation drives at the 60-day horizon, four arms, from the frozen stacked scorer (`frozen_runs/stack_h60_seed0`; runbook 1.1.7) |
+| `make agent-knowledge` | Builds the Knowledge store (`scripts/build_agent_knowledge.py build --overwrite`) then runs its self-checks (§6.6) |
+| `make pack-knowledge` / `unpack-knowledge` | Pack the store into the tracked gzip under `data/audit/agent_knowledge_h60/`, or restore and verify it (§6.6) |
+| `make plot-late-hits` | Late-hit figures for flagged drives; `ARGS="--tier migrate --max-lanes 20"` |
+| `make install-hooks` | Points git at `scripts/githooks/` (once per clone). The pre-commit and commit-msg hooks refuse a commit that adds an absolute path |
+| `make check-paths` | Runs that absolute-path check by hand on the staged changes, or `RANGE=main..HEAD` |
 | `make family-calibration` | Per-family recalibration fitted on validation snapshots, judged on test (§6.5) |
 | `make dashboard` | Streamlit UI (§10) |
 | `make api` | FastAPI service (§10) |
@@ -1523,6 +1529,25 @@ Things that will bite you:
 What the measurements say, and why the loop gets no precision mechanism, is in
 `docs/adr/0003-point-in-time-evaluation-and-the-limits-of-the-loop.md` and
 runbook Sections 4.7 to 4.10.
+
+### 6.6 The Knowledge store (`src/agent/knowledge/`)
+
+The K of MAPE-K: a time-indexed SQLite store (`knowledge.backend` in `configs/agent.yaml`:
+`none`, `sqlite` or `memory`; default `none`). Design, screen rule and results are in
+`docs/agent_knowledge_base.md` and ADR 0004.
+
+| Piece | Where | Purpose |
+|---|---|---|
+| Store | `store.py` (`KnowledgeBase`) | Stores facts (candidate days and scores, presence, failure days, cohort counts, decisions, outcomes); episodes, a drive's context and outcomes are derived as of a date, so a view never sees a later fact |
+| Builder | `build.py`, `scripts/build_agent_knowledge.py` | Builds the store day by day (equal to one pass); `build`, `check`, `coverage`, `drift`, `pack`, `unpack` |
+| Self-checks | `checks.py` | Point-in-time and consistency checks run by `make agent-knowledge` |
+| Rules | `rules.py`, `scripts/screen_agent_knowledge.py` | Candidate rules and the pre-registered screen |
+
+Wiring: Analyze attaches a `knowledge_context` to each candidate, Plan carries it in the proposal
+and applies `knowledge_rule` between the tier decision and hysteresis (`knowledge.rule`, `none`
+because no rule passed the screen), Validate calls `record_cycle`. With no rule enabled, decisions
+are identical with and without the store (tested). "Censored" is never a final outcome. The
+tracked store is a gzip with checksums; restore it with `make unpack-knowledge`.
 
 ## 7. Guardrail engine (`src/guardrails/`)
 

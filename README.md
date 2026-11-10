@@ -171,6 +171,11 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
 | `docs/adr/0001-training-memory-isolation.md` | Why `make train` runs as four processes, and the debugging history behind it |
 | `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md` | The attribute screen, and a safety-floor bug it found and fixed |
 | `docs/adr/0003-point-in-time-evaluation-and-the-limits-of-the-loop.md` | Why the first agent backtest was withdrawn, how the policy is measured now, and the mechanisms shown not to raise precision |
+| `docs/adr/0004-knowledge-component-and-the-screen-rule.md` | The agent's Knowledge component, and why a knowledge rule may change a decision only after a pre-registered screen (none passed) |
+| `docs/q3_horizon_and_cascade_run.md` | The current model: Q1+Q2 2026 to Q3 2026, three label horizons, cascade and survival Stage 2 |
+| `docs/cascade_wide_net.md` | The wide-net two-stage cascade: method, pre-registered rule and result |
+| `docs/cluster_action_policy.md` | Action by failure-mode cluster instead of tier alone (rule not passed) |
+| `docs/agent_knowledge_base.md` | Design, screen rule and results of the agent's Knowledge component |
 
 ---
 
