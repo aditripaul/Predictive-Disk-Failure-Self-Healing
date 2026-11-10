@@ -9,9 +9,11 @@
     uv run python scripts/build_agent_knowledge.py pack      # -> tracked .sqlite.gz
     uv run python scripts/build_agent_knowledge.py unpack    # restore and verify it
 
-Nothing dated on or after the sealed start (configs/model.yaml splits.sealed_start, the
-first Q3 day) is read unless `--allow-test-outcomes` is given, and then the read is logged
-in the test-access log. The store itself (`data/audit/agent_knowledge.sqlite`, about 100 MB) is
+Nothing dated on or after the sealed start (the first test day, `first_test_date` of
+configs/model.yaml: 2026-07-17 on the chronological split of runbook 1.1.9, where the 30 days
+after validation_end are an unused gap; the first Q3 day on the drive-holdout split) is read
+unless `--allow-test-outcomes` is given, and then the read is logged in the test-access log.
+The store itself (`data/audit/agent_knowledge.sqlite`, about 100 MB) is
 local; `pack` writes a deterministic gzip of it beside the JSON reports in
 `data/audit/agent_knowledge_h60/` (tracked, about 25 MB), with the SHA-256 of the packed file
 and the store's content fingerprint (`KnowledgeBase.content_hash`) in `agent_knowledge_pack.json`;
@@ -46,6 +48,7 @@ from src.agent.knowledge.checks import (  # noqa: E402
     episode_summary,
 )
 from src.agent.knowledge.store import KnowledgeBase  # noqa: E402
+from src.labels.splits import first_test_date  # noqa: E402
 from src.logging_config import configure_logging, get_logger  # noqa: E402
 from src.models.access_log import record_test_access  # noqa: E402
 from src.resource_limits import apply_memory_limit_from_config  # noqa: E402
@@ -66,7 +69,11 @@ def _range(value: str) -> tuple[dt.date, dt.date]:
 
 
 def sealed_start() -> dt.date:
-    return _date(yaml.safe_load(MODEL_CONFIG_PATH.read_text())["splits"]["sealed_start"])
+    """The first test day: no read may reach it without the flag."""
+    first = first_test_date(yaml.safe_load(MODEL_CONFIG_PATH.read_text()))
+    if first is None:
+        raise SystemExit("configs/model.yaml has no test boundary (splits.validation_end)")
+    return first
 
 
 def guard_test_dates(last: dt.date, *, allow: bool, purpose: str, extra: dict[str, Any]) -> None:
@@ -75,7 +82,7 @@ def guard_test_dates(last: dt.date, *, allow: bool, purpose: str, extra: dict[st
         return
     if not allow:
         raise SystemExit(
-            f"{last} is on or after the sealed start {sealed_start()} (test data); "
+            f"{last} is on or after the sealed start {sealed_start()} (first test day); "
             "pass --allow-test-outcomes to read it, which is logged as a test access"
         )
     record_test_access(variant="agent_knowledge", purpose=purpose, extra=extra)
@@ -253,7 +260,12 @@ def cmd_pack(args: argparse.Namespace) -> None:
         "run_id": meta.get("run_id"),
         "built_from": [meta.get("built_from_start"), meta.get("built_from_end")],
         "presence_end": meta.get("presence_end"),
-        "restore": "make unpack-knowledge",
+        "restore": (
+            "make unpack-knowledge"
+            if args.out == DEFAULT_OUT
+            else f"uv run python scripts/build_agent_knowledge.py --knowledge {args.knowledge} "
+            f"--out {args.out} unpack"
+        ),
     }
     path = _write(args.out, PACK_META, info)
     print(

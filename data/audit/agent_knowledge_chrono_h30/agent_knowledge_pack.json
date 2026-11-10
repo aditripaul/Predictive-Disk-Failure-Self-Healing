@@ -1,0 +1,26 @@
+{
+  "packed_file": "agent_knowledge.sqlite.gz",
+  "packed_sha256": "37e70847528784dcf652309391a57ddf728c44ea18ec44bc87cadb6b287e949d",
+  "packed_bytes": 42185994,
+  "store_bytes": 193671168,
+  "store_sha256": "0ddbae9230bf527f5e4ea2452d9d90bfe01fefcad242b51bbd8183a35aca8748",
+  "content_hash": "f7b37c5fbb29f8e9cc541f5ea3035becd97ecdb2a66115b6036893d6f48d1072",
+  "row_counts": {
+    "metadata": 17,
+    "candidate_days": 511170,
+    "presence_weeks": 3195699,
+    "drive_info": 356811,
+    "failure_days": 704,
+    "cohort_daily": 6042,
+    "outcomes": 510183,
+    "decisions": 0,
+    "ingest_log": 57
+  },
+  "run_id": "stack_chrono_h30_seed0:score:action_tiers",
+  "built_from": [
+    "2026-05-21",
+    "2026-06-16"
+  ],
+  "presence_end": "2026-07-16",
+  "restore": "uv run python scripts/build_agent_knowledge.py --knowledge data/audit/agent_knowledge_chrono_h30.sqlite --out data/audit/agent_knowledge_chrono_h30 unpack"
+}

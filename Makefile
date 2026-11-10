@@ -1,4 +1,4 @@
-.PHONY: install lint format install-hooks check-paths check-splits chrono-run chrono-data chrono-train chrono-stack chrono-freeze plot-chrono-split agent-pit-validation agent-knowledge pack-knowledge unpack-knowledge test test-unit test-integration test-chaos test-golden test-property \
+.PHONY: install lint format install-hooks check-paths check-splits chrono-run chrono-data chrono-train chrono-stack chrono-freeze plot-chrono-split chrono-pit-validation chrono-knowledge chrono-pack-knowledge chrono-unpack-knowledge agent-pit-validation agent-knowledge pack-knowledge unpack-knowledge test test-unit test-integration test-chaos test-golden test-property \
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
@@ -76,6 +76,62 @@ chrono-freeze:
 
 plot-chrono-split:
 	uv run python scripts/plot_chrono_split.py $(ARGS)
+
+# --- the agent's validation evidence on the chronological run (runbook 1.1.9) ----------------
+# Point-in-time snapshots on the validation window, 30-day horizon, and the knowledge store, both from the
+# frozen seed-0 stack scorer (CHRONO_FREEZE) and its score table. Validation window only: the horizon of the
+# last snapshot (06-16) ends 07-16, the day before the test starts, so no test row is read (the access log
+# must not grow). Nine snapshots 3 days apart, 2026-05-23..06-16; every drive reports, there is no drive holdout.
+CHRONO_PIT := --horizon-days 30 --start-date 2026-05-21 --end-date 2026-06-16 --step-days 3 \
+	--drives-from-split validation --outcome-cutoff 2026-07-16
+CHRONO_SCORES := data/tmp/stack_scores/scores_chrono_h30_seed$(CHRONO_SEED).parquet
+CHRONO_PIT_OUT := data/audit/agent_pit_validation_chrono_h30
+chrono-pit-validation:
+	uv run python pipelines/run_point_in_time.py $(CHRONO_PIT) --label stack_chrono_h30_seed$(CHRONO_SEED) \
+		--scores-path $(CHRONO_SCORES) --score-column score --model-dir $(CHRONO_FREEZE) \
+		--cross-check-dates 2026-06-04 \
+		--thresholds-path $(CHRONO_FREEZE)/agent_thresholds_stack_chrono_h30_seed$(CHRONO_SEED).json \
+		--out $(CHRONO_PIT_OUT)/stack.json --observations-dir $(CHRONO_PIT_OUT)/stack \
+		--observations-out $(CHRONO_PIT_OUT)/stack_observations.parquet $(ARGS)
+	uv run python pipelines/run_point_in_time.py $(CHRONO_PIT) --label lightgbm_chrono_h30_seed$(CHRONO_SEED) \
+		--scores-path $(CHRONO_SCORES) --score-column score_lightgbm \
+		--thresholds-path $(CHRONO_FREEZE)/agent_thresholds_lightgbm_chrono_h30_seed$(CHRONO_SEED).json \
+		--out $(CHRONO_PIT_OUT)/lightgbm.json --observations-dir $(CHRONO_PIT_OUT)/lightgbm \
+		--observations-out $(CHRONO_PIT_OUT)/lightgbm_observations.parquet $(ARGS)
+	uv run python pipelines/run_point_in_time.py $(CHRONO_PIT) --label cox_chrono_h30_seed$(CHRONO_SEED) \
+		--scores-path $(CHRONO_SCORES) --score-column score_cox \
+		--thresholds-path $(CHRONO_FREEZE)/agent_thresholds_cox_chrono_h30_seed$(CHRONO_SEED).json \
+		--out $(CHRONO_PIT_OUT)/cox.json --observations-dir $(CHRONO_PIT_OUT)/cox \
+		--observations-out $(CHRONO_PIT_OUT)/cox_observations.parquet $(ARGS)
+	uv run python pipelines/run_point_in_time.py $(CHRONO_PIT) --label cascade_6ea7a5bc \
+		--scores-path data/tmp/lightgbm_scores_h30_$(CHRONO_TAG).parquet --score-column score \
+		--thresholds-path frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/action_tiers.json \
+		--out $(CHRONO_PIT_OUT)/cascade.json --observations-dir $(CHRONO_PIT_OUT)/cascade \
+		--observations-out $(CHRONO_PIT_OUT)/cascade_observations.parquet $(ARGS)
+
+# The knowledge store for the same scorer: candidate days 05-21..06-16, presence and failures to 07-16 (the last
+# day before the test, so every 30-day outcome resolves), then the self-checks, coverage and drift (reference
+# 05-21..06-03, current 06-04..06-16). Run chrono-pit-validation first: its cross-check is one of the checks.
+CHRONO_KB := data/audit/agent_knowledge_chrono_h30.sqlite
+CHRONO_KB_OUT := data/audit/agent_knowledge_chrono_h30
+chrono-knowledge:
+	uv run python scripts/build_agent_knowledge.py --knowledge $(CHRONO_KB) --out $(CHRONO_KB_OUT) build --overwrite \
+		--scores $(CHRONO_SCORES) --start 2026-05-21 --end 2026-06-16 --presence-end 2026-07-16 \
+		--run-dir $(CHRONO_FREEZE) --thresholds-file agent_thresholds_stack_chrono_h30_seed$(CHRONO_SEED).json \
+		--horizon-days 30 $(ARGS)
+	uv run python scripts/build_agent_knowledge.py --knowledge $(CHRONO_KB) --out $(CHRONO_KB_OUT) check \
+		--slice-start 2026-05-28 --pit-report $(CHRONO_PIT_OUT)/stack.json
+	uv run python scripts/build_agent_knowledge.py --knowledge $(CHRONO_KB) --out $(CHRONO_KB_OUT) coverage --as-of 2026-06-16
+	uv run python scripts/build_agent_knowledge.py --knowledge $(CHRONO_KB) --out $(CHRONO_KB_OUT) drift \
+		--reference 2026-05-21:2026-06-03 --current 2026-06-04:2026-06-16
+
+chrono-pack-knowledge:
+	uv run python scripts/build_agent_knowledge.py --knowledge $(CHRONO_KB) --out $(CHRONO_KB_OUT) pack
+
+# Restores the packed store to $(CHRONO_KB), checking the gzip's SHA-256 before and the content fingerprint after;
+# add ARGS=--overwrite to replace an existing store.
+chrono-unpack-knowledge:
+	uv run python scripts/build_agent_knowledge.py --knowledge $(CHRONO_KB) --out $(CHRONO_KB_OUT) unpack $(ARGS)
 
 # --- tests -------------------------------------------------------------------
 # `test` runs everything; the test-* targets run one layer at a time (see

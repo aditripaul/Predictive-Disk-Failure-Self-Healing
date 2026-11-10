@@ -1,0 +1,83 @@
+uv run python scripts/build_agent_knowledge.py --knowledge data/audit/agent_knowledge_chrono_h30.sqlite --out data/audit/agent_knowledge_chrono_h30 build --overwrite \
+	--scores data/tmp/stack_scores/scores_chrono_h30_seed0.parquet --start 2026-05-21 --end 2026-06-16 --presence-end 2026-07-16 \
+	--run-dir frozen_runs/stack_chrono_h30_seed0 --thresholds-file agent_thresholds_stack_chrono_h30_seed0.json \
+	--horizon-days 30 
+[2m2026-11-10T13:32:43.495192Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+[2m2026-11-10T13:33:19.045604Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-05-27[0m [36mpresence_rows[0m=[35m2464814[0m [36mpresent[0m=[35m2464814[0m [36mscore_rows[0m=[35m2464730[0m [36mseconds[0m=[35m35.21[0m [36mstart[0m=[35m2026-05-21[0m [36mstored[0m=[35m132052[0m
+[2m2026-11-10T13:33:57.091659Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-06-03[0m [36mpresence_rows[0m=[35m2471764[0m [36mpresent[0m=[35m2471764[0m [36mscore_rows[0m=[35m2471603[0m [36mseconds[0m=[35m38.05[0m [36mstart[0m=[35m2026-05-28[0m [36mstored[0m=[35m132302[0m
+[2m2026-11-10T13:34:36.950013Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-06-10[0m [36mpresence_rows[0m=[35m2476758[0m [36mpresent[0m=[35m2476758[0m [36mscore_rows[0m=[35m2476498[0m [36mseconds[0m=[35m39.86[0m [36mstart[0m=[35m2026-06-04[0m [36mstored[0m=[35m130516[0m
+[2m2026-11-10T13:35:22.336841Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-06-17[0m [36mpresence_rows[0m=[35m2484196[0m [36mpresent[0m=[35m2484196[0m [36mscore_rows[0m=[35m2128910[0m [36mseconds[0m=[35m45.39[0m [36mstart[0m=[35m2026-06-11[0m [36mstored[0m=[35m116300[0m
+[2m2026-11-10T13:36:00.896356Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-06-24[0m [36mpresence_rows[0m=[35m2485255[0m [36mpresent[0m=[35m2485255[0m [36mscore_rows[0m=[35m0[0m [36mseconds[0m=[35m38.56[0m [36mstart[0m=[35m2026-06-18[0m [36mstored[0m=[35m0[0m
+[2m2026-11-10T13:36:38.615234Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-07-01[0m [36mpresence_rows[0m=[35m2484409[0m [36mpresent[0m=[35m2484409[0m [36mscore_rows[0m=[35m0[0m [36mseconds[0m=[35m37.72[0m [36mstart[0m=[35m2026-06-25[0m [36mstored[0m=[35m0[0m
+[2m2026-11-10T13:37:16.725665Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-07-08[0m [36mpresence_rows[0m=[35m2480322[0m [36mpresent[0m=[35m2480322[0m [36mscore_rows[0m=[35m0[0m [36mseconds[0m=[35m38.11[0m [36mstart[0m=[35m2026-07-02[0m [36mstored[0m=[35m0[0m
+[2m2026-11-10T13:37:55.678242Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-07-15[0m [36mpresence_rows[0m=[35m2480556[0m [36mpresent[0m=[35m2480556[0m [36mscore_rows[0m=[35m0[0m [36mseconds[0m=[35m38.95[0m [36mstart[0m=[35m2026-07-09[0m [36mstored[0m=[35m0[0m
+[2m2026-11-10T13:38:03.220352Z[0m [[32m[1minfo     [0m] [1mknowledge_chunk               [0m [36mend[0m=[35m2026-07-16[0m [36mpresence_rows[0m=[35m354353[0m [36mpresent[0m=[35m354353[0m [36mscore_rows[0m=[35m0[0m [36mseconds[0m=[35m7.54[0m [36mstart[0m=[35m2026-07-16[0m [36mstored[0m=[35m0[0m
+built data/audit/agent_knowledge_chrono_h30.sqlite: {'metadata': 17, 'candidate_days': 511170, 'presence_weeks': 3195699, 'drive_info': 356811, 'failure_days': 704, 'cohort_daily': 6042, 'outcomes': 510183, 'decisions': 0, 'ingest_log': 57}  (data/audit/agent_knowledge_chrono_h30/build.json)
+uv run python scripts/build_agent_knowledge.py --knowledge data/audit/agent_knowledge_chrono_h30.sqlite --out data/audit/agent_knowledge_chrono_h30 check \
+	--slice-start 2026-05-28 --pit-report data/audit/agent_pit_validation_chrono_h30/stack.json
+[2m2026-11-10T13:38:03.598531Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+  a_incremental_equals_batch   PASS
+  b_as_of_replay               PASS
+  d_outcomes_vs_gold_labels    PASS
+  f_idempotence                PASS
+  h_score_agreement            PASS
+all passed: True  (data/audit/agent_knowledge_chrono_h30/knowledge_checks.json)
+uv run python scripts/build_agent_knowledge.py --knowledge data/audit/agent_knowledge_chrono_h30.sqlite --out data/audit/agent_knowledge_chrono_h30 coverage --as-of 2026-06-16
+[2m2026-11-10T13:40:04.216803Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+{
+  "fleet": "drives in scores_chrono_h30_seed0.parquet on 2026-06-16 (split validation)",
+  "drives_in_scope": 356811,
+  "as_of": "2026-06-16",
+  "fleet_drives": 354852,
+  "with_any_history": 354852,
+  "share_with_any_history": 1.0,
+  "with_60_days_or_more": 0,
+  "first_seen_within_30_days": 354852,
+  "with_an_episode": 3404
+} 
+(data/audit/agent_knowledge_chrono_h30/coverage_2026-06-16.json)
+uv run python scripts/build_agent_knowledge.py --knowledge data/audit/agent_knowledge_chrono_h30.sqlite --out data/audit/agent_knowledge_chrono_h30 drift \
+	--reference 2026-05-21:2026-06-03 --current 2026-06-04:2026-06-16
+[2m2026-11-10T13:40:05.695422Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+{
+  "features": {
+    "candidates_share": {
+      "psi": 8.14758543228066,
+      "classification": "significant_shift"
+    },
+    "warn_share": {
+      "psi": 7.3390554066682006,
+      "classification": "significant_shift"
+    },
+    "cordon_share": {
+      "psi": 5.662194587243953,
+      "classification": "significant_shift"
+    },
+    "candidate_p_fail": {
+      "psi": 0.00912134401840829,
+      "classification": "no_significant_shift"
+    }
+  },
+  "retrain_recommended": true,
+  "reference": [
+    "2026-05-21",
+    "2026-06-03"
+  ],
+  "current": [
+    "2026-06-04",
+    "2026-06-16"
+  ],
+  "mean_shares": {
+    "reference": {
+      "candidates_share": 0.05355022270065311,
+      "warn_share": 0.005252015596981257,
+      "cordon_share": 0.0021438888620298113
+    },
+    "current": {
+      "candidates_share": 0.05358501226826067,
+      "warn_share": 0.005329369339670221,
+      "cordon_share": 0.002137260987047306
+    }
+  }
+} 
+(data/audit/agent_knowledge_chrono_h30/drift_2026-06-04_2026-06-16.json)

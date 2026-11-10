@@ -33,6 +33,8 @@ data/audit/**/*.joblib
 # Run logs are tracked; their paths are repo-relative (scripts/scrub_paths.py).
 # Per-date partitions duplicate the merged observation files beside them.
 data/audit/agent_pit_validation_h60/*/
+data/audit/agent_pit_validation_chrono_h30/*/
+data/audit/agent_pit_validation_chrono_h30/*_observations.parquet
 
 # ML experiment tracking artifacts
 mlflow/*

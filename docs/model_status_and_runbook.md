@@ -1400,6 +1400,9 @@ make chrono-train                                                   # Stage 1 + 
 make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # LightGBM, Cox and stack Stage 2; saves each seed's stack
 make chrono-freeze CHRONO_WORK_DIR=data/tmp/train_model_frame_<id> CHRONO_SEED=<0|1|2>   # freeze one seed's stack as a scorer
 make plot-chrono-split                                              # the five figures of docs/figures/chrono_split/
+make chrono-pit-validation                                          # point-in-time snapshots on validation, four arms (about 3 minutes)
+make chrono-knowledge                                               # build, check, coverage and drift of the knowledge store (about 8 minutes)
+make chrono-pack-knowledge                                          # optional: the deterministic gzip of the store (42 MB)
 ```
 
 `make build-features` and `make build-labels` replace `data/gold/`, which the drive-holdout design also
@@ -1412,9 +1415,11 @@ Other tools under this config:
 
 - **Agent loop and point-in-time scripts.** `make agent-fleet`, `agent-pit` and `agent-models` start their
   default window after the embargo (`first_date_after_validation`), and the sealed-window guard in
-  `src/agent/fleet.py` uses the test start (07-17). The knowledge store and `agent-pit-validation` were
-  built on drive-holdout validation drives; their `validation` split is now a later period of all
-  drives. They were not adapted or re-run for this split, so read their inputs before using them.
+  `src/agent/fleet.py` uses the test start (07-17). The knowledge store and the validation point-in-time
+  baseline were built on drive-holdout validation drives for the 60-day model (`make agent-knowledge`,
+  `agent-pit-validation`; their `validation` split is now a later period of all drives, so do not run them
+  here). The chronological versions are `make chrono-pit-validation` and `make chrono-knowledge`, run on
+  2026-11-10: "The agent's evidence on this split" below.
 - **Merged approach.** `train_merged_models` takes its test start from the embargo; the LSTM, TCN and AFT
   blends were not re-run.
 - **Synthetic stub and tests.** Both derive their dates from the same config and pass under it; the
@@ -1669,6 +1674,103 @@ Cox, and the cost-tier table). The validation primary threshold is the highest-p
 least 10%, since 68% was unreachable; for the stack no seed gets above 53% (the LightGBM arm of seed 1 reaches
 54.8% at 10.1% recall, 126 drives). Which seed, if any, an agent should use is not
 decided (Section 8).
+
+##### The agent's evidence on this split: point-in-time snapshots and the knowledge store
+
+Run 2026-11-10, 18:59 to 19:10 IST (`data/audit/chrono_logs/run_agent_evidence.sh`: `make chrono-pit-validation`,
+then `make chrono-knowledge`), at code commit `553770b` plus the uncommitted Makefile targets and the test
+guard of `scripts/build_agent_knowledge.py` described below. Both read the **seed-0 stack scorer**
+(`frozen_runs/stack_chrono_h30_seed0/`, its score table `data/tmp/stack_scores/scores_chrono_h30_seed0.parquet`
+and lift tiers) and **validation rows only**: the last snapshot, 06-16, has a 30-day horizon that ends 07-16,
+the day before the test starts, so no test row is read and the test-access log stayed at 146 entries. These
+are the 30-day, chronological counterparts of Sections 1.1.7's 60-day baseline and store, which were built on
+drive-holdout validation drives.
+
+**Point-in-time baseline.** Nine snapshots three days apart (2026-05-23 to 06-16), every drive that reports on
+the day (351,867 to 355,035 a day, 311 to 329 failing inside the next 30 days), 3,182,259 drive-snapshots of
+356,768 drives, 2,819 of them failing, base rate 0.089%. Four arms, each with its own validation-tuned lift
+tiers. **Precision and recall are per drive-snapshot** (a failing drive counts on every snapshot inside its
+30-day window), so they are lower than the per-drive figures above: the stack's cordon tier reads 14.9% here and
+the stack's primary threshold about 52% per drive on validation.
+
+| Arm | Warn precision / recall | Cordon precision [95% CI] / recall | Migrate precision / recall | Drain precision / recall |
+|---|---|---|---|---|
+| Stack (seed 0) | 8.1% / 48.5% | 14.9% [13, 17] / 35.7% | 22.2% / 23.3% | 34.8% / 11.1% |
+| LightGBM Stage 2 | 8.2% / 47.9% | 15.0% [13, 17] / 35.4% | 23.2% / 22.6% | 32.7% / 9.2% |
+| Cox Stage 2 | 8.0% / 49.2% | 14.8% [13, 17] / 35.4% | 23.4% / 23.1% | 35.3% / 11.2% |
+| Cascade `6ea7a5bc` (LightGBM two-stage) | 8.2% / 48.6% | 14.9% [13, 17] / 35.7% | 22.0% / 22.4% | 32.6% / 7.2% |
+
+- **The arms are indistinguishable** within their intervals (cordon 14.8% to 15.0% for all four), as on the
+  60-day baseline.
+- **All four tiers fire for every arm,** which the 60-day model's migrate and drain did not (flagged drive-snapshots
+  for the stack: 16,768 warn, 6,756 cordon, 2,966 migrate, 899 drain).
+- **A second look does not help.** Flagging only drives that score above threshold at both T-3 and T, at a matched
+  false-alarm rate (2.8 million drive-pairs), changes recall by +0.1 points at a 0.01% false-alarm rate and by
+  -1.2, -1.5, -1.6 and -0.9 points at 0.02%, 0.05%, 0.1% and 0.3%; the intervals exclude zero at the middle three
+  budgets. It is a stricter threshold, not new information, as in Section 4.8.
+- **Cross-check:** on 2026-06-04 the stack's model and its score table score the same 353,133 drives with a
+  maximum difference of 0.0.
+
+**The knowledge store** (`data/audit/agent_knowledge_chrono_h30.sqlite`, 194 MB, local): candidate days
+2026-05-21 to 06-16, presence and failures from the silver `drive_day` table to 07-16, so all of the 30-day outcomes
+resolve. The builder's test guard now uses the first test day (07-17) instead of `sealed_start` (07-01), which on
+this split falls inside the unused gap; the unit test pins its own value.
+
+| Table | Rows |
+|---|---|
+| candidate_days | 511,170 (= the stack run's validation candidate rows) |
+| presence_weeks | 3,195,699 |
+| drive_info | 356,811 |
+| failure_days | 704 |
+| cohort_daily | 6,042 |
+| outcomes (final) | 510,183 (504,001 zeros, 6,182 ones) |
+
+**Self-checks (`knowledge_checks.json`): all five pass.** Incremental equals batch (2026-05-28..06-10, 262,818
+candidate days, 161 failures, 1,484 cohort rows, forward and reverse); as-of replay (500 fixed drives at 9
+dates); outcomes against the gold labels (510,183 compared, 0 disagreements; 987 unresolved candidate days, all
+gold 0, none a failure); idempotence (re-ingesting 06-16 changes nothing); the score agreement above.
+
+**What the store shows, and what it cannot.**
+
+- **Episodes:** 4,170 on 3,756 drives, median 9 days flagged, 90th percentile 27.
+  Resolved to 07-16: 421 failed, 3,687 survived, 59 pending, 3 censored. Of the 1,055 episodes with 7 or more
+  days above cordon, 221 failed and 798 survived (21.7% of the resolved). The 60-day store had 138 of 222 (62%),
+  so the persistence signal behind its rule is not here. The two are not like for like (a 30-day horizon is a
+  stricter outcome than 60 days, and a 27-day window cuts episodes short), but nothing here supports a
+  persistence rule. **The knowledge-rule screen (Phase 2) was not run on this store.**
+- **History is 27 days.** Coverage as of 06-16: all 354,852 reporting drives have some history, none has 60 days,
+  all were first seen within 30 days, and 3,404 have an episode. Scores before 05-21 are in-sample, so the store
+  cannot be started earlier; any rule that needs weeks of history is limited by that.
+- **The drift report's `retrain_recommended: true` is an artifact of the window.** It compares 13 and 14 daily
+  values (reference 05-21..06-03, current 06-04..06-16): PSI is 8.1, 7.3 and 5.7 on the candidate, warn and
+  cordon shares, while the mean shares are the same (candidates 5.36% against 5.36%, warn 0.525% against 0.533%,
+  cordon 0.214% against 0.214%) and the candidate score shows no shift (PSI 0.009). Do not read it as drift.
+
+| What | Where |
+|---|---|
+| Point-in-time reports, four arms | `data/audit/agent_pit_validation_chrono_h30/` (`stack.json`, `lightgbm.json`, `cox.json`, `cascade.json`; the merged `*_observations.parquet` files, 53 MB each, and the per-date partitions stay local) |
+| Knowledge store reports | `data/audit/agent_knowledge_chrono_h30/` (`build.json`, `knowledge_checks.json`, `coverage_2026-06-16.json`, `drift_2026-06-04_2026-06-16.json`); the store itself is gitignored, `make chrono-pack-knowledge` writes a 42 MB deterministic gzip with its SHA-256 and content fingerprint |
+| Launcher and logs | `data/audit/chrono_logs/` (`run_agent_evidence.sh`, `pit.log`, `knowledge.log`) |
+
+**How to reproduce it.** From the repository root, after `make chrono-freeze` has produced the seed-0 scorer and its
+score table (`CHRONO_SEED=0` is the default; the commands read `frozen_runs/stack_chrono_h30_seed0/`,
+`data/tmp/stack_scores/scores_chrono_h30_seed0.parquet` and `data/tmp/lightgbm_scores_h30_chrono_h30.parquet`):
+
+```bash
+# both steps, in order, with logs (what was run on 2026-11-10); takes about 11 minutes
+bash data/audit/chrono_logs/run_agent_evidence.sh "$PWD"
+# or one at a time (do not use make -j):
+make chrono-pit-validation          # 4 arms x 9 snapshots; about 3 minutes; rewrites data/audit/agent_pit_validation_chrono_h30/
+make chrono-knowledge               # build (overwrites the store), check, coverage, drift; about 8 minutes
+make chrono-pack-knowledge          # optional: data/audit/agent_knowledge_chrono_h30/agent_knowledge.sqlite.gz and its hashes (42 MB)
+make chrono-unpack-knowledge        # restore the packed store without rebuilding; ARGS=--overwrite to replace one
+sha256sum -c CHECKSUMS.sha256       # run in each of the two folders above
+```
+
+`chrono-knowledge` needs the report that `chrono-pit-validation` writes (its cross-check is one of the five checks),
+so run them in that order. Neither opens the test matrix or a test-window file; `CHRONO_SEED=<k>` runs another
+seed's scorer into the same folders, so move the folders first if you want to keep seed 0's. The per-date
+partitions under the point-in-time folder are reused on a rerun; delete them to re-score.
 
 ##### Train figures (in-sample)
 
@@ -3915,8 +4017,9 @@ What could still change the picture:
 - **Not run under strict separation:** the 44- and 60-day horizons (`make train` refuses them: their gaps
   are longer than the 30-day embargo), the merged approach (LSTM, TCN, AFT blends), and a comparison with
   the drive-holdout run at a matched false-alarm rate.
-- **Not adapted:** the knowledge store and `agent-pit-validation`, which were built on drive-holdout
-  validation drives; their `validation` split is now a later period of all drives.
+- **Adapted and run, with limits (2026-11-10, Section 1.1.9):** the knowledge store and the validation
+  point-in-time baseline (`make chrono-knowledge`, `chrono-pit-validation`, seed-0 stack). The store holds
+  27 days of history, so the knowledge-rule screen was not run on it and no rule is enabled.
 - **Q3 is not a fresh test set** (146 logged looks); the first Q4 2026 download is the clean one.
 
 **Implemented and run on 2026-10-06 (results in Section 4.2):**
