@@ -1,11 +1,9 @@
 # System summary: a self-healing disk agent that can be trusted
 
-Status: 2026-11-10 (current model tested on Q3 2026; stacked Stage 2, deep
-dive and cluster policy, runbook Sections 1.1.4 to 1.1.6 and 1.9). The config now holds the
-chronological split of runbook 1.1.9, which was run on 2026-11-10 and did not meet the goal (stack 55.4%
-at 16.2% recall, LightGBM two-stage 59.9% at 13.3%, test); that run is frozen as `frozen_runs/6ea7a5bc…`. The model
-described below is the drive-holdout run `c459046e`, which is no longer the latest 30-day run that
-`score-fleet` and the agent load.
+Status: 2026-11-10. The current model is the chronological split run of runbook 1.1.9 (frozen run `6ea7a5bc…`; the
+goal is not met, on validation or on test). The drive-holdout run `c459046e` (runbook 1.1.4 to 1.1.6 and 1.9: stacked
+Stage 2, deep dive and cluster policy) is the previous model; its analyses were not repeated on the current one.
+`score-fleet` and the agent load the latest 30-day run, which is the current model.
 This is the entry point for a reviewer. It describes what
 the project built, how a decision flows through it, what was measured on real
 data, and what is not done. Detailed results are in
@@ -40,7 +38,7 @@ SMART telemetry (Backblaze, daily, per drive)
 | Layer | What it does | Where |
 |---|---|---|
 | Data pipeline | Turns daily Backblaze telemetry (62.6 million drive-days from 363,548 drives in Q1 + Q2 2026; the data now runs from Q4 2025 to Q3 2026) into 246 features per drive-day, within a 20 GB memory cap | `pipelines/`, `src/features/` |
-| Failure model | LightGBM classifier whose net keeps 80% of failing drives on validation, with a second LightGBM that re-ranks the 5-6% of drives it passes; outputs a failure score per drive-day | `pipelines/train_model.py`, `src/models/two_stage.py` |
+| Failure model | LightGBM classifier whose net keeps 80% of failing drives on validation, with a second LightGBM that re-ranks the 7-9% of drives it passes (5-6% on the previous model); outputs a failure score per drive-day | `pipelines/train_model.py`, `src/models/two_stage.py` |
 | Action tiers | Maps the probability to an action. Mild actions accept more false alarms; destructive ones need more confidence | `src/models/threshold.py` |
 | Agent | A Monitor - Analyze - Plan - Execute loop (LangGraph), checkpointed so a crash cannot repeat an action | `src/agent/` |
 | Guardrails | Six hard pre-action rules (score cut-off, feature confidence, fresh telemetry, never the last healthy node, keep replication quorum, limit concurrent drains), three soft ones (high I/O, maintenance window, rate limit), and two hard post-action checks (data integrity, service continuity) | `src/guardrails/` |
@@ -51,8 +49,9 @@ SMART telemetry (Backblaze, daily, per drive)
 
 ## 3. Why the system does not need a perfect model
 
-Disk failure is rare: in the Q3 2026 test period 1,105 of about 369,000 drives
-failed, roughly 1 in 330 (1 in 570 in the retired model's test, 2026-05-11 to 05-31). At that rate any predictor produces false alarms, so the
+Disk failure is rare: in the current model's test period (2026-07-17 to 08-31) 864 of about
+368,000 drives failed, roughly 1 in 430 (1 in 330 across all of Q3, 1 in 570 in the retired model's test,
+2026-05-11 to 05-31). At that rate any predictor produces false alarms, so the
 system is built to make a false alarm cheap and a wrong destructive action
 unlikely:
 
@@ -71,9 +70,40 @@ unlikely:
 
 ## 4. What the model achieves on real data
 
-**The current model (2026-11-06)** is the 30-day two-stage LightGBM trained on
+**The current model (2026-11-10)** is the 30-day two-stage LightGBM trained on rows 2026-01-01 to 04-20, validated on
+05-21 to 06-16 and tested on 07-17 to 08-31, with a 30-day gap at each boundary, no drive holdout and feature
+statistics taken from training rows only; frozen as `6ea7a5bc` (runbook 1.1.9). Per drive, thresholds chosen on
+validation, 864 failing and 367,260 healthy test drives:
+
+| Operating point | Precision | Recall | Caught / missed / false alarms |
+|---|---|---|---|
+| Stage 1 net (filter, cutoff 0.1431) | 2.2% | 85.0% | 734 / 130 / 32,579 |
+| Warn tier | 10.8% | 65.2% | 563 / 301 / 4,661 |
+| Cordon tier | 18.1% | 56.1% | 485 / 379 / 2,192 |
+| Migrate tier | 28.0% | 44.4% | 384 / 480 / 987 |
+| Drain tier | 52.4% | 20.4% | 176 / 688 / 160 |
+| **Primary threshold** | **59.9%** [52.5, 66.3] | **13.3%** [11.1, 15.6] | 115 / 749 / 77 |
+
+![Precision against recall of Stage 1 and the three Stage 2 variants on the chronological test, with the goal region](figures/chrono_split/chrono_precision_recall.png)
+
+- **The goal (68% precision at 10% or more recall on the stacked cascade, Stage 1 LightGBM and Stage 2 LightGBM + Cox;
+  90% until 2026-11-10) is not met, on validation or on test:** the LightGBM two-stage gives 51.5% at 10.2% recall on
+  validation and 59.9% at 13.3% on test (AUROC 0.906 and 0.923); the stack 55.4% at 16.2% on test (3-seed mean; 50.6%
+  to 58.6% by seed) and about 52% on validation (runbook 1.1.9).
+- **Validation no longer overstates test:** the base rates are 0.19% and 0.23%, and precision is 51.5% against 59.9%.
+  So the gap of the previous model was not what kept the goal out of reach; the goal fails on validation itself.
+- **All four tiers fire,** because at the validation failure rate of 0.19% the lift targets convert to 10.9%, 18.1%,
+  28.9% and 43.4% precision. Those targets are placeholders until they are set from the cost of each action.
+- **Stage 1 behaves as designed:** it keeps 80.3% of failing validation drives and 85.0% of test drives at about 2%
+  precision, passing 7% and 9% of the fleet; Stage 2 adds 5.1 points of precision over Stage 1 alone at the primary
+  point [0.9, 9.4]. The stack does not help at the goal's level: at the 10% recall level it is 1.4 points below the
+  LightGBM Stage 2.
+- **About 15% of failing test drives never pass Stage 1.** The deep dive of the previous model (not repeated on this
+  one) found its missed fifth silent: 98.6% had no rise in any core SMART counter in their last 30 days.
+
+**The previous model (2026-11-06)**, the drive-holdout run, is the 30-day two-stage LightGBM trained on
 2026-01-01 to 05-01 (80% of drives; the other 20% are the validation holdout)
-and tested on Q3 2026, a quarter it never saw, frozen as `c459046e` (runbook
+and tested on all of Q3 2026, a quarter it never saw, frozen as `c459046e` (runbook
 1.1.4, `docs/q3_horizon_and_cascade_run.md`). Per drive, thresholds chosen on
 validation, 1,105 failing and 367,583 healthy test drives:
 
@@ -85,18 +115,16 @@ validation, 1,105 failing and 367,583 healthy test drives:
 | **Primary threshold** | **59.0%** [52.3, 65.5] | **12.5%** [10.5, 14.3] | 138 / 967 / 96 |
 | Migrate = drain (fallback cutoff) | 33.3% | 0.2% | 2 / 1,103 / 4 |
 
-![Precision against recall of Stage 1 and the three Stage 2 variants on the chronological test, with the goal region](figures/chrono_split/chrono_precision_recall.png)
-
-- **The goal (68% precision at 10% or more recall on the stacked cascade, Stage 1 LightGBM and Stage 2 LightGBM + Cox; 90% until 2026-11-10) is not met on test:** the stack gives 64.9% at 11.6% (3-seed mean, runbook 1.1.4a) and the shipped LightGBM two-stage 59.0% at 12.5%. Drive AUROC is
-  0.926 and recall at a 0.1% false-alarm rate 30.4%.
-- **Validation reads 15-20 points higher, and that is the base rate** (0.59% of
-  validation drives fail, 0.30% of test drives): AUROC is the same on both
-  (0.922 and 0.926), and test precision restated at the validation rate is
+- **The goal was not met on this model either** (the stack gave 64.9% at 11.6%, 3-seed mean, runbook 1.1.4a, and the
+  shipped LightGBM two-stage 59.0% at 12.5%). Drive AUROC was 0.926 and recall at a 0.1% false-alarm rate 30.4%.
+- **On the previous model validation read 15-20 points higher, and that was the base rate** (0.59% of
+  validation drives fail, 0.30% of test drives): AUROC was the same on both
+  (0.922 and 0.926), and test precision restated at the validation rate was
   73.9% against 75.0% (runbook 1.1.5).
-- **Migrate and drain do not operate on this model.** Their lift targets
-  convert at the validation failure rate to 88.9% and 133% precision: migrate's
-  is met only by the two highest-scored validation drives and drain's not at
-  all, so both share the cutoff 0.926 and flag 6 drives in the 62-day Q3 test window. The agent's effective tiers are warn and cordon (runbook 1.9).
+- **Migrate and drain did not operate on the previous model.** Their lift targets
+  converted at the validation failure rate to 88.9% and 133% precision: migrate's
+  was met only by the two highest-scored validation drives and drain's not at
+  all, so both shared the cutoff 0.926 and flagged 6 drives in the 62-day Q3 test window. The agent's effective tiers were warn and cordon (runbook 1.9).
 - **The fifth of failing drives that Stage 1 never passes is silent:** 98.6% of
   them show no rise in any core SMART counter in their last 30 days, with
   complete telemetry, at a median age of 2.9 years. That caps recall near 80%.
@@ -176,10 +204,11 @@ Other measures at the primary threshold of the earlier (now-void) run:
   98.9% on test.
 
 **Against the project's stated goal.** The original target was 95% precision
-at 35-50% recall on the real fleet; it was later set to 90% at 10% recall.
-Neither is met: the current model gives 59.0% at 12.5% recall on Q3, interval
-[52.3%, 65.5%], and the retired one 48.6% at 8.7% recall, interval
-[38.9%, 58.2%]; neither is near 90%.
+at 35-50% recall on the real fleet; it was later set to 90% at 10% recall, and since 2026-11-10 to 68% at 10% recall
+on the stacked cascade.
+None is met: the current model gives 59.9% at 13.3% recall at its primary threshold, interval [52.5%, 66.3%], and
+the stack 55.4% at 16.2%, about 8 and 13 points short of 68%; the previous model gave 59.0% at 12.5% recall on
+Q3, interval [52.3%, 65.5%], and the retired one 48.6% at 8.7% recall, interval [38.9%, 58.2%]; none is near 90%.
 
 The earlier run also scored the whole fleet (363,548 drives) and proposed an
 action for 3,973 of them (`make score-fleet`) - but, per Section 7, every one
@@ -273,8 +302,9 @@ were still in service when the data ended.
   and type checks run with them (`make ci`).
 - The data pipeline and model were run end to end on the real two-quarter
   data set, and the trained model scored the whole fleet (`make score-fleet`);
-  the current model was then tested on Q3 2026 with a method written before
-  the runs (`docs/q3_horizon_and_cascade_run.md`).
+  the previous model was then tested on Q3 2026, and the current model on its own
+  test period, each with a method written before the runs
+  (`docs/q3_horizon_and_cascade_run.md`, runbook 1.1.9).
 - Headline test numbers carry a bootstrap interval over whole drives, and the
   second stage was judged by a paired interval on shared drives rather than
   by comparing two point estimates.
@@ -331,20 +361,20 @@ were still in service when the data ended.
   healthy node" and "keep quorum" are implemented and tested, but in the
   default demonstration wiring nothing supplies them with node and
   replication state, so they cannot fire there.
-- **Validation reads higher than test.** On the current model (75.0% against
-  59.0% at the primary threshold) about 90% of the gap is the base rate; the
-  ranking transfers. On the earlier, now-void run only about half of a smaller
+- **Validation read higher than test on the previous model, and does not on the current one.** On the previous
+  model (75.0% against 59.0% at the primary threshold) about 90% of the gap was the base rate; the
+  ranking transfers. On the current model validation reads 51.5% against 59.9% on test. On the earlier, now-void run only about half of a smaller
   gap was explained.
 - **The two-stage gain is not confirmed.** A direct, paired significance test
   disagrees between the void run (gap excludes 0) and the earlier frozen run
   (gap includes 0), and on Q3 the gain appears only below about 20% recall;
   the second stage stays the default on a five-seed repeat, not on any paired
   test alone.
-- **Migrate and drain do not operate on the current model.** Their lift
-  targets convert at the validation failure rate to precision met only at the
-  very top of the curve (migrate) or not at all (drain), so both flag 6 drives
-  a quarter; the agent warns and cordons. Setting those
-  targets from the cost of each action is the decision that would change it.
+- **Migrate and drain did not operate on the previous model, and their targets are placeholders on the current one.**
+  On the previous model their lift targets converted at the validation failure rate to precision met only at the very
+  top of the curve (migrate) or not at all (drain), so both flagged 6 drives a quarter and the agent warned and
+  cordoned. On the current model all four tiers fire, at lift-derived targets of 28.9% and 43.4% for migrate and
+  drain. Setting the targets from the cost of each action is the decision that would change what the agent does.
 - **Simulation only.** No action touches real hardware, and the API has no
   authentication of any kind. The approval queue, decision trail and
   guardrail violations are now written through to SQLite and survive a
@@ -366,7 +396,8 @@ were still in service when the data ended.
   (59.0% precision at 12.5% recall, against 57.1% at 12.0%); the survival
   models, TCN, LSTM and blends were not rerun on it, it has since been read
   many times (horizons, cascade, stack, deep dive, cluster policy), and no
-  further untouched period exists. Failures per month fell about 40% across the test
+  further untouched period exists (146 test looks are logged; the chronological run is the third use of Q3). Failures
+  per month fell about 40% across the test
   window, for a reason not yet identified.
 
 ## 8. Where to look

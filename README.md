@@ -172,7 +172,7 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
 | `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md` | The attribute screen, and a safety-floor bug it found and fixed |
 | `docs/adr/0003-point-in-time-evaluation-and-the-limits-of-the-loop.md` | Why the first agent backtest was withdrawn, how the policy is measured now, and the mechanisms shown not to raise precision |
 | `docs/adr/0004-knowledge-component-and-the-screen-rule.md` | The agent's Knowledge component, and why a knowledge rule may change a decision only after a pre-registered screen (none passed) |
-| `docs/q3_horizon_and_cascade_run.md` | The current model: Q1+Q2 2026 to Q3 2026, three label horizons, cascade and survival Stage 2 |
+| `docs/q3_horizon_and_cascade_run.md` | The previous model: Q1+Q2 2026 to Q3 2026 (drive holdout), three label horizons, cascade and survival Stage 2 |
 | `docs/cascade_wide_net.md` | The wide-net two-stage cascade: method, pre-registered rule and result |
 | `docs/cluster_action_policy.md` | Action by failure-mode cluster instead of tier alone (rule not passed) |
 | `docs/agent_knowledge_base.md` | Design, screen rule and results of the agent's Knowledge component |
@@ -652,7 +652,15 @@ later 90% precision at ≥ 10% recall, and since 2026-11-10 **68% precision at
 
 ### Measured Result (Backblaze, 30-day horizon, per drive, test)
 
-**Current model (2026-11-06):** trained on Q1+Q2 2026 and tested on Q3 2026, a
+**Current model (2026-11-10):** the chronological split run, trained on rows 2026-01-01 to 04-20, validated on
+05-21 to 06-16 and tested on 07-17 to 08-31, with a 30-day gap at each boundary: **59.9% precision at 13.3%
+recall** (95% CI 52.5-66.3%), 115 of 864 failing drives caught with 77 false alarms; the warn tier catches
+65.2% at 10.8% precision and cordon 56.1% at 18.1%. The stack of LightGBM and Cox Stage 2 models gives 55.4% at
+16.2% (mean of 3 seeds). The 68% goal is not met, on validation (51.5% at 10.2% recall) or on test. Frozen run
+`6ea7a5bc` (`frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/`; the stack as
+`frozen_runs/stack_chrono_h30_seed{0,1,2}/`); the runbook section 1.1.9 holds the full results.
+
+**Previous model (2026-11-06):** the drive-holdout run, trained on Q1+Q2 2026 and tested on Q3 2026, a
 quarter it never saw: **59.0% precision at 12.5% recall** (95% CI 52.3-65.5%),
 138 of 1,105 failing drives caught with 96 false alarms; the warn tier catches
 60.9% at 17.3% precision. Frozen run `c459046e`

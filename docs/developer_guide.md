@@ -1279,10 +1279,12 @@ tunes the threshold as before, and reports test lift beside test precision.
 `threshold.action_tier_lift`'s current values reproduce the former precision
 targets on validation, so adopting lift was not meant to move any threshold.
 A target above what any cutoff earns falls back to the curve's most precise
-point (`tune_action_tiers` records `target_met: false`). On the current model
-(`c459046e`, validation failure rate 0.589%) that happens to drain (lift
-226.4 -> 133%); migrate's target (151.0 -> 88.9%) is met only at the very top of
-the curve (2 validation drives). Both get 0.926 and flag 6 drives on Q3, so only warn (0.653) and cordon (0.836) act (runbook 1.9).
+point (`tune_action_tiers` records `target_met: false`). On the previous model
+(`c459046e`, validation failure rate 0.589%) that happened to drain (lift
+226.4 -> 133%); migrate's target (151.0 -> 88.9%) was met only at the very top of
+the curve (2 validation drives). Both got 0.926 and flagged 6 drives on Q3, so only warn (0.653) and cordon (0.836) acted (runbook 1.9).
+On the current model (`6ea7a5bc`, validation failure rate 0.19%) the same lifts convert to 10.9%, 18.1%, 28.9% and
+43.4%, every target is met and all four tiers act (runbook 1.1.9).
 
 **Per-drive-model thresholds exist and are measured, but are not served**
 (`src/models/threshold.py::tune_action_tiers_by_family`, ADR 0002). A drive
@@ -1970,11 +1972,13 @@ Data / model:
   Backblaze data from Q4 2025 to Q3 2026 (results in
   `docs/model_status_and_runbook.md`); SMART-Z has not been evaluated.
 - The model does not reach the precision target on the real fleet: the
-  current model (`c459046e`) gives 59.0% at 12.5% recall on Q3 2026 against a
-  90% target, 95% CI [52.3%, 65.5%]. `docs/system_summary.md` section 4.
-- Migrate and drain do not operate on the current model: their lift targets
-  convert to precision met only at the very top of the curve (migrate) or not
-  at all (drain), so both share one cutoff that flags 6 drives in the 62-day Q3 test window (§5.13, runbook 1.9).
+  current model (`6ea7a5bc`) gives 59.9% at 13.3% recall on its test period against a
+  68% target, 95% CI [52.5%, 66.3%] (the previous model, `c459046e`, 59.0% at 12.5% on Q3).
+  `docs/system_summary.md` section 4.
+- Migrate and drain did not operate on the previous model: their lift targets
+  converted to precision met only at the very top of the curve (migrate) or not
+  at all (drain), so both shared one cutoff that flagged 6 drives in the 62-day Q3 test window (§5.13, runbook 1.9).
+  On the current model all four tiers fire, at lift-derived targets that are placeholders (runbook 1.1.9).
 - The second-stage model's precision gain is not confirmed - a direct paired
   bootstrap test gives an interval that includes 0, and on Q3 the gain appears
   only below about 20% recall. `docs/model_status_and_runbook.md` §1.2, §1.1.4.

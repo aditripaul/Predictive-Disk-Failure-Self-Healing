@@ -1,19 +1,17 @@
 # Model status, results and runbook
 
-> **Current state (2026-11-07).** Read Section 1 first. The current model is
-> the 30-day Q1+Q2 -> Q3 run of Section 1.1.4 (frozen run `c459046e`), tested
-> on Q3 2026; Sections 1.1.1 to 1.1.3 hold the earlier frozen runs on the
-> 2026-04/05 window. Section 4 is the
+> **Current state (2026-11-10).** Read Section 1 first. The current model is
+> the 30-day chronological split run of Section 1.1.9 (frozen run `6ea7a5bc`), tested on
+> 2026-07-17 to 08-31; the 68% goal is not met, on validation or on test. Section 1.1.4 holds the
+> previous model, the drive-holdout run `c459046e` (tested on all of Q3), and Sections 1.1.1 to 1.1.3 hold the
+> earlier frozen runs on the 2026-04/05 window. Section 4 is the
 > measurement record in the order it was produced; Section 5 holds the
 > lessons from the earlier Q1-only, 14-day work, which still apply. For a
 > shorter overview see `docs/system_summary.md`. Section 1.8 maps every
 > number to its file under `data/audit/` and `frozen_runs/`.
 >
-> The split design behind the Q3 results (drive holdout, 62-day test) and a
-> stricter chronological split (the config since 2026-11-10, run the same day; the 68% goal was not
-> met) are in Sections 1.1.8 and 1.1.9. The run is frozen as `frozen_runs/6ea7a5bc…` (2026-11-10). It is now the
-> latest 30-day training run, which `score-fleet` and the agent load; `c459046e` is the drive-holdout model of
-> Sections 1.1.4 to 1.1.7.
+> The two split designs are in Sections 1.1.8 and 1.1.9. `score-fleet` and the agent load the latest
+> 30-day training run, which is the current model.
 
 This document records what was run on real Backblaze data, what was learned,
 what is still open, and how to run the pipeline end to end. Numbers are
@@ -26,7 +24,8 @@ The pipeline runs end to end on real Q1 + Q2 2026 data (62.6 million
 drive-days, 363,548 drives) within the 20 GB memory cap: ingest, silver,
 features, labels, training, fleet scoring, plots and the final report.
 **The stated goal is not met.** It was 95% precision at 35-50% recall, then
-90% at >= 10% recall, both per drive on the real fleet (Section 7).
+90% at >= 10% recall, and since 2026-11-10 68% at >= 10% recall on the stacked cascade, all per drive on the
+real fleet (Section 7).
 
 ### 1.1.1 Frozen run for the quarter-aligned window (2026-11-05)
 
@@ -267,8 +266,8 @@ model against its own labels, so the columns are not a like-for-like comparison)
 | Trees: Stage 1 / Stage 2 | 310 / 74 | 225 / 201 | 281 / 54 |
 
 - The stated goal (90% precision at >= 10% recall) is **not met**: 59-63% at
-  9-12.5% recall. The 30-day run is the model `score-fleet` and the agent now
-  use (`primary_horizon_days: 30`, latest run for the horizon).
+  9-12.5% recall. The 30-day run was the model `score-fleet` and the agent used
+  (`primary_horizon_days: 30`, latest run for the horizon) until the chronological run of Section 1.1.9.
 - Validation shows 15-20 points more precision than test in every run. That is
   **the base rate, not overfitting** (Section 1.1.5): validation spans 121 days
   in which 0.59% of drives fail, test 62 days with 0.30%. The ranking
@@ -635,7 +634,7 @@ models per seed; it does not load the frozen models (`frozen_runs/README.md`).
 
 | Horizon | Frozen run folder (`frozen_runs/<id>/`) | Tag | Kept work dir | Stack output |
 |---|---|---|---|---|
-| 30 days | `c459046e4f1645169151e7be25ff064d` (the current model) | `h30_q1q2_q3` | `fag3o60h` | `data/audit/stack_q3_h30/` |
+| 30 days | `c459046e4f1645169151e7be25ff064d` (the previous model) | `h30_q1q2_q3` | `fag3o60h` | `data/audit/stack_q3_h30/` |
 | 44 days | `a2cd06d53e624c09b0d12f81076def8a` | `h44_q1q2_q3` | `ff5ejt7a` | `data/audit/stack_q3_h44/` |
 | 60 days | `804a20cec10048abb1bc3ccf510f96e1` | `h60_q1q2_q3` | `xjxdieoe` | `data/audit/stack_q3_h60/` |
 
@@ -1958,7 +1957,8 @@ README; the Q1+Q2 -> Q3 results are all tracked.
 The agent's four action tiers (warn, cordon, migrate, drain) are four thresholds on
 one score. Stage 2 does not create them; it produces the score, and the thresholds
 are chosen on the validation holdout to meet a precision target each. For the
-current 30-day model (frozen run `c459046e`):
+previous 30-day model (frozen run `c459046e`; the current model's tiers, from the same rule at a validation
+failure rate of 0.19% with all four reachable, are in Section 1.1.9):
 
 1. **The score.** Stage 1 scores every drive-day; at or above the candidate
    threshold (0.235, `frozen_runs/c459046e.../two_stage.json` `candidate_threshold`)
@@ -2756,7 +2756,7 @@ breakdown the reader-facing documents cite for counts, action tiers and
 warning lead time**; the earlier frozen run (2026-10-09, no longer available) superseded its headline
 precision and recall (test, drive level, thresholds from validation):
 
-| Validation recall target | Two stage (current model) | First model alone, same run | At 15% failing | At 50% failing | Lift |
+| Validation recall target | Two stage (the model of that run) | First model alone, same run | At 15% failing | At 50% failing | Lift |
 |---|---|---|---|---|---|
 | 5% | P 45.0%, R 2.9% (18 caught, 22 FA) | P 48.9%, R 3.7% (23, 24) | 98.8% | 99.8% | 256 |
 | 10% (primary) | P 46.2%, R 9.7% (60, 70) | P 41.4%, R 8.5% (53, 75) | 98.9% | 99.8% | 263 |

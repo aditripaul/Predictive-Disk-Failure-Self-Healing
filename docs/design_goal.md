@@ -45,7 +45,8 @@ loop on the real feature table with a simulated executor.
 - **Tier thresholds are set from lift, not precision.** Lift carries across
   failure rates, precision does not. Converted at the validation failure rate,
   the migrate target is met only by the two highest-scored validation drives and
-  the drain target by none, so on the current model only warn and cordon act.
+  the drain target by none, so on the previous model only warn and cordon acted; on the current model, whose validation failure rate is
+  0.19%, all four tiers fire.
 - **The horizon is 30 days.** 7, 14, 44 and 60 days were compared; none ranks
   drives better once the failure rate is accounted for.
 - **Feature confidence needed two fixes found only on real data.** As first
@@ -682,11 +683,11 @@ The system does not map every prediction directly to a destructive action. Inste
 > comes from the two-stage cascade, and each tier's threshold is the validation
 > cutoff with the most recall whose precision meets lift times the validation
 > failure rate (lift 56.6 / 94.3 / 151.0 / 226.4). On the current model (frozen
-> run `c459046e`, Q3 2026 test) warn (0.653) reaches 60.9% of failing drives at
-> 17.3% precision and cordon (0.836) 42.4% at 34.8%; migrate and drain share the
-> cutoff 0.926 and flag 6 drives in the 62-day test window. The lift targets are
-> placeholders until the cost of each action is known (report Sections 6.3 and
-> 9.2).
+> run `6ea7a5bc`, tested 2026-07-17 to 08-31) warn (0.530) reaches 65.2% of failing drives at
+> 10.8% precision, cordon (0.734) 56.1% at 18.1%, migrate (0.857) 44.4% at 28.0% and drain (0.935) 20.4% at
+> 52.4%. On the previous model (`c459046e`, Q3) warn (0.653) reached 60.9% at 17.3% and cordon (0.836) 42.4% at
+> 34.8%, and migrate and drain shared the cutoff 0.926 and flagged 6 drives. The lift targets are
+> placeholders until the cost of each action is known (report Sections 6.3, 9.1 and 9.3).
 
 ## Hysteresis and Cooldown
 
