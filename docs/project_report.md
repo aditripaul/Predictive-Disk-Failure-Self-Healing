@@ -57,7 +57,7 @@ confirmed on untouched data.
 **The resulting operating points**, per drive on Q3: the warn tier reaches
 60.9% of failing drives at 17.3% precision, cordon 42.4% at 34.8%, and the
 primary threshold 12.5% at 59.0% (95% confidence interval 52.3% to 65.5%).
-The goal, revised on 2026-11-10 from 90% to 68% precision at 10% or more recall on the stacked cascade (Stage 1 LightGBM, Stage 2 LightGBM + Cox), is not met on test (64.9% at 11.6% for the stack, 3-seed mean; 59.0% for the shipped LightGBM two-stage). Validation reads
+The goal, revised on 2026-11-10 from 90% to 68% precision at 10% or more recall on the stacked cascade (Stage 1 LightGBM, Stage 2 LightGBM + Cox), is not met on test (64.9% at 11.6% for the stack, 3-seed mean; 59.0% for the shipped LightGBM two-stage) on the drive-holdout split, and not met on a stricter chronological split either (Section 9.9). Validation reads
 higher (75.0% at the primary threshold), but that is the failure rate, not
 overfitting: the ranking carries over intact (AUROC 0.922 and 0.926), and test
 precision restated at the validation failure rate is 73.9%. The cascade also
@@ -67,6 +67,17 @@ by the two highest-scored validation drives) and 133% (drain, unreachable), so
 both share one cutoff that flagged 6 drives in the 62-day test window: the agent
 warns and cordons, and migrate and drain wait on targets set from the cost of
 each action.
+
+**A stricter split gave the same answer.** The goal was then tried on a chronological split with 30-day gaps
+between training, validation and test, no drive holdout, and feature statistics taken from training rows only
+(train 2026-01-01 to 04-20, validation 05-21 to 06-16, test 07-17 to 08-31; Sections 4.3 and 7.4). Validation and
+test then have nearly the same failure rate (0.19% and 0.23%, against 0.59% and 0.30% before), and nothing fitted
+on an earlier period can have seen a later one. Stage 1 behaves as designed: 80.3% of failing validation drives
+and 85.0% of test drives, at about 2% precision. The LightGBM two-stage's primary threshold gives 51.5% precision
+at 10.2% recall on validation and 59.9% [52.5%, 66.3%] at 13.3% on test, and the stack of LightGBM and Cox Stage 2
+models 55.4% at 16.2% on test (mean of three seeds). The goal fails on validation as well as on test, so the gap
+between validation and test was not what kept it out of reach: the silent failures Stage 1 never passes cap
+recall, and the failing drives it passes look like the 9% of healthy drives beside them (Section 9.9).
 
 Twenty-four approaches were measured, each paired with the standard model on
 the same drives of its own test window and reported at the strength of its
@@ -129,8 +140,10 @@ whether a system can act safely on predictions that are uncertain.
   with the standard model on the same drives of its test window, and each
   result reported at the strength of its evidence.
 - An evaluation method that reports results per drive and at stated failure
-  rates, and five corrections to the evaluation found during the work, each
-  of which had made results look better than they were (Section 7).
+  rates, five corrections to the evaluation found during the work, each
+  of which had made results look better than they were, and a sixth, a missing
+  gap between validation and test labels whose effect was not measured
+  (Section 7).
 - A raw-attribute screen that went beyond re-slicing the nine SMART counters
   already in use, and that found a safety-relevant bug no synthetic test
   fixture could have caught.
@@ -157,8 +170,8 @@ whether a system can act safely on predictions that are uncertain.
 
 | Objective | Target | Outcome |
 |---|---|---|
-| Prediction precision, per drive, real fleet | 95% in the original specification (later 90%) | **Not met.** Current model, tested on Q3 2026: **59.0%** at the primary threshold, 95% CI [52.3%, 65.5%] (Section 9.1). Retired model (test 2026-05-11 to 05-31): 48.6%, and 99.0% on a 15%-failure test set, the published convention (Section 10.7). The agent's policy on the quarter-aligned model: 39.3% at cordon and above when failures within 60 days are counted (Section 10.4). The gap to the specification is set by the fleet's failure rate (Section 13.1) |
-| Prediction recall | 35-50% (later at least 10%) | **Not met at the stated precision.** Current model on Q3: 12.5% at the primary threshold, but at 59% precision, not 90%; 37.7% recall at 41.7% precision (top 1,000 drives); 60.9% at the warn level (17.3% precision). Retired model: 8.7% at the primary threshold; 33.3% at 29.5% precision |
+| Prediction precision, per drive, real fleet | 95% in the original specification, later 90%, and 68% on the stacked cascade since 2026-11-10 | **Not met.** Current model, tested on Q3 2026: **59.0%** at the primary threshold, 95% CI [52.3%, 65.5%] (Section 9.1). Retired model (test 2026-05-11 to 05-31): 48.6%, and 99.0% on a 15%-failure test set, the published convention (Section 10.7). The agent's policy on the quarter-aligned model: 39.3% at cordon and above when failures within 60 days are counted (Section 10.4). On the chronological split, against the 68% goal: 59.9% [52.5%, 66.3%] for the LightGBM two-stage and 55.4% for the stack at 16.2% recall, and about 52% on validation, so not met (Section 9.9). The gap to the specification is set by the fleet's failure rate (Section 13.1) |
+| Prediction recall | 35-50% (later at least 10%) | **Not met at the stated precision.** Current model on Q3: 12.5% at the primary threshold, but at 59% precision, not 90%; 37.7% recall at 41.7% precision (top 1,000 drives); 60.9% at the warn level (17.3% precision). Retired model: 8.7% at the primary threshold; 33.3% at 29.5% precision. Chronological split: 13.3% at the primary threshold (59.9% precision) |
 | All four action tiers usable on the trained model | yes | **Partly.** Warn (17.3% precision, 60.9% recall on Q3) and cordon (34.8%, 42.4%) operate. Migrate and drain share one cutoff and flag 6 drives in the 62-day Q3 test window, because their lift targets convert to 89% and 133% precision at the validation failure rate: migrate's is met only at the very top of the validation curve (2 drives) and drain's not at all (Sections 6.3, 9.2) |
 | Pipeline runs on real fleet data within a memory cap | 20 GB | **Met.** Four quarters ingested (Q4 2025 to Q3 2026); 93.5 million drive-days in the three-quarter run |
 | Guardrail evaluation latency | under 500 ms | **Met** in test: every one of 2,000 evaluations under the budget |
@@ -172,7 +185,8 @@ whether a system can act safely on predictions that are uncertain.
 | An agent figure that can be quoted | measured point-in-time | **Met.** 23.4% precision at 29.3% recall at cordon and above, pooled over nine weekly snapshots (Sections 7.3, 10.5) |
 | Failures among false alarms over a longer horizon | measured | **Met.** 19.2% of the alerts the 30-day label counts as false went on to fail (Section 10.4) |
 | Second data source (SMART-Z) | evaluated | **Ready, pending data.** Supported in code, with a split reserved for it |
-| A final period held back from every modelling choice | yes | **Not met since 2026-11-06.** Q3 2026 was sealed; its single-shot evaluation was skipped by decision and it became the test set of the Q1+Q2 -> Q3 runs (runbook 1.1.4). No untouched period remains until new data arrives |
+| A final period held back from every modelling choice | yes | **Not met since 2026-11-06.** Q3 2026 was sealed; its single-shot evaluation was skipped by decision and it became the test set of the Q1+Q2 -> Q3 runs (runbook 1.1.4). No untouched period remains until new data arrives; 146 test looks are logged (Section 14) |
+| Train, validation and test kept strictly separate | yes | **Met on the chronological split.** A 30-day gap at each boundary, feature statistics from training rows only, and checks that fail the run (`make check-splits`, 27 unit tests). The earlier splits were not strict (Section 7.4) |
 
 ---
 
@@ -331,6 +345,24 @@ validation holdout, so validation is a drive holdout over the training period
 rather than a later window. The test set, Q3 2026, is strictly later than
 every training and validation row, and thresholds chosen on that validation
 carried to it: drive-level AUROC 0.922 on validation and 0.926 on test.
+
+Since 2026-11-10 a third design is the configured one, a chronological split with gaps (Section 7.4). Rows are
+separated by date only, with a gap of one label horizon (30 days) at each boundary and no drive holdout; the
+Q4 2025 rows are feature history only. Failing drives are those with any positive 30-day label in the window.
+
+| Split | Row dates | Drives | Failing drives | Rule |
+|---|---|---|---|---|
+| Train | 2026-01-01 to 04-20 | 353,011 | 2,018 | stops 30 days before the training cut-off (05-20) |
+| Gap | 04-21 to 05-20 | | | training labels resolve; no row used |
+| Validation | 2026-05-21 to 06-16 | 356,811 | 684 | only days after the training cut-off |
+| Gap | 06-17 to 07-16 | | | validation labels resolve; no row used |
+| Test | 2026-07-17 to 08-31 | 368,124 | 864 | ends 30 days before the data does |
+
+![The two split designs on one date axis](figures/chrono_split/chrono_split_timeline.png)
+
+*Figure 30. The drive-holdout design of the current model (train and validation share 2026-01-01 to 05-01, as 80%
+and 20% of drives; 60 days unused; test Q3) against the chronological design (30-day gaps, hatched, at each
+boundary; counts are failing test or validation drives).*
 
 ---
 
@@ -581,6 +613,29 @@ The point-in-time design that replaced it (`make agent-pit`) scores every drive
 reporting on a fixed date, judges it on the label at that date, and consults no
 maturity label. Its results are in Section 10.5. The mechanism is pinned by
 `tests/unit/test_maturity_lookahead.py`.
+
+### 7.4 A sixth correction: validation labels reached into the test period
+
+The split rules of Section 4.3 purge the 30 days before the training cut-off, so training labels never run into
+validation. Nothing did the same between validation and test. In the quarter-aligned window validation ended on
+03-31 and test began on 04-01, so the labels of the last 30 days of validation, which look 30 days ahead, were
+decided inside the test period. Counting over every drive with a validation-window row, 615 of the 1,124 failing
+drives (55%) failed on or after 04-01, and they are 41.6% of the 1,479 failing drives of that test window.
+Thresholds and blend weights fitted on those validation labels used outcomes the test then scored. How far this
+moved the figures of Section 10.6 was **not measured**, since that needs a re-run of the window; only the extent of
+the overlap is known. A second leak was smaller: the fleet-wide feature statistics (model-family z-scores, expected
+SMART attributes) were computed on every row before the sealed window, which includes validation.
+
+The drive-holdout design of the current model avoids both by construction: validation shares the training dates,
+and 60 days stay unused before Q3. The chronological split of Section 9.9 closes them by rule.
+`splits.test_embargo_days` keeps test rows more than one horizon after validation ends,
+`splits.feature_stats_end` stops the feature statistics at the last training row, `splits.strict_separation` makes
+`make train` run the checks first, and `make check-splits` runs them on demand (`src/labels/split_checks.py`, 27
+unit tests). The checks fail the run if the purge or the holdout flag is wrong, if the embargo or the statistics
+cutoff is shorter than the horizon allows, or if any role's first row falls within one horizon of the previous
+role's last row in the label table. They are off for the drive-holdout design, which shares dates by construction.
+Only one safeguard is still missing: a frozen record of thresholds and model hashes committed before the test
+scorer runs.
 
 ---
 
@@ -1025,6 +1080,10 @@ written before the runs (`docs/q3_horizon_and_cascade_run.md`); every read of
 the test set is in the access log. Sources: runbook Sections 1.1.4, 1.1.5, 1.1.6
 and 1.9.
 
+Sections 9.1 to 9.8 describe this drive-holdout run. Section 9.9 describes the chronological split run of
+2026-11-10 (frozen run `6ea7a5bcfb954deeb4a4208e4d802744`), which has been the latest 30-day training run since,
+so `score-fleet` and the agent load it by default; no one chose that.
+
 ### 9.1 Headline results
 
 | Test, Q3 2026 | 30-day (current) | 44-day | 60-day |
@@ -1239,6 +1298,100 @@ clusters remain a useful description and a watch list (C3 is 12% of suspects and
 and cluster-policy operating points. The cluster policy's points sit on or
 below the curve, where a plain threshold would do as well.*
 
+### 9.9 The chronological split run
+
+The chronological split of Section 4.3 was run on 2026-11-10 (runbook Section 1.1.9) to test one explanation for
+the missing precision: that validation and test sat at failure rates a factor of two apart (0.59% and 0.30%), so a
+threshold tuned for a precision goal on validation could not hold on test. Here they sit at 0.19% and 0.23%.
+Everything below is per drive, 30-day horizon, on the 46-day test period (864 failing and 367,260 healthy drives).
+
+**The goal is not met, on validation or on test.**
+
+| At a glance (test) | Precision | Recall | Caught | False alarms |
+|---|---|---|---|---|
+| Stage 1 net (cutoff 0.1431) | 2.2% | 85.0% | 734 | 32,579 |
+| LightGBM two-stage, primary threshold (frozen run) | 59.9% [52.5, 66.3] | 13.3% [11.1, 15.6] | 115 | 77 |
+| Stack, the 10% recall level (mean of 3 seeds) | 55.4% | 16.2% | 140 | 113 |
+| **The goal** | **68%** | **>= 10%** | | |
+
+**Stage 1 works as designed.** The net is the validation threshold that keeps 80% of failing validation drives. It
+keeps 80.3% of them (549 of 684) at 2.13% precision and 85.0% of the test drives (734 of 864) at 2.20%, passing 7.2%
+and 9.0% of the fleet to Stage 2.
+
+**The LightGBM two-stage model** (339-tree Stage 1, 103-tree Stage 2). The primary threshold is the
+highest-recall validation threshold with precision of at least 68% and recall of at least 10%; none exists, so the
+report fell back to the highest-precision threshold with recall of at least 10%: 51.5% at 10.2% on validation, 59.9%
+at 13.3% on test (AUROC 0.906 and 0.923). Stage 2 adds 5.1 points of precision over Stage 1 alone at that recall [0.9,
+9.4]. All four action tiers fire, unlike on the drive-holdout model, because the lift targets now convert at 0.19%
+to precision targets of 10.9%, 18.1%, 28.9% and 43.4%:
+
+| Tier (test) | Precision | Recall | Caught | False alarms | Flagged |
+|---|---|---|---|---|---|
+| Warn | 10.8% | 65.2% | 563 | 4,661 | 5,224 |
+| Cordon | 18.1% | 56.1% | 485 | 2,192 | 2,677 |
+| Migrate | 28.0% | 44.4% | 384 | 987 | 1,371 |
+| Drain | 52.4% | 20.4% | 176 | 160 | 336 |
+| Primary | 59.9% | 13.3% | 115 | 77 | 192 |
+
+**The Stage 2 variants**, on the same Stage 1 net: a LightGBM Stage 2, a Cox Stage 2 and a rank-blend stack of the
+two, mean of three seeds, thresholds set on validation for each recall level. Each cell is precision / recall
+(drives caught / false alarms):
+
+| Recall level | Stage 1 alone | LightGBM Stage 2 | Cox Stage 2 | Stack |
+|---|---|---|---|---|
+| 5% | 57.3% / 8.7% (75 / 55) | 62.1% / 8.3% (72 / 43) | 61.1% / 9.3% (80 / 51) | 64.0% / 8.3% (71 / 40) |
+| **10%** | 55.8% / 13.0% (112 / 89) | 56.8% / 13.7% (118 / 89) | 52.6% / 17.6% (152 / 137) | 55.4% / 16.2% (140 / 113) |
+| 20% | 44.3% / 26.0% (225 / 283) | 44.6% / 25.6% (221 / 275) | 45.2% / 26.5% (229 / 277) | 46.7% / 25.9% (224 / 256) |
+| 35% | 31.5% / 42.0% (363 / 788) | 30.9% / 41.0% (355 / 794) | 32.5% / 41.0% (355 / 738) | 32.0% / 41.4% (357 / 762) |
+
+![Precision against recall of Stage 1 and the three Stage 2 variants on the test period, with the goal region](figures/chrono_split/chrono_precision_recall.png)
+
+*Figure 31. Test precision against recall for Stage 1 alone and the LightGBM, Cox and stack Stage 2 at each recall
+level (mean of three seeds), with the goal region (precision of at least 68% at recall of at least 10%) shaded; right,
+a zoom on recall 0 to 30%. The curves coincide above about 30% recall, and none enters the goal region.*
+
+![Precision at the 10% recall level on validation and on test, per Stage 2 variant](figures/chrono_split/chrono_goal_validation_vs_test.png)
+
+*Figure 32. Precision at the 10% recall level on validation and on test for each Stage 2 variant: the mean of three
+seeds, with each seed as a dot. The goal fails on validation as well as on test.*
+
+![Failing test drives isolated by each stage, as counts and shares](figures/chrono_split/chrono_true_positives_isolated.png)
+
+*Figure 33. Failing test drives isolated by the Stage 1 net (735 of 864) and flagged by Stage 1 alone, the LightGBM
+and Cox Stage 2 and the stack at the 10, 20 and 35% recall levels, as counts (bottom axis) and shares (top axis). At
+the 10% level the stack flags 140, Cox 152, LightGBM 118 and Stage 1 alone 112; from the 20% level up the four are
+within about 4% of each other.*
+
+![Base rate and precision at the primary threshold, validation against test, for the two split designs](figures/chrono_split/chrono_base_rate_transfer.png)
+
+*Figure 34. Base rate (left) and precision at the primary threshold (right), validation against test, for the
+drive-holdout split and the chronological split. Validation no longer overstates test.*
+
+**The stack and its members are frozen for each of the three seeds** (`frozen_runs/stack_chrono_h30_seed{0,1,2}`),
+refitted on validation rows only, each reproducing the experiment's report in 14 of 14 checks. They are separate fits
+from the `make train` models:
+
+| Seed | Stage 1 trees | LightGBM / Cox Stage 2 trees | Blend weights (LightGBM / Cox) | Validation primary: stack P / R | Test, 10% level: stack P / R |
+|---|---|---|---|---|---|
+| 0 | 396 | 142 / 272 | 0.6 / 0.4 | 52.8% / 12.6% | 58.6% / 16.2% |
+| 1 | 401 | 354 / 355 | 0.4 / 0.6 | 52.8% / 11.1% | 50.6% / 14.1% |
+| 2 | 400 | 199 / 268 | 0.3 / 0.7 | 51.8% / 12.7% | 57.0% / 18.4% |
+
+What the run shows:
+
+- **Strict separation did not move the result.** Test AUROC is 0.923 against 0.926, and the LightGBM two-stage gives
+  59.9% at 13.3% against 59.0% at 12.5% on the drive-holdout split.
+- **The base-rate mismatch is fixed, and it was not what kept the goal out of reach.** Validation no longer overstates
+  test (51.5% against 59.9%), so a threshold tuned on validation transfers. But no threshold at 10% recall or more
+  gets near 68% on validation either.
+- **The stack does not help at the goal's operating point.** At the 10% level it is 1.4 points below the LightGBM Stage 2,
+  with no seed's interval excluding zero; across seeds its test precision runs from 50.6% to 58.6%.
+- **In counts**, at the 10% level every model flags 200 to 290 drives and catches 112 to 152 of the 864 failing drives.
+  To reach 68% with the same 140 caught, the stack would have to flag about 206 drives, 66 of them false alarms,
+  against 113 now.
+- **Limits.** Three seeds, one test period of 46 days, and Q3 is not a fresh test (146 logged looks). A recall of 10% to
+  18% rests on about 110 to 150 caught drives.
+
 ---
 
 ## 10. How the design was reached
@@ -1252,7 +1405,9 @@ measured point-in-time, the quarter-aligned run, and the retired model of
 record. Three test windows appear, each labelled where it is used: 2026-05-11
 to 05-31 (21 days, 621 failing drives) for the retired model of Sections 10.7 to
 10.9; April and May 2026 (1,479 failing drives) for Sections 10.2 to 10.6; and
-Q3 2026 for the last runs of Section 10.1.
+Q3 2026 for the last runs of Section 10.1. Section 10.10, the newest entry, is the
+redesign of the split of 2026-11-10; it and Section 9.9 use the 46-day test period
+07-17 to 08-31, inside Q3.
 
 ### 10.1 The frozen runs in order: from precision to coverage
 
@@ -1717,6 +1872,32 @@ could have been anything stronger than Cordon, because the feature-
 confidence floor was unreachable fleet-wide at the time they were scored.
 The current, fixed pipeline has not yet re-scored the fleet.
 
+### 10.10 Redesigning the split (2026-11-10)
+
+Two things led to it. The goal had become a precision target, and Section 9.3 showed that a threshold tuned on the
+drive-holdout validation (0.59% failing) read 15 to 20 points higher than on test (0.30%). And a check of the
+quarter-aligned window found its missing validation-to-test gap (Section 7.4).
+
+Layouts were counted from the 30-day label table before one was chosen (failing drives per period):
+
+| Layout | Train | Validation | Test | Verdict |
+|---|---|---|---|---|
+| A plain 50/5/45 split of Q1 and Q2 | to 03-31 | 04-01 to 04-09 | 04-10 to 06-30 | rejected: the labels of each period run into the next |
+| The strict version of that | 01-01 to 03-01 (974) | 04-01 to 04-09 (777) | 05-10 to 06-30 (1,070; 636 if labels stop at 05-31) | half the training (974 against 2,018 failing drives) and a nine-day validation |
+| **Chosen** | 01-01 to 04-20 (2,018) | 05-21 to 06-16 (684) | 07-17 to 08-31 (864) | the split of Section 4.3 |
+| A longer training period | 01-01 to 04-30 (2,158) | 05-31 to 06-30 (755) | 07-31 to 08-31 (684) | a smaller test for a slightly larger train |
+
+The chosen layout puts validation and test at 0.19% and 0.23% of drives and leaves 684 and 864 failing drives
+in them. The 44- and 60-day horizons do not fit it: gaps of 44 and 60 days leave tests of 35 and 23 days
+and training of 8 to 12 weeks, so the horizon comparison of Section 9.4 stands as it was run, on the drive-holdout
+design. Q3 is not fresh either way: 139 test looks had been logged, and the first Q4 2026 download is the only fully
+clean test.
+
+It was built and run the same day: the settings, the checks and their tests, then the rebuild of the features and
+labels, `make train`, the Stage 2 experiment, the freezing of the run and of three seeds' stacks. The first four
+steps took 77 minutes (the estimate from the earlier logs had been about two hours). The experiment was run a second
+time to save the models it fits; it reproduced the first run to 2e-8, and the three seeds' stacks are tracked.
+
 ---
 
 ## 11. What was tried
@@ -1858,6 +2039,13 @@ rise in their last 30 days with complete telemetry (Section 9.5). That caps
 recall near 80%, and at 70% recall precision is about 12%, so a high-precision
 target in that band is several times beyond what this telemetry supports.
 
+The chronological run (Section 9.9) tested one more explanation, that validation and test sat at failure rates
+a factor of two apart. With the two at 0.19% and 0.23% the goal still fails on validation itself (about 52% for
+the stack at 10% recall), the ranking is the same (AUROC 0.923 against 0.926), and at 10% recall every model
+flags 200 to 290 drives to catch 112 to 152 failing ones. To reach 68% the stack would have to flag about 206
+drives, 66 of them false alarms, for the same 140 caught, against 113. Moving the split moved the figures a few
+points and the ceiling not at all.
+
 ### 13.2 What did help, and why
 
 Lengthening the horizon from 14 to 30 days helped because the model was being
@@ -1967,7 +2155,18 @@ same claim, and this project had, for a time, only checked the first one.
   there is no further untouched period.
 - **Q3 is now a test set that has been read many times** (three training runs,
   the horizon comparison, the cascade, the stack, the deep dive and the cluster
-  policy). The stack and the 0.8 net are leads, not confirmed gains.
+  policy). The stack and the 0.8 net are leads, not confirmed gains. 146 test looks are
+  logged in all, 139 before the chronological run.
+- **The chronological split run is small and short.** Three seeds, a 46-day test period with 864 failing drives, and
+  a recall of 10% to 18% that rests on about 110 to 150 caught drives. The stack's test precision at the 10% level runs
+  from 50.6% to 58.6% across seeds, as wide as the gap between models. It is the only run under strict separation;
+  the 44- and 60-day horizons, the merged approach and a comparison at a matched false-alarm rate were not run on it.
+- **Which 30-day model the code loads was not decided.** `score-fleet` and the agent take the latest training run for
+  the horizon, which is now the chronological run (`6ea7a5bc`), not `c459046e`; the stack is frozen for three seeds
+  that are separate fits, and one safeguard is missing, a frozen record of thresholds and hashes before the test
+  scorer runs (Section 7.4).
+- **The knowledge store and the point-in-time validation scripts were not adapted** to the chronological split; they
+  were built on drive-holdout validation drives, and their validation split is now a later period of all drives.
 - **A fifth of failing drives are invisible to daily SMART.** 98.6% of the drives
   Stage 1 never passes show no counter rise in their last 30 days, so recall has
   a ceiling that no model on this telemetry removes (Section 9.5).
@@ -2050,6 +2249,14 @@ same claim, and this project had, for a time, only checked the first one.
 11. Raise the "expected attribute" coverage threshold in `model_expected_attributes`
    past 50%, which currently still under-serves a small set of SSD/laptop
    drive models (ADR 0002).
+12. Score the next quarter once, under the chronological split, as the first fully untouched test (Q4 2026 data
+   is needed); until then every Q3 figure is a held-out one, not a prospective one.
+13. Pin the model run that `score-fleet` and the agent load, so that training a new run no longer changes it
+   silently, and decide which of the three frozen seeds, if any, the agent should use.
+14. Build the missing safeguard of Section 7.4: thresholds, blend weights and model hashes committed before the
+   test scorer runs, with the access log counting every look.
+15. Adapt the knowledge store and the point-in-time validation scripts to a chronological validation period, and
+   repeat the horizon comparison under strict separation with gaps sized to each horizon.
 
 ---
 
@@ -2075,6 +2282,12 @@ and the second stage, which added about 5 points on five-seed evidence, not
 confirmed by a paired test; that model reached 48.6%, and its
 alerts were about 277 times more likely than chance to be right and 99% precise
 on a test set with the failure share of published work.
+
+A stricter split gave the same answer. With 30-day gaps between training, validation and test, validation and test
+at nearly the same failure rate, and nothing fitted on an earlier period able to see a later one, the precision goal
+of 68% at 10% recall still fails on validation (about 52%) and on test (59.9% at 13.3% for the LightGBM two-stage, 55.4% at
+16.2% for the stack of LightGBM and Cox Stage 2 models). The gap between validation and test that had hidden behind a
+factor of two in failure rate is gone, and the ceiling is where it was.
 
 Much of what the 30-day label counts as error is early warning. Followed for a
 longer horizon, a fifth of the agent's "false alarms" were on drives that went
@@ -2179,6 +2392,21 @@ and the rest are copies of the frozen run's `figures/` folder,
 and the horizon, cascade and stack outputs; its README maps each copy to its
 source. The source folders are tracked.
 
+The chronological split run of Section 9.9 (runbook Section 1.1.9), the configured design since 2026-11-10. This
+replaces `data/gold/`, which the drive-holdout design also reads (back it up first, or restore the values in the
+comment of `configs/model.yaml` `splits` to return to that design):
+
+```bash
+make chrono-run               # everything below, one log per step in data/audit/chrono_logs/ (about 95 minutes)
+make chrono-data              # build-features, build-labels, check-splits (must print OK)
+make chrono-train             # Stage 1 and LightGBM Stage 2, 30 days, tag chrono_h30; prints work_dir_kept
+make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # LightGBM, Cox and stack Stage 2; saves each seed's stack
+make chrono-freeze CHRONO_WORK_DIR=data/tmp/train_model_frame_<id> CHRONO_SEED=<0|1|2>   # freeze one seed's stack
+make plot-chrono-split        # Figures 30 to 34, from the saved results
+```
+
+Figures 30 to 34 are in `docs/figures/chrono_split/` (its README maps each to its source).
+
 Model comparisons, on arrays kept from a training run:
 
 ```bash
@@ -2229,6 +2457,8 @@ section 1.1 is the record for it.
 | Horizon | 30 days |
 | Splits, frozen run | training rows the first 75 days of Q1 and Q2 2026, validation the 25 days after the 30-day purge, test the following 21 days |
 | Splits, quarter-aligned run | training rows the first 107 days of Q4 2025 to Q2 2026, validation the last 45 days of Q1, test the first 61 days of Q2 |
+| Splits, chronological run (configured since 2026-11-10) | train rows 2026-01-01 to 04-20, validation 05-21 to 06-16, test 07-17 to 08-31, a 30-day gap at each boundary, no drive holdout, feature statistics from rows before 04-21 |
+| Latest 30-day run | frozen run `6ea7a5bc` (the chronological run): 339 Stage 1 and 103 Stage 2 trees, candidate cutoff 0.1431, primary 0.943; the stack is frozen as `frozen_runs/stack_chrono_h30_seed{0,1,2}` |
 | Sealed window | Q3 2026 until 2026-11-06, now a test set; nothing is sealed at present |
 | Current model | frozen run `c459046e`: 30-day two-stage LightGBM, 246 features, 80% of drives trained on 2026-01-01 to 05-01, tested on Q3 2026; 310 Stage 1 and 74 Stage 2 trees |
 | Current model, thresholds | Stage 1 candidate cutoff 0.235 (net 0.8); primary 0.919; warn 0.653; cordon 0.836; migrate and drain share 0.926 (Section 9.2) |
@@ -2247,6 +2477,7 @@ section 1.1 is the record for it.
 |---|---|
 | Short overview | `docs/system_summary.md` |
 | Every measured result and the run history | `docs/model_status_and_runbook.md` |
+| The chronological split: design, run and result | runbook Sections 1.1.8 and 1.1.9, `docs/dataset_strategy.md` Section 9.5, `frozen_runs/README.md` |
 | The attribute screen and the confidence-floor bug, in full | `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md` |
 | Features and the reasons for them | `docs/feature_engineering.md` |
 | Commands and options | `docs/pipeline_usage.md` |
