@@ -2,8 +2,8 @@
 
 Five figures, drawn from files the run already wrote (no model is scored, no test row is read):
 
-- `chrono_split_timeline.png`: the drive-holdout design of sections 1.1.4 to 1.1.7 against the
-  chronological split with gaps, on one date axis. Dates and failing-drive counts are the ones
+- `chrono_split_timeline.png`: the chronological split with gaps (runbook 1.1.9) on a date
+  axis. Dates and failing-drive counts are the ones
   in runbook 1.1.8 / 1.1.9 (counted from the 30-day label table on 2026-11-10).
 - `chrono_precision_recall.png`: precision against recall at the recall levels of
   `data/audit/stack_chrono_h30/tables.md` (test, drive level, mean of 3 seeds) for Stage 1 alone,
@@ -75,68 +75,37 @@ def _span(ax: plt.Axes, y: float, h: float, start: dt.date, end: dt.date, **kw) 
 
 
 def timeline(path: Path) -> None:
-    fig, ax = plt.subplots(figsize=(10.5, 3.9))
+    fig, ax = plt.subplots(figsize=(10.5, 2.9))
     _style(ax)
     ax.grid(axis="y", visible=False)
     ax.grid(axis="x", color=GRID, linewidth=1)
 
-    def hatched(y, h, start, end):
-        _span(ax, y, h, start, end, color=UNUSED, hatch="////", edgecolor=SURFACE)
+    def hatched(start, end):
+        _span(ax, 0, 0.5, start, end, color=UNUSED, hatch="////", edgecolor=SURFACE)
 
-    # Row 1: the drive-holdout design. Train and validation share dates (different drives).
-    y1 = 1.0
-    _span(ax, y1 + 0.13, 0.22, D(2026, 1, 1), D(2026, 5, 1), color=BLUE)
-    _span(ax, y1 - 0.13, 0.22, D(2026, 1, 1), D(2026, 5, 1), color=ORANGE)
-    hatched(y1, 0.5, D(2026, 5, 2), D(2026, 6, 30))
-    _span(ax, y1, 0.5, D(2026, 7, 1), D(2026, 8, 31), color=AQUA)
-    hatched(y1, 0.5, D(2026, 9, 1), D(2026, 9, 30))
-    ax.text(
-        D(2026, 1, 3), y1 + 0.13, "train: 80% of drives", va="center", fontsize=8.5, color="white"
-    )
-    ax.text(
-        D(2026, 1, 3),
-        y1 - 0.13,
-        "validation: other 20% of drives",
-        va="center",
-        fontsize=8.5,
-        color="white",
-    )
-    ax.text(D(2026, 6, 1), y1, "unused", ha="center", va="center", fontsize=8.5, color=INK_2)
-    ax.text(
-        D(2026, 8, 1),
-        y1,
-        "test: 1,105 failing",
-        ha="center",
-        va="center",
-        fontsize=8.5,
-        color="white",
-    )
-
-    # Row 2: the chronological split with gaps.
-    y2 = 0.0
-    _span(ax, y2, 0.5, D(2026, 1, 1), D(2026, 4, 20), color=BLUE)
-    hatched(y2, 0.5, D(2026, 4, 21), D(2026, 5, 20))
-    _span(ax, y2, 0.5, D(2026, 5, 21), D(2026, 6, 16), color=ORANGE)
-    hatched(y2, 0.5, D(2026, 6, 17), D(2026, 7, 16))
-    _span(ax, y2, 0.5, D(2026, 7, 17), D(2026, 8, 31), color=AQUA)
-    hatched(y2, 0.5, D(2026, 9, 1), D(2026, 9, 30))
+    _span(ax, 0, 0.5, D(2026, 1, 1), D(2026, 4, 20), color=BLUE)
+    hatched(D(2026, 4, 21), D(2026, 5, 20))
+    _span(ax, 0, 0.5, D(2026, 5, 21), D(2026, 6, 16), color=ORANGE)
+    hatched(D(2026, 6, 17), D(2026, 7, 16))
+    _span(ax, 0, 0.5, D(2026, 7, 17), D(2026, 8, 31), color=AQUA)
+    hatched(D(2026, 9, 1), D(2026, 9, 30))
     ax.text(
         D(2026, 3, 1),
-        y2,
+        0,
         "train: 2,018 failing",
         ha="center",
         va="center",
         fontsize=8.5,
         color="white",
     )
-    ax.text(D(2026, 5, 5), y2, "gap\n30 d", ha="center", va="center", fontsize=8, color=INK_2)
+    ax.text(D(2026, 5, 5), 0, "gap\n30 d", ha="center", va="center", fontsize=8, color=INK_2)
     ax.text(
-        D(2026, 6, 3), y2, "validation\n684", ha="center", va="center", fontsize=8, color="white"
+        D(2026, 6, 3), 0, "validation\n684", ha="center", va="center", fontsize=8, color="white"
     )
-    ax.text(D(2026, 7, 2), y2, "gap\n30 d", ha="center", va="center", fontsize=8, color=INK_2)
+    ax.text(D(2026, 7, 2), 0, "gap\n30 d", ha="center", va="center", fontsize=8, color=INK_2)
     ax.text(
         D(2026, 8, 8),
-        y2,
+        0,
         "test: 864 failing",
         ha="center",
         va="center",
@@ -149,26 +118,15 @@ def timeline(path: Path) -> None:
     ):
         ax.plot([day, day], [-0.28, -0.42], color=INK_2, linewidth=1)
         ax.text(day, -0.46, label, ha=align, va="top", fontsize=7.5, color=INK_2)
-
-    ax.text(
-        D(2026, 9, 15), y1 + 0.38, "no 30-day label yet", ha="center", fontsize=7.5, color=INK_2
-    )
-    ax.set_yticks([y1, y2])
-    ax.set_yticklabels(
-        [
-            "Drive holdout\n(runbook 1.1.4 to 1.1.7)",
-            "Chronological with gaps\n(config since 2026-11-10)",
-        ],
-        fontsize=9,
-        color=INK,
-    )
-    ax.set_ylim(-0.75, 1.55)
+    ax.text(D(2026, 9, 15), 0.32, "no 30-day label yet", ha="center", fontsize=7.5, color=INK_2)
+    ax.set_yticks([])
+    ax.set_ylim(-0.75, 0.6)
     ax.set_xlim(D(2026, 1, 1), D(2026, 9, 30))
     ax.set_xlabel("Row date, 2026 (Q4 2025 is feature history only)", fontsize=9, color=INK_2)
     ax.xaxis.set_major_locator(mdates.MonthLocator())
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
     ax.set_title(
-        "Two ways to split Q1 to Q3 2026: drive holdout, and chronological with 30-day gaps",
+        "Chronological split with 30-day gaps (runbook 1.1.9)",
         loc="left",
         fontsize=11,
         color=INK,
@@ -182,7 +140,7 @@ def timeline(path: Path) -> None:
             Patch(facecolor=UNUSED, hatch="////", edgecolor=SURFACE, label="no row used"),
         ],
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.12),
+        bbox_to_anchor=(0.5, -0.22),
         ncol=4,
         frameon=False,
         fontsize=9,

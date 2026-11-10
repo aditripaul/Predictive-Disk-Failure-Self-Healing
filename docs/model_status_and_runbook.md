@@ -1219,7 +1219,7 @@ failing drives at 30 days), and continuity with every frozen run.
 
 #### The alternative: a chronological split with gaps (the config since 2026-11-10; run in Section 1.1.9)
 
-![The two split designs on one date axis: drive holdout against chronological with 30-day gaps](figures/chrono_split/chrono_split_timeline.png)
+![The chronological split with 30-day gaps on a date axis: train, gap, validation, gap, test](figures/chrono_split/chrono_split_timeline.png)
 
 Train, validation and test are consecutive periods, with a gap of one label horizon at each
 boundary. A row's 30-day label is decided by events up to 30 days later, so a boundary is clean only
@@ -1355,7 +1355,7 @@ training and no test row was read by any freeze.
 Row dates; a row's 30-day label looks 30 days ahead. Failing drives are drives with any positive 30-day
 label in the window, counted from the label table on 2026-11-10.
 
-![The two split designs on one date axis: drive holdout against chronological with 30-day gaps](figures/chrono_split/chrono_split_timeline.png)
+![The chronological split with 30-day gaps on a date axis: train, gap, validation, gap, test](figures/chrono_split/chrono_split_timeline.png)
 
 | Role | Row dates | Days | Drives | Failing drives | Used for |
 |---|---|---|---|---|---|
@@ -1677,7 +1677,7 @@ those rows. They are not evidence of performance; the validation and test figure
 
 | Precision-recall (train, in-sample) | Confusion matrices (train, in-sample) |
 |---|---|
-| ![Chronological run: train precision-recall (in-sample)](../frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/figures/train_precision_recall.png) | ![Chronological run: train confusion matrices (in-sample)](../frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/figures/train_confusion.png) |
+| ![Chronological run: train precision-recall (in-sample)](figures/chrono_split/model_h30_chrono_train_precision_recall.png) | ![Chronological run: train confusion matrices (in-sample)](figures/chrono_split/model_h30_chrono_train_confusion.png) |
 
 ##### What it shows
 

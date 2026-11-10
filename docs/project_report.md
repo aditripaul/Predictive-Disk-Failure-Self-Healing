@@ -359,7 +359,7 @@ Q4 2025 rows are feature history only. Failing drives are those with any positiv
 | Gap | 06-17 to 07-16 | | | validation labels resolve; no row used |
 | Test | 2026-07-17 to 08-31 | 368,124 | 864 | ends 30 days before the data does |
 
-![The two split designs on one date axis](figures/chrono_split/chrono_split_timeline.png)
+![The chronological split with 30-day gaps on a date axis: train, gap, validation, gap, test](figures/chrono_split/chrono_split_timeline.png)
 
 *Figure 30. The drive-holdout design of the previous model (train and validation share 2026-01-01 to 05-01, as 80%
 and 20% of drives; 60 days unused; test Q3) against the chronological design (30-day gaps, hatched, at each

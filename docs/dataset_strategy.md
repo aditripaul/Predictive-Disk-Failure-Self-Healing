@@ -668,7 +668,7 @@ Section 9.1 is the principle; this is what was run. Dates are row dates; a row's
 | Drive holdout, Q3 test (runs of 2026-11-06 to 11-07; frozen run `c459046e`) | 80% of drives, 01-01 to 05-01 | the other 20% of drives, same dates | Q3 from 07-01, to 08-31 / 08-17 / 08-01 for 30 / 44 / 60 days | none needed between train and validation; 60 days left unused before Q3 | runbook 1.1.4 to 1.1.7 |
 | **Chronological with gaps (the config since 2026-11-10; run 2026-11-10, goal not met)** | 01-01 to 04-20 | 05-21 to 06-16 | 07-17 to 08-31 | 30-day gap at both boundaries | runbook 1.1.8 |
 
-![The two split designs on one date axis: drive holdout against chronological with 30-day gaps](figures/chrono_split/chrono_split_timeline.png)
+![The chronological split with 30-day gaps on a date axis: train, gap, validation, gap, test](figures/chrono_split/chrono_split_timeline.png)
 
 **The rules a split must satisfy to keep its parts separate**
 
