@@ -1516,19 +1516,21 @@ The tiers' thresholds are not frozen into a scorer; they are in
 ##### Stage 2 variants: LightGBM, Cox and their stack
 
 The same Stage 1 net with a LightGBM Stage 2, a Cox Stage 2 (survival, on censored time to failure) and a
-rank-blend stack of the two, as in Section 1.1.4a. Test, per drive, mean of 3 seeds; each level's threshold
-is set on validation for that recall; "P / R" is precision / recall.
+rank-blend stack of the two, as in Section 1.1.4a. Test, per drive (864 failing and 367,260 healthy drives), mean of
+3 seeds; each level's threshold is set on validation for that recall. Each cell reads precision / recall (drives
+caught / false alarms, where a false alarm is a healthy drive flagged and flagged is caught plus false alarms; the
+counts are means over the seeds, rounded).
 
-| Recall level | Stage 1 alone (P / R) | LightGBM Stage 2 | Cox Stage 2 | Stack (LightGBM + Cox) | False alarms: Stage 1 / stack |
-|---|---|---|---|---|---|
-| 5% | 57.3% / 8.7% | 62.1% / 8.3% | 61.1% / 9.3% | 64.0% / 8.3% | 55 / 40 |
-| 10% | 55.8% / 13.0% | 56.8% / 13.7% | 52.6% / 17.6% | 55.4% / 16.2% | 89 / 113 |
-| 20% | 44.3% / 26.0% | 44.6% / 25.6% | 45.2% / 26.5% | 46.7% / 25.9% | 283 / 256 |
-| 35% | 31.5% / 42.0% | 30.9% / 41.0% | 32.5% / 41.0% | 32.0% / 41.4% | 788 / 762 |
-| 50% | 17.4% / 56.8% | 16.9% / 56.1% | 17.8% / 57.3% | 17.3% / 57.1% | 2,338 / 2,354 |
-| 60% | 10.8% / 65.4% | 10.4% / 66.0% | 10.9% / 65.7% | 10.7% / 65.9% | 4,667 / 4,759 |
-| 70% | 5.0% / 74.2% | 5.1% / 74.1% | 5.9% / 74.1% | 5.4% / 74.4% | 12,118 / 11,178 |
-| 80% | 2.1% / 85.1% | 2.2% / 85.0% | 2.1% / 84.8% | 2.1% / 85.0% | 34,143 / 33,658 |
+| Recall level | Stage 1 alone | LightGBM Stage 2 | Cox Stage 2 | Stack (LightGBM + Cox) |
+|---|---|---|---|---|
+| 5% | 57.3% / 8.7% (75 / 55) | 62.1% / 8.3% (72 / 43) | 61.1% / 9.3% (80 / 51) | 64.0% / 8.3% (71 / 40) |
+| 10% | 55.8% / 13.0% (112 / 89) | 56.8% / 13.7% (118 / 89) | 52.6% / 17.6% (152 / 137) | 55.4% / 16.2% (140 / 113) |
+| 20% | 44.3% / 26.0% (225 / 283) | 44.6% / 25.6% (221 / 275) | 45.2% / 26.5% (229 / 277) | 46.7% / 25.9% (224 / 256) |
+| 35% | 31.5% / 42.0% (363 / 788) | 30.9% / 41.0% (355 / 794) | 32.5% / 41.0% (355 / 738) | 32.0% / 41.4% (357 / 762) |
+| 50% | 17.4% / 56.8% (491 / 2,338) | 16.9% / 56.1% (485 / 2,377) | 17.8% / 57.3% (495 / 2,293) | 17.3% / 57.1% (493 / 2,354) |
+| 60% | 10.8% / 65.4% (565 / 4,667) | 10.4% / 66.0% (570 / 4,917) | 10.9% / 65.7% (567 / 4,625) | 10.7% / 65.9% (569 / 4,759) |
+| 70% | 5.0% / 74.2% (641 / 12,118) | 5.1% / 74.1% (640 / 11,847) | 5.9% / 74.1% (640 / 10,315) | 5.4% / 74.4% (643 / 11,178) |
+| 80% | 2.1% / 85.1% (735 / 34,143) | 2.2% / 85.0% (735 / 33,316) | 2.1% / 84.8% (733 / 33,654) | 2.1% / 85.0% (734 / 33,658) |
 
 The four curves coincide above about 30% recall (first figure of this section), because the net sets the
 pool and Stage 2 only re-ranks it. The differences are all at the strict end, in the zoom. At the goal's
