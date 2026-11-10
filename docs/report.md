@@ -2282,7 +2282,12 @@ same claim, and this project had, for a time, only checked the first one.
    (migrate) or not at all (drain), so the destructive tiers flagged 6 drives in the
    62-day Q3 test window (Section 9.3); on the current model they convert to 28.9%
    and 43.4%, the destructive tiers fire (1,371 and 336 drives on test), and the
-   targets are still placeholders.
+   targets are still placeholders. The cost inputs now have a place
+   (`threshold.cost_model`: failure cost, and an action cost and P(save) per
+   action), and `make chrono-cost-tiers` reports what the lift targets imply:
+   on validation they are cost-optimal if a prevented failure is worth about 35
+   warnings, 16-20 cordons, 5-7 migrations and 2-4 drains (runbook 1.9).
+   Confirming or replacing those four numbers is the decision.
 9. Evaluate on the second data set to test generalization across vendors.
 10. Schedule the trust-score resolution and drift checks that currently run
    only on demand.

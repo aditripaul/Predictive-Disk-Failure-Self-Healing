@@ -348,10 +348,14 @@ were still in service when the data ended.
   from one place (`src/models/trained_thresholds.py`) rather than the
   hand-picked cut-offs. The API and `make agent-demo` still run against a
   two-drive demonstration fleet.
-- **No cost model.** Where to put the thresholds is an economic question - a
-  cordon pays when precision x P(save) x C_failure exceeds C_action - and the
-  costs have not been supplied. Until they are, the thresholds are operating
-  points rather than decisions.
+- **No costs supplied.** Where to put the thresholds is an economic question - a
+  cordon pays when precision x P(save) x C_failure exceeds C_action. The
+  machinery exists (`threshold.cost_model` in `configs/model.yaml`, `make
+  chrono-cost-tiers`), but the costs have not been supplied. The current lift
+  tiers implicitly assume a prevented failure is worth about 35 warnings, 16-20
+  cordons, 5-7 migrations and 2-4 drains (runbook Section 1.9). Until operations
+  confirms or replaces those numbers, the thresholds are operating points rather
+  than decisions.
 - **Real actions would censor their own outcomes.** Drain a drive about to
   fail and its label is 0, which teaches the next model the wrong thing. The
   control arm (`control_fraction` in `configs/agent.yaml`) holds back a share

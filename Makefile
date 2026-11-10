@@ -1,4 +1,4 @@
-.PHONY: install lint format install-hooks check-paths check-splits chrono-run chrono-data chrono-train chrono-stack chrono-freeze plot-chrono-split chrono-pit-validation chrono-knowledge chrono-pack-knowledge chrono-unpack-knowledge agent-pit-validation agent-knowledge pack-knowledge unpack-knowledge test test-unit test-integration test-chaos test-golden test-property \
+.PHONY: install lint format install-hooks check-paths check-splits chrono-run chrono-data chrono-train chrono-stack chrono-freeze plot-chrono-split chrono-pit-validation chrono-cost-tiers chrono-knowledge chrono-pack-knowledge chrono-unpack-knowledge agent-pit-validation agent-knowledge pack-knowledge unpack-knowledge test test-unit test-integration test-chaos test-golden test-property \
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
@@ -43,6 +43,7 @@ check-splits:
 #   make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # Stage 2: LightGBM, Cox, stack (about 30 minutes)
 #   make chrono-freeze CHRONO_WORK_DIR=data/tmp/train_model_frame_<id> CHRONO_SEED=<0|1|2>  # freeze that seed's LightGBM, Cox and stack Stage 2 as scorers (validation only)
 #   make chrono-pit-validation                         # the agent's point-in-time baseline on validation, four arms (about 3 minutes)
+#   make chrono-cost-tiers                             # lift against cost tiers in net value, validation only (about 2 minutes)
 #   make chrono-knowledge                              # the knowledge store: build, check, coverage, drift (about 8 minutes)
 #   make plot-chrono-split                             # the six figures of docs/figures/chrono_split/
 CHRONO_TAG ?= chrono_h30
@@ -110,6 +111,26 @@ chrono-pit-validation:
 		--thresholds-path frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/action_tiers.json \
 		--out $(CHRONO_PIT_OUT)/cascade.json --observations-dir $(CHRONO_PIT_OUT)/cascade \
 		--observations-out $(CHRONO_PIT_OUT)/cascade_observations.parquet $(ARGS)
+
+# Lift tiers against cost tiers (scripts/cost_tier_report.py): the ratios in force (configs/model.yaml
+# threshold.cost_model, else the placeholder action_cost_ratio), what each lift tier implicitly assumes, and both tier
+# sets on the validation drive table and the point-in-time snapshots. Validation rows only; run chrono-pit-validation
+# first. COST_ARGS passes what-if costs, e.g. COST_ARGS="--failure-cost 1000 --action-cost warn=1 cordon=10 ...".
+CHRONO_COST_OUT := data/audit/cost_tiers_chrono_h30
+chrono-cost-tiers:
+	for arm in stack lightgbm cox; do \
+		col=score; [ $$arm = stack ] || col=score_$$arm; \
+		uv run python scripts/cost_tier_report.py --scores $(CHRONO_SCORES) --score-column $$col \
+			--label $${arm}_chrono_h30_seed$(CHRONO_SEED) \
+			--thresholds $(CHRONO_FREEZE)/agent_thresholds_$${arm}_chrono_h30_seed$(CHRONO_SEED).json \
+			--pit-observations $(CHRONO_PIT_OUT)/$${arm}_observations.parquet \
+			--out $(CHRONO_COST_OUT)/$$arm.md $(COST_ARGS) > /dev/null || exit 1; \
+	done
+	uv run python scripts/cost_tier_report.py --scores data/tmp/lightgbm_scores_h30_$(CHRONO_TAG).parquet \
+		--score-column score --label cascade_6ea7a5bc \
+		--thresholds frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/action_tiers.json \
+		--pit-observations $(CHRONO_PIT_OUT)/cascade_observations.parquet \
+		--out $(CHRONO_COST_OUT)/cascade.md $(COST_ARGS) > /dev/null
 
 # The knowledge store for the same scorer: candidate days 05-21..06-16, presence and failures to 07-16 (the last
 # day before the test, so every 30-day outcome resolves), then the self-checks, coverage and drift (reference

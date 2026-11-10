@@ -177,6 +177,24 @@ threshold:
     cordon: 20
     migrate: 5
     drain: 2
+  # What the ratios above stand for, in quantities operations can estimate
+  # (src/models/threshold.py::cost_ratios_from_costs, resolve_cost_ratios). When every
+  # value here is set, r = p_save * failure_cost / action_cost - 1 replaces
+  # action_cost_ratio wherever cost tiers are derived; all null (the default) keeps the
+  # placeholders above; partly filled raises. Any one currency unit (dollars,
+  # engineer-hours); only the ratios matter.
+  #   failure_cost  cost of one unplanned failure the agent did not act on (outage,
+  #                 emergency rebuild, risk of data loss)
+  #   action_cost   cost of taking the action on one drive, paid whether or not it fails
+  #   p_save        share of failure_cost the action avoids when the drive does fail
+  #                 within the horizon (warn alone may avoid little; drain nearly all)
+  # Flagging pays while marginal precision >= action_cost / (p_save * failure_cost).
+  # `make chrono-cost-tiers` reports what each lift tier implicitly assumes and where
+  # the cost tiers would sit (data/audit/cost_tiers_chrono_h30/).
+  cost_model:
+    failure_cost: null
+    action_cost: {warn: null, cordon: null, migrate: null, drain: null}
+    p_save: {warn: null, cordon: null, migrate: null, drain: null}
   # Which tier set the agent acts on when it reads a precomputed scorer's thresholds
   # file: lift (action_tier_lift, the default) or cost (action_cost_ratio).
   tier_rule: lift

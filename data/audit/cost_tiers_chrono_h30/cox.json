@@ -1,0 +1,221 @@
+{
+  "label": "cox_chrono_h30_seed0",
+  "scores": "data/tmp/stack_scores/scores_chrono_h30_seed0.parquet",
+  "score_column": "score_cox",
+  "git_sha": "e669a84",
+  "drives": 356811,
+  "failing_drives": 684,
+  "failure_rate": 0.0019169812589858496,
+  "ratio_source": "action_cost_ratio (placeholders)",
+  "ratios": {
+    "warn": 100.0,
+    "cordon": 20.0,
+    "migrate": 5.0,
+    "drain": 2.0
+  },
+  "costs": null,
+  "thresholds": {
+    "lift": {
+      "warn": 0.7550663135134036,
+      "cordon": 0.8708755762200961,
+      "migrate": 0.9184490582455347,
+      "drain": 0.9465271355298354
+    },
+    "cost": {
+      "warn": 0.5300246767101235,
+      "cordon": 0.8606266990245304,
+      "migrate": 0.9263866816123156,
+      "drain": 0.949961610884338
+    }
+  },
+  "validation": {
+    "lift": {
+      "warn": {
+        "threshold": 0.7550663135134036,
+        "flagged": 3778,
+        "caught": 410,
+        "false_alarms": 3368,
+        "precision": 0.10852302805717311,
+        "recall": 0.5994152046783626,
+        "net": 37632.0
+      },
+      "cordon": {
+        "threshold": 0.8708755762200961,
+        "flagged": 1853,
+        "caught": 335,
+        "false_alarms": 1518,
+        "precision": 0.18078791149487317,
+        "recall": 0.489766081871345,
+        "net": 5182.0
+      },
+      "migrate": {
+        "threshold": 0.9184490582455347,
+        "flagged": 894,
+        "caught": 259,
+        "false_alarms": 635,
+        "precision": 0.2897091722595078,
+        "recall": 0.3786549707602339,
+        "net": 660.0
+      },
+      "drain": {
+        "threshold": 0.9465271355298354,
+        "flagged": 366,
+        "caught": 159,
+        "false_alarms": 207,
+        "precision": 0.4344262295081967,
+        "recall": 0.2324561403508772,
+        "net": 111.0
+      }
+    },
+    "cost": {
+      "warn": {
+        "threshold": 0.5300246767101235,
+        "flagged": 6559,
+        "caught": 468,
+        "false_alarms": 6091,
+        "precision": 0.07135234029577679,
+        "recall": 0.6842105263157895,
+        "net": 40709.0
+      },
+      "cordon": {
+        "threshold": 0.8606266990245304,
+        "flagged": 2049,
+        "caught": 351,
+        "false_alarms": 1698,
+        "precision": 0.17130307467057102,
+        "recall": 0.5131578947368421,
+        "net": 5322.0
+      },
+      "migrate": {
+        "threshold": 0.9263866816123156,
+        "flagged": 709,
+        "caught": 237,
+        "false_alarms": 472,
+        "precision": 0.3342736248236953,
+        "recall": 0.34649122807017546,
+        "net": 713.0
+      },
+      "drain": {
+        "threshold": 0.949961610884338,
+        "flagged": 301,
+        "caught": 141,
+        "false_alarms": 160,
+        "precision": 0.4684385382059801,
+        "recall": 0.20614035087719298,
+        "net": 122.0
+      }
+    }
+  },
+  "implied": {
+    "warn": {
+      "threshold": 0.7550663135134036,
+      "caught": 410,
+      "false_alarms": 3368,
+      "on_hull": false,
+      "r_low": 35.625,
+      "r_high": 35.625,
+      "marginal_precision_high": 0.027303754266211604,
+      "marginal_precision_low": 0.027303754266211604
+    },
+    "cordon": {
+      "threshold": 0.8708755762200961,
+      "caught": 335,
+      "false_alarms": 1518,
+      "on_hull": false,
+      "r_low": 17.64864864864865,
+      "r_high": 17.64864864864865,
+      "marginal_precision_high": 0.0536231884057971,
+      "marginal_precision_low": 0.0536231884057971
+    },
+    "migrate": {
+      "threshold": 0.9184490582455347,
+      "caught": 259,
+      "false_alarms": 635,
+      "on_hull": false,
+      "r_low": 6.787878787878788,
+      "r_high": 6.787878787878788,
+      "marginal_precision_high": 0.12840466926070038,
+      "marginal_precision_low": 0.12840466926070038
+    },
+    "drain": {
+      "threshold": 0.9465271355298354,
+      "caught": 159,
+      "false_alarms": 207,
+      "on_hull": false,
+      "r_low": 3.318840579710145,
+      "r_high": 3.318840579710145,
+      "marginal_precision_high": 0.23154362416107385,
+      "marginal_precision_low": 0.23154362416107385
+    }
+  },
+  "off_hull": 4,
+  "threshold_check": "Recomputed lift tiers match `frozen_runs/stack_chrono_h30_seed0/agent_thresholds_cox_chrono_h30_seed0.json` exactly.",
+  "pit_observations": "data/audit/agent_pit_validation_chrono_h30/cox_observations.parquet",
+  "pit": {
+    "snapshots": 9,
+    "drive_snapshots": 3182259,
+    "positives": 2819,
+    "rules": {
+      "lift": {
+        "warn": {
+          "flagged_per_snapshot": 1927.5555555555557,
+          "caught_per_snapshot": 154.0,
+          "precision": 0.07989393590039198,
+          "recall": 0.49166371053565094,
+          "net_per_snapshot": 13626.444444444445
+        },
+        "cordon": {
+          "flagged_per_snapshot": 748.0,
+          "caught_per_snapshot": 110.77777777777777,
+          "precision": 0.14809863339275103,
+          "recall": 0.35367151472153247,
+          "net_per_snapshot": 1578.3333333333333
+        },
+        "migrate": {
+          "flagged_per_snapshot": 309.44444444444446,
+          "caught_per_snapshot": 72.33333333333333,
+          "precision": 0.23375224416517057,
+          "recall": 0.2309329549485633,
+          "net_per_snapshot": 124.55555555555556
+        },
+        "drain": {
+          "flagged_per_snapshot": 99.55555555555556,
+          "caught_per_snapshot": 35.111111111111114,
+          "precision": 0.35267857142857145,
+          "recall": 0.11209648811635331,
+          "net_per_snapshot": 5.777777777777778
+        }
+      },
+      "cost": {
+        "warn": {
+          "flagged_per_snapshot": 4153.555555555556,
+          "caught_per_snapshot": 186.33333333333334,
+          "precision": 0.04486116312663849,
+          "recall": 0.5948918056048244,
+          "net_per_snapshot": 14666.111111111111
+        },
+        "cordon": {
+          "flagged_per_snapshot": 843.1111111111111,
+          "caught_per_snapshot": 116.77777777777777,
+          "precision": 0.13850817079599367,
+          "recall": 0.37282724370344095,
+          "net_per_snapshot": 1609.2222222222222
+        },
+        "migrate": {
+          "flagged_per_snapshot": 241.22222222222223,
+          "caught_per_snapshot": 61.333333333333336,
+          "precision": 0.2542607093505297,
+          "recall": 0.1958141184817311,
+          "net_per_snapshot": 126.77777777777777
+        },
+        "drain": {
+          "flagged_per_snapshot": 79.0,
+          "caught_per_snapshot": 29.88888888888889,
+          "precision": 0.37834036568213786,
+          "recall": 0.0954239091876552,
+          "net_per_snapshot": 10.666666666666666
+        }
+      }
+    }
+  }
+}

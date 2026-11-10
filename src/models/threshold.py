@@ -222,6 +222,154 @@ def tune_cost_tiers(
     return result
 
 
+def cost_ratios_from_costs(
+    failure_cost: float,
+    action_cost: dict[str, float],
+    p_save: dict[str, float],
+) -> dict[str, float]:
+    """The ratio `r` per tier that `tune_cost_tiers` takes, from what operations can
+    actually estimate (configs/model.yaml threshold.cost_model).
+
+    An action on a drive that fails within the horizon is worth `p_save * failure_cost -
+    action_cost` (it prevents the failure's cost with probability `p_save`, and is paid
+    for either way); on a drive that does not, it costs `action_cost`. Net value over a
+    flagged set is then `action_cost * (r * caught - false_alarms)` with
+
+        r = p_save * failure_cost / action_cost - 1,
+
+    so flagging pays while the marginal precision is at least `1 / (1 + r) = action_cost
+    / (p_save * failure_cost)`. Raises if an action never pays (`r <= 0`) or if the
+    ratios increase from warn to drain, which `tune_cost_tiers` would also reject: a
+    more drastic action must not be cheaper per prevented failure."""
+    if failure_cost <= 0:
+        raise ValueError(f"failure_cost must be positive, got {failure_cost}")
+    ratios: dict[str, float] = {}
+    for tier in ACTION_TIERS:
+        cost, p = float(action_cost[tier]), float(p_save[tier])
+        if cost <= 0:
+            raise ValueError(f"action_cost[{tier}] must be positive, got {cost}")
+        if not 0.0 < p <= 1.0:
+            raise ValueError(f"p_save[{tier}] must be in (0, 1], got {p}")
+        r = p * failure_cost / cost - 1.0
+        if r <= 0:
+            raise ValueError(
+                f"{tier} never pays: p_save x failure_cost = {p * failure_cost:g} does not "
+                f"exceed its action cost {cost:g}, so even a certain failure is not worth acting on"
+            )
+        ratios[tier] = r
+    values = [ratios[t] for t in ACTION_TIERS]
+    if any(b > a for a, b in zip(values, values[1:], strict=False)):
+        raise ValueError(
+            "derived cost ratios increase from warn to drain "
+            f"({ {t: round(v, 3) for t, v in ratios.items()} }): a more drastic action would "
+            "be cheaper per prevented failure than a milder one; check the inputs"
+        )
+    return ratios
+
+
+def resolve_cost_ratios(threshold_cfg: dict[str, Any]) -> tuple[dict[str, float], str]:
+    """`(ratios, source)`: derived from `threshold.cost_model` when it is filled in,
+    otherwise the placeholder `threshold.action_cost_ratio`. A partly filled cost model
+    raises rather than mixing real inputs with placeholders."""
+    cost_model = threshold_cfg.get("cost_model") or {}
+    failure_cost = cost_model.get("failure_cost")
+    action_cost = cost_model.get("action_cost") or {}
+    p_save = cost_model.get("p_save") or {}
+    inputs = [failure_cost] + [action_cost.get(t) for t in ACTION_TIERS]
+    inputs += [p_save.get(t) for t in ACTION_TIERS]
+    if all(v is None for v in inputs):
+        return {t: float(threshold_cfg["action_cost_ratio"][t]) for t in ACTION_TIERS}, (
+            "action_cost_ratio (placeholders)"
+        )
+    if any(v is None for v in inputs):
+        raise ValueError(
+            "threshold.cost_model is partly filled: set failure_cost and every tier's "
+            "action_cost and p_save, or leave all of them null"
+        )
+    return cost_ratios_from_costs(float(failure_cost), action_cost, p_save), "cost_model"
+
+
+def _cut_curve(labels: np.ndarray, scores: np.ndarray) -> tuple[np.ndarray, ...]:
+    """`(cut_scores, caught, false_alarms)` at every reachable threshold, strictest first."""
+    order = np.argsort(-np.asarray(scores, dtype=float), kind="stable")
+    s = np.asarray(scores, dtype=float)[order]
+    lab = np.asarray(labels, dtype=int)[order]
+    caught = np.cumsum(lab)
+    false_alarms = np.cumsum(1 - lab)
+    cut = np.r_[s[1:] != s[:-1], True]
+    return s[cut], caught[cut], false_alarms[cut]
+
+
+def _upper_hull(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Upper convex hull of `(0, 0)` and the points `(x, y)` (x non-decreasing): the
+    cuts that are cost-optimal for some ratio."""
+    xs = np.r_[0, x].astype(float)
+    ys = np.r_[0, y].astype(float)
+    # At equal x keep the highest y (the last, as y is non-decreasing along the curve).
+    keep = np.r_[xs[1:] != xs[:-1], True]
+    xs, ys = xs[keep], ys[keep]
+    hx: list[float] = []
+    hy: list[float] = []
+    for px, py in zip(xs, ys, strict=True):
+        while len(hx) >= 2:
+            cross = (hx[-1] - hx[-2]) * (py - hy[-2]) - (hy[-1] - hy[-2]) * (px - hx[-2])
+            if cross >= 0:
+                hx.pop()
+                hy.pop()
+            else:
+                break
+        hx.append(px)
+        hy.append(py)
+    return np.array(hx), np.array(hy)
+
+
+def implied_cost_ratio(labels: np.ndarray, scores: np.ndarray, threshold: float) -> dict[str, Any]:
+    """The range of `r` for which flagging every drive scoring `>= threshold` is the
+    cost-optimal cut on this drive table - what a threshold set some other way (the lift
+    tiers) implicitly assumes a prevented failure is worth, in actions of that kind.
+
+    `labels` and `scores` are one row per drive (`evaluation.drive_level_table`). The
+    optimum of `r * caught - false_alarms` always lies on the upper convex hull of the
+    (false alarms, caught) curve; a hull vertex is optimal for `r` between the inverse
+    slopes of its two hull segments. A cut off the hull is optimal for no `r`; it gets
+    the inverse slope of the hull segment above it and `on_hull: False`. `r_high` is
+    `inf` past the last vertex. Marginal precision `1 / (1 + r)` is reported beside it."""
+    labels = np.asarray(labels, dtype=int)
+    scores = np.asarray(scores, dtype=float)
+    flagged = scores >= threshold
+    caught = int((flagged & (labels == 1)).sum())
+    false_alarms = int((flagged & (labels == 0)).sum())
+    _, curve_caught, curve_fa = _cut_curve(labels, scores)
+    hx, hy = _upper_hull(curve_fa, curve_caught)
+    slopes = np.diff(hy) / np.diff(hx)  # caught per false alarm along the hull, decreasing
+
+    def inv(s: float) -> float:
+        return float("inf") if s <= 0 else 1.0 / s
+
+    j = int(np.searchsorted(hx, false_alarms, side="right") - 1)
+    j = max(0, min(j, len(hx) - 1))
+    # A cut at a vertex's false-alarm count is that vertex if it catches as many, and
+    # dominated by it otherwise; either way the vertex's range applies.
+    at_vertex_x = hx[j] == false_alarms
+    on_vertex = bool(at_vertex_x and hy[j] == caught)
+    if at_vertex_x:
+        r_low = 0.0 if j == 0 else inv(slopes[j - 1])
+        r_high = inv(slopes[j]) if j < len(slopes) else float("inf")
+    else:
+        seg = min(j, len(slopes) - 1)
+        r_low = r_high = inv(slopes[seg]) if len(slopes) else float("inf")
+    return {
+        "threshold": float(threshold),
+        "caught": caught,
+        "false_alarms": false_alarms,
+        "on_hull": on_vertex,
+        "r_low": r_low,
+        "r_high": r_high,
+        "marginal_precision_high": 1.0 / (1.0 + r_low),
+        "marginal_precision_low": 0.0 if r_high == float("inf") else 1.0 / (1.0 + r_high),
+    }
+
+
 def resolve_action_thresholds(
     tier_thresholds: dict[str, float | None] | None, fallback: dict[str, float]
 ) -> dict[str, float]:

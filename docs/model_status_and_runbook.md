@@ -2161,6 +2161,38 @@ migrate 5, drain 2) are placeholders for an operations decision. `threshold.tier
 precision) instead of 44% (64%): the strict tiers' low recall is a choice of targets, not a
 property of the model. The optimum depends on the failure rate (Q3's is half validation's).
 
+**What the lift tiers assume, on the chronological run (2026-11-10).** `make chrono-cost-tiers`
+(`scripts/cost_tier_report.py`; outputs and README in `data/audit/cost_tiers_chrono_h30/`) asks the
+inverse question on the four chronological arms, validation rows only: for which `r` is each lift tier's
+threshold the cost-optimal cut? That is read off the convex hull of the validation drive curve
+(`src/models/threshold.py::implied_cost_ratio`).
+
+| Tier | Implied r (stack / LightGBM / Cox / cascade) | Marginal precision at the cut | Placeholder r |
+|---|---|---|---|
+| warn | 35.6 / 34.6 / 35.6 / 34.0 | 2.7-2.9% | 100 |
+| cordon | 16.4 / 17.3 / 17.6 / 19.9 | 4.8-5.8% | 20 |
+| migrate | 5.1 / 5.8 / 6.8 / 6.2 | 12.8-16.3% | 5 |
+| drain | 3.6 / 2.2-2.6 / 3.3 / 1.9 | 21.7-33.9% | 2 |
+
+- **The lift targets already encode a cost.** They assume one prevented failure is worth about 35
+  warnings, 16-20 cordons, 5-7 migrations and 2-4 drains, the same on all four arms. The placeholder
+  ratios agree for cordon, migrate and drain; for warn they are three times higher.
+- **The rule matters little; the ratio is the decision.** At the placeholder ratios the cost tiers move
+  warn from 59-60% to 68-69% drive recall (precision 10.9% to 6.5-7.3%; 3,741-3,778 drives flagged to
+  6,405-7,296) and cordon from 49% to 51-55%; migrate and drain barely move. The net value gained is
+  8-9% at warn and 2-4% at cordon, measured on the drives both rules were tuned on. Point in time, the
+  cordon net is within 2% either way.
+- **What operations has to supply** is now four quantities per action rather than an abstract ratio:
+  `configs/model.yaml threshold.cost_model` takes `failure_cost`, and an `action_cost` and `p_save` per
+  tier, and derives `r = p_save x failure_cost / action_cost - 1`
+  (`src/models/threshold.py::cost_ratios_from_costs`). All null (the default) keeps the placeholder
+  ratios and changes nothing; partly filled raises. `scripts/freeze_stack_scorer.py` derives its cost
+  tiers through the same resolver, so a re-freeze carries them into the agent's thresholds file.
+  `make chrono-cost-tiers COST_ARGS="--failure-cost ... --action-cost warn=... --p-save warn=..."`
+  tries costs without editing the config.
+- **Not credited:** late hits. On the chronological split days 31-60 after a validation snapshot lie in
+  the test period, so the report reads no failure after 07-16.
+
 **Where a knowledge rule would enter.** Between the score tier and hysteresis
 (`src/agent/nodes.py`, `make_plan_node(knowledge_rule=...)`), so hysteresis, cooldown and the
 control arm see the adjusted tier. No rule is enabled (`configs/agent.yaml knowledge.rule:
@@ -3161,9 +3193,10 @@ of 301 failures. Whether that is acceptable is a cost question that precision
 cannot answer. Acting is worth it when `precision x P(save) x C_failure >
 C_action`. With the 17.9% above, a cordon pays for itself if it costs less
 than about 18% of an unplanned failure, scaled by how often a cordon actually
-prevents one; at warn and above the figure is 10%. The cost model in
-`configs/agent.yaml` does not exist yet, so there is no principled place to
-put the thresholds - only operating points to choose among.
+prevents one; at warn and above the figure is 10%. When this was written there
+was no cost model, so there was no principled place to put the thresholds -
+only operating points to choose among. The inputs now have a place
+(`configs/model.yaml threshold.cost_model`) but no values (Section 1.9).
 
 **The clean measurement, built.** `make agent-pit`
 (`pipelines/run_point_in_time.py`, `src/agent/point_in_time.py`) snapshots the
@@ -4021,8 +4054,8 @@ What could still change the picture:
   flag `target_met: false` and fall back, which is correct but reads as a
   regression. And a longer horizon spends drive life to buy alert accuracy -
   it retires drives with weeks of life left - so which horizon is better is a
-  cost question, not a precision one, and the cost model
-  (`configs/agent.yaml`) does not exist yet.
+  cost question, not a precision one, and the costs
+  (`configs/model.yaml threshold.cost_model`, Section 1.9) have not been supplied.
 - **Tiered goals:** keep the destructive action at a high precision target
   and let warnings accept more false alarms. The tiers exist (Section 4.4);
   their targets in `configs/model.yaml` are placeholders to be set from the
@@ -4105,7 +4138,10 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 
 - **Cost ratios per action** (`configs/model.yaml threshold.action_cost_ratio`) are placeholders;
   setting them is an operations decision, after which `threshold.tier_rule: cost` can be judged
-  point-in-time against the lift tiers.
+  point-in-time against the lift tiers. Since 2026-11-10 they can be given as costs
+  (`threshold.cost_model`), and `make chrono-cost-tiers` shows what the lift tiers already assume
+  (about 35 / 16-20 / 5-7 / 2-4 from warn to drain; Section 1.9): operations can confirm those
+  instead of starting from nothing.
 - **Control fraction before a real executor**: recorded decisions and outcomes now exist in the
   knowledge store; set `control_arm.control_fraction` (0.03 recommended) in the same commit that
   connects a real executor, or outcomes become self-censored (ADR 0004).

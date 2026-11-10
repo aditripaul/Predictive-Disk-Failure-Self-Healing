@@ -55,6 +55,7 @@ from src.models.stacking import fit_stack, save_stacked_two_stage  # noqa: E402
 from src.models.threshold import (  # noqa: E402
     ACTION_TIERS,
     precision_targets_from_lift,
+    resolve_cost_ratios,
     tune_action_tiers,
     tune_cost_tiers,
     tune_drive_level_threshold,
@@ -272,7 +273,8 @@ def arm_tiers(drive_ids: np.ndarray, y: np.ndarray, scores: np.ndarray, model_co
         scores,
         precision_targets=precision_targets_from_lift(threshold_cfg["action_tier_lift"], rate),
     )
-    cost = tune_cost_tiers(drive_ids, y, scores, cost_ratios=threshold_cfg["action_cost_ratio"])
+    cost_ratios, cost_source = resolve_cost_ratios(threshold_cfg)
+    cost = tune_cost_tiers(drive_ids, y, scores, cost_ratios=cost_ratios)
     primary = tune_drive_level_threshold(
         drive_ids,
         y,
@@ -292,7 +294,8 @@ def arm_tiers(drive_ids: np.ndarray, y: np.ndarray, scores: np.ndarray, model_co
             "cost": {t: drive_point(labels, drive_scores, cost[t]) for t in ACTION_TIERS},
             "primary": drive_point(labels, drive_scores, float(primary["threshold"])),
         },
-        "cost_ratios": dict(threshold_cfg["action_cost_ratio"]),
+        "cost_ratios": dict(cost_ratios),
+        "cost_ratio_source": cost_source,
         "lift_targets": dict(threshold_cfg["action_tier_lift"]),
     }
 
