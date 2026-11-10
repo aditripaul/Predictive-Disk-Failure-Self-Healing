@@ -72,6 +72,6 @@ to precision at this validation rate (10.9, 18.1, 29.0 and 43.4%).
 - These are validation numbers: the members stopped early on validation candidates and the blend weights were
   fitted there, so they are optimistic. Test results of the same fits are in runbook 1.1.9 (stack, the 10%
   level: 55.4% precision at 16.2% recall, mean of 3 seeds; seed 0 alone 58.6% at 16.2%).
-- Seeds 1 and 2 are not saved: the experiment of 2026-11-10 predates its model-saving option
-  (`--no-save-models` turns it off; `data/audit/stack_chrono_h30/models/seed<k>_net0.80/` for a run made
-  with the current code).
+- Seeds 1 and 2 are saved in `data/audit/stack_chrono_h30_rerun/models/seed<k>_net0.80/`, from a re-run of the
+  experiment with its model-saving option (default on; `--no-save-models` turns it off). That re-run's seed 0
+  scores identically to this folder (largest difference 2e-15), so the two fits agree.

@@ -1370,7 +1370,8 @@ line says validation (684 failing of 356,811).
 
 All of it is `make chrono-run` (Section "How to reproduce it" below). Code at git `4e37458`. The launcher
 of this run and its logs are in `data/audit/chrono_logs/` (`run_chrono.sh`, `progress.log`). Test looks: 4
-(139 to 143 entries in `data/audit/test_access_log.jsonl`).
+(139 to 143 entries in `data/audit/test_access_log.jsonl`: one for `make train`, one per seed for the experiment),
+and 3 more for the re-run that saved the models (146).
 
 ##### Stage 1: the wide net
 
@@ -1594,7 +1595,7 @@ sits at 16.2% recall, not 11.6%. A comparison at a matched false-alarm rate was 
 - **What would change it.** The silent failures Stage 1 never passes (Section 1.2; about 15% of failing test
   drives here) cap recall, and the failing drives it passes look like the 9% of healthy drives beside them. A
   threshold or a split cannot move that; it needs signal the 246 features do not carry.
-- **Limits.** Three seeds, one test period, and Q3 is not a fresh test (143 logged looks). A recall of 10 to
+- **Limits.** Three seeds, one test period, and Q3 is not a fresh test (146 logged looks). A recall of 10 to
   18% rests on 115 caught drives, and the test interval on the primary threshold is 52.5 to 66.3%.
 
 ##### How to reproduce it
@@ -1627,8 +1628,8 @@ refuses to start if `models/` exists). `chrono-freeze` refits seed 0 on validati
 the experiment's report, and freezes it as a scorer with its tiers; it never overwrites, so `chrono-run`
 skips it when the folder exists. A tagged
 `make train` refuses to overwrite a run with the same tag (`TRAIN_ARGS="... --overwrite"` replaces it), and
-every run adds test looks to `data/audit/test_access_log.jsonl` (`chrono-train` and `chrono-stack` two
-each). The launcher of the 2026-11-10 run is `data/audit/chrono_logs/run_chrono.sh`; `chrono-run` runs
+every run adds test looks to `data/audit/test_access_log.jsonl` (`chrono-train` one, `chrono-stack` one per
+seed, so three). The launcher of the 2026-11-10 run is `data/audit/chrono_logs/run_chrono.sh`; `chrono-run` runs
 `scripts/run_chrono_split.sh`, the same sequence through the Makefile targets.
 
 ##### Files
@@ -1636,7 +1637,7 @@ each). The launcher of the 2026-11-10 run is `data/audit/chrono_logs/run_chrono.
 | What | Where |
 |---|---|
 | Training report, tiers, model card | `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json`, `action_tiers_chrono_h30.json`; `data/audit/model_cards/v1_h30d_chrono_h30.json` and `.md` |
-| Stage 2 variants | `data/audit/stack_chrono_h30/` (`tables.md`, `experiment_two_stage.json`, `figures/`, `mlflow_run.json`; a run made with the current code also has `models/seed<k>_net0.80/`) |
+| Stage 2 variants | `data/audit/stack_chrono_h30/` (`tables.md`, `experiment_two_stage.json`, `figures/`, `mlflow_run.json`): the results quoted here. `data/audit/stack_chrono_h30_rerun/`: the same experiment run again with the saving on, same results to 2e-8 (README), and `models/seed<k>_net0.80/` for seeds 0, 1 and 2 |
 | Stage 2 variants and the stack as scorers | `frozen_runs/stack_chrono_h30_seed0/` (seed 0, `make chrono-freeze`: Stage 1, the LightGBM and Cox Stage 2, the stack, validation tiers) |
 | Run launcher and logs | `data/audit/chrono_logs/` |
 | Figures | `docs/figures/chrono_split/` (its README lists each source); `make plot-chrono-split` redraws the five new ones |
@@ -3708,16 +3709,15 @@ What could still change the picture:
   and model hashes before the test scorer runs, and counting every look, is not built.
 - **Which 30-day model the code loads has not been decided.** The run is frozen, but `score-fleet` and the
   agent load the latest 30-day training run, so they now load `6ea7a5bc` rather than `c459046e`; pinning one
-  run id is not built. The stack is frozen for seed 0 only (`frozen_runs/stack_chrono_h30_seed0/`, a separate
-  fit from the `6ea7a5bc` models); seeds 1 and 2 of the 2026-11-10 experiment were not saved, because it
-  predates `--save-models`' default (re-running `make chrono-stack` with another `CHRONO_OUT` saves all
-  three, 27 minutes and 2 more test looks).
+  run id is not built. The stack is frozen as a scorer for seed 0 (`frozen_runs/stack_chrono_h30_seed0/`) and
+  all three seeds' stacks are saved in `data/audit/stack_chrono_h30_rerun/models/`; both are separate fits
+  from the `6ea7a5bc` models (a 396-tree Stage 1 against 339).
 - **Not run under strict separation:** the 44- and 60-day horizons (`make train` refuses them: their gaps
   are longer than the 30-day embargo), the merged approach (LSTM, TCN, AFT blends), and a comparison with
   the drive-holdout run at a matched false-alarm rate.
 - **Not adapted:** the knowledge store and `agent-pit-validation`, which were built on drive-holdout
   validation drives; their `validation` split is now a later period of all drives.
-- **Q3 is not a fresh test set** (143 logged looks); the first Q4 2026 download is the clean one.
+- **Q3 is not a fresh test set** (146 logged looks); the first Q4 2026 download is the clean one.
 
 **Implemented and run on 2026-10-06 (results in Section 4.2):**
 
