@@ -8,7 +8,7 @@ checkpoint:
 loop:
   target_cycle_time_seconds: 300
   cooldown_seconds: 3600
-  hysteresis_cycles_required: 2
+  hysteresis_cycles_required: 1
 
 human_review:
   critical_sla_hours: 1

@@ -230,9 +230,9 @@ def test_human_review_rejection_resumes_without_executing():
     assert call_log == []
 
 
-def test_real_hysteresis_config_caps_first_cycle_and_escalates_on_the_second():
-    """No plan_kwargs override here - this exercises the actual
-    configs/agent.yaml default (hysteresis_cycles_required=2), proving
+def test_hysteresis_caps_first_cycle_and_escalates_on_the_second():
+    """Only hysteresis_cycles_required is set (to 2; the shipped default is 1 since
+    ADR 0003 found persistence costs recall) and nothing else is overridden, proving
     docs/design_goal.md section 13 ("a drive must remain high-risk for
     multiple cycles before escalation") is real, not just a config value
     that AgentSettings loads and nothing reads."""
@@ -246,7 +246,7 @@ def test_real_hysteresis_config_caps_first_cycle_and_escalates_on_the_second():
     )
 
     config = {"configurable": {"thread_id": "fleet-hysteresis"}}
-    with compiled_agent(deps) as app:  # real AgentSettings defaults, no override
+    with compiled_agent(deps, plan_kwargs={"hysteresis_cycles_required": 2}) as app:
         first = app.invoke({}, config=config)
         second = app.invoke({}, config=config)
 
