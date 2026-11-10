@@ -1085,8 +1085,9 @@ table `data/tmp/stack_scores/scores_h60_seed0.parquet` is local and rebuilt by t
 ### 1.1.8 The split designs: drive holdout with a Q3 test (the runs of 1.1.4 to 1.1.7), and a chronological split with gaps (the config since 2026-11-10; run the same day, goal not met)
 
 Every result in Sections 1.1.4 to 1.1.7 comes from one split design. This section records it
-as it was, what it costs, and a stricter alternative that was worked out on 2026-11-10. The
-alternative's settings and checks are built and `configs/model.yaml` holds it; the run is Section 1.1.9. The failing-drive
+as it was, what it costs, and the stricter chronological split that replaced it. That split was designed
+on 2026-11-10 and built and run the same day: its settings, checks and tests exist, `configs/model.yaml`
+holds it, and the run and its result are Section 1.1.9. The failing-drive
 counts below were taken from the 30-day label table (`data/gold/labels/part.parquet`) on
 2026-11-10: a drive counts as failing in a window if any of its rows in the window has label 1.
 
@@ -1200,7 +1201,7 @@ may not be read past 05-31).
    before the test scorer runs, with the test access log counting every look. **Not built.**
 
 **What it changes.** Validation and test base rates get close (about 0.19% and 0.23% of drives in
-the proposed layout, against 0.59% and 0.30%; each is failing drives over drives in the window, the
+the built layout, against 0.59% and 0.30%; each is failing drives over drives in the window, the
 same definition that reproduces Section 1.1.4's 0.59% and 0.30% from the label table), which should let a
 threshold tuned to 68% on validation transfer to test. That transfer was an expectation when this was written; Section 1.1.9 measured it (validation 51.5%
 against test 59.9% at base rates 0.19% and 0.23%: it transferred, and the goal still failed on validation). The costs: training stops at 04-20 and keeps 2,018 failing drives (the failing-drive count of the
@@ -1215,15 +1216,14 @@ train 01-01 to 03-26, validation 05-10 to 05-30, test 07-14 to 08-17 (35 days); 
 to 02-25, validation 04-27 to 05-10, test 07-10 to 08-01 (23 days). Failing drives for these two
 layouts were not counted. The three horizons would no longer share training rows, which was the point
 of Section 1.1.4. The horizon question is already answered there (longer horizons rank no better once
-the base rate is removed; 30 days stays primary), so the chronological split would be used for the
+the base rate is removed; 30 days stays primary), so the chronological split is used for the
 30-day goal only. A repeat of the horizon comparison would keep the drive-holdout design above and
 compare in ROC space.
 
-**Run time of the chronological design for 30 days**, from the logs of the same steps on 2026-11-06:
-gold features about 29 min (`q3_build_gold.log`), labels about 3 min (`build_labels.log`),
-`make train` about 26 min (`train_h30.log`), the cascade comparison about 28 min (`cascade_h30.log`),
-the stack run about 39 min (`stack_h30.log`): about 2 hours. Not timed: freezing the stack as a
-scorer, the checks and the unit tests (about 2 min). The code changes are development time.
+**Run time of the chronological design for 30 days, measured on 2026-11-10:** `build-features` 27 min,
+`build-labels` 2.4 min, `make train` 20.5 min, the Stage 2 experiment 27 min: 77 minutes in all (the
+estimate before the run, from the 2026-11-06 logs, was about 2 hours). Freezing a seed's stack as a scorer
+took 6 minutes, and the experiment run again to save the models about 30 minutes.
 
 **Keeping both designs runnable.** The new settings are opt-in with defaults equal to the old
 behaviour: an embargo of 0 days, a statistics cutoff that falls back to `sealed_start`, and
@@ -1236,12 +1236,12 @@ features (about 29 min), because the label `split` column and the feature statis
 config; unless the pipelines can write to separate output folders (not checked), the two designs share
 `data/gold/`. A re-run of the old design would reproduce the method, not the same files.
 
-**Status.** On 2026-11-10 the settings, the checks and their tests were built (items 2 to 4 above; the
-full test suite passes), and the recommendation below was taken. `configs/model.yaml` was then switched to the chronological split (the drive-holdout values are in a
-comment of its `splits` block). Section 1.1.9 has the data split, the intent, the run and its result. The recommendation for
-the 68% goal (Section 7) is the chronological split, for the base-rate reason above; the
-drive-holdout design stays the record for Sections 1.1.4 to 1.1.7 and the one to use for the horizon
-comparison. Its values are in the `splits` comment of `configs/model.yaml`.
+**Status: built and run (2026-11-10).** The settings, the checks and their tests are built (items 2 to 4
+above; the full test suite passes), `configs/model.yaml` was switched to the chronological split, and the
+run was made (Section 1.1.9 has the data split, the intent, the run and its result). It is the split for the
+68% goal (Section 7), for the base-rate reason above. The drive-holdout design stays the record for Sections
+1.1.4 to 1.1.7 and the one to use for the horizon comparison; its values are in the `splits` comment of
+`configs/model.yaml`. Only item 5, the frozen record before the test look, is not built.
 
 ### 1.1.9 The chronological split run: design intent, data split, how to run it and the result (run 2026-11-10; goal not met)
 
@@ -1349,7 +1349,7 @@ Other tools under this config:
 
 **The 68% goal is not met on the chronological split, by any Stage 2 model, on validation or on test.**
 The run is frozen as `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744` (2026-11-10, checksummed, both stages
-load from it); the Cox Stage 2 and the stack are frozen as a scorer in `frozen_runs/stack_chrono_h30_seed0/` (seed 0; a separate fit from this run's models). `score-fleet` and the agent take the
+load from it); the Cox Stage 2 and the stack are frozen as scorers in `frozen_runs/stack_chrono_h30_seed{0,1,2}/` (separate fits from this run's models). `score-fleet` and the agent take the
 latest training run for the horizon by MLflow start time, which is now this run, not `c459046e`: freezing
 does not change that, and no one chose it (`frozen_runs/README.md`). Everything
 below is per drive, 30-day horizon, test period 07-17 to 08-31 (864 failing of 368,124 drives) unless a
@@ -1562,29 +1562,11 @@ Drives isolated (share of all 864 failing drives / share of the Stage 1 pool):
   level, and 224 and 357 at 20% and 35%, never the most of the four. Its edge is precision at the 5% and 20% levels
   (64.0% and 46.7%), not the number of drives isolated.
 
-##### Against the drive-holdout split
-
-| | Drive holdout (`c459046e`, Section 1.1.4) | Chronological with gaps |
-|---|---|---|
-| Validation / test base rate | 0.589% / 0.300% | 0.19% / 0.23% |
-| Test window | 62 days, 1,105 failing | 46 days, 864 failing |
-| LightGBM two-stage, primary threshold: validation P / R | 75.0% / 10.0% | 51.5% / 10.2% |
-| LightGBM two-stage, primary threshold: test P / R | 59.0% / 12.5% | 59.9% / 13.3% |
-| Test AUROC (validation AUROC) | 0.926 (0.922) | 0.923 (0.906) |
-| Stack, the 10% recall level, test P / R (3-seed mean) | 64.9% / 11.6% | 55.4% / 16.2% |
-| Migrate and drain tiers | share one cutoff, flag 6 drives | distinct cutoffs, flag 1,371 and 336 drives |
-| Goal (68% at >= 10% recall) met on validation / test | no / no | no / no |
-
-![Base rate and precision at the primary threshold, validation against test, for the two split designs](figures/chrono_split/chrono_base_rate_transfer.png)
-
-The two designs are not like for like: different test windows and base rates, and the stack's 10% level now
-sits at 16.2% recall, not 11.6%. A comparison at a matched false-alarm rate was not run. Test AUROC is
-0.923 against 0.926, and the primary-threshold precision is 59.9% against 59.0%.
-
 ##### What it shows
 
-- **Strict separation did not move the result.** The ranking is as good as before and the ceiling is the
-  same.
+- **Strict separation did not move the result.** Test AUROC is 0.923 here against 0.926 in Section 1.1.4,
+  and the LightGBM two-stage gives 59.9% at 13.3% against 59.0% at 12.5% there: the ranking is as good as
+  before and the ceiling is the same.
 - **The base-rate mismatch is fixed, and it was not what kept the goal out of reach.** Validation no longer
   overstates test (51.5% against 59.9%, base rates 0.19% against 0.23%), so a threshold tuned on validation
   transfers. But the goal fails on validation itself: no threshold at >= 10% recall gets near 68% there.
@@ -1621,12 +1603,13 @@ make plot-chrono-split     # the five new figures, from the files above; scores 
 `<id>` is the `work_dir_kept` path `make chrono-train` printed (`chrono-run` reads it from the log). The
 variables are `CHRONO_TAG` (default `chrono_h30`, the tag of the `make train` files), `CHRONO_OUT`
 (default `data/audit/stack_chrono_h30`), `CHRONO_WORK_DIR` (required by `chrono-stack` and `chrono-freeze`)
-and `CHRONO_FREEZE` (default `frozen_runs/stack_chrono_h30_seed0`). `chrono-stack` saves what it fits: each
+`CHRONO_SEED` (0, 1 or 2, default 0; `chrono-freeze` only) and `CHRONO_FREEZE` (default
+`frozen_runs/stack_chrono_h30_seed<CHRONO_SEED>`). `chrono-stack` saves what it fits: each
 seed's stack, with Stage 1 and the LightGBM and Cox Stage 2 it blends, goes to
 `$CHRONO_OUT/models/seed<k>_net0.80/` (`pipelines/experiment_model.py`; `--no-save-models` skips it, and it
-refuses to start if `models/` exists). `chrono-freeze` refits seed 0 on validation only, checks it against
-the experiment's report, and freezes it as a scorer with its tiers; it never overwrites, so `chrono-run`
-skips it when the folder exists. A tagged
+refuses to start if `models/` exists). `chrono-freeze` refits one seed on validation only, checks it against
+the experiment's report, and freezes it as a scorer with its tiers; it never overwrites. `chrono-run`
+freezes seeds 0, 1 and 2 (`CHRONO_SEEDS="0 1 2"`), skipping any folder that exists. A tagged
 `make train` refuses to overwrite a run with the same tag (`TRAIN_ARGS="... --overwrite"` replaces it), and
 every run adds test looks to `data/audit/test_access_log.jsonl` (`chrono-train` one, `chrono-stack` one per
 seed, so three). The launcher of the 2026-11-10 run is `data/audit/chrono_logs/run_chrono.sh`; `chrono-run` runs
@@ -1638,7 +1621,7 @@ seed, so three). The launcher of the 2026-11-10 run is `data/audit/chrono_logs/r
 |---|---|
 | Training report, tiers, model card | `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json`, `action_tiers_chrono_h30.json`; `data/audit/model_cards/v1_h30d_chrono_h30.json` and `.md` |
 | Stage 2 variants | `data/audit/stack_chrono_h30/` (`tables.md`, `experiment_two_stage.json`, `figures/`, `mlflow_run.json`): the results quoted here. `data/audit/stack_chrono_h30_rerun/`: the same experiment run again with the saving on, same results to 2e-8 (README), and `models/seed<k>_net0.80/` for seeds 0, 1 and 2 |
-| Stage 2 variants and the stack as scorers | `frozen_runs/stack_chrono_h30_seed0/` (seed 0, `make chrono-freeze`: Stage 1, the LightGBM and Cox Stage 2, the stack, validation tiers) |
+| Stage 2 variants and the stack as scorers | `frozen_runs/stack_chrono_h30_seed0/`, `_seed1/`, `_seed2/` (`make chrono-freeze CHRONO_SEED=<k>`: Stage 1, the LightGBM and Cox Stage 2, the stack, validation tiers; each reproduces the experiment's report in 14 of 14 checks) |
 | Run launcher and logs | `data/audit/chrono_logs/` |
 | Figures | `docs/figures/chrono_split/` (its README lists each source); `make plot-chrono-split` redraws the five new ones |
 | Every look at test | `data/audit/test_access_log.jsonl` |
@@ -1828,7 +1811,7 @@ Where each section's numbers come from:
 | 1.1.6 (cluster action policy) | `data/audit/cluster_policy_h30/` |
 | 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` |
 | 4.7 - 4.10 (point-in-time policy, family calibration) | `data/audit/agent_point_in_time*`, `agent_pit_validation*`, `family_calibration.json` |
-| 1.1.9 (chronological split run) | Training report `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json` and `action_tiers_chrono_h30.json`; model card `data/audit/model_cards/v1_h30d_chrono_h30.md`; Stage 2 variants `data/audit/stack_chrono_h30/`; frozen runs `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/` (`make train`) and `frozen_runs/stack_chrono_h30_seed0/` (Stage 2 variants and stack, seed 0); launcher and logs `data/audit/chrono_logs/`; figures `docs/figures/chrono_split/`; reproduce with `make chrono-run` |
+| 1.1.9 (chronological split run) | Training report `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json` and `action_tiers_chrono_h30.json`; model card `data/audit/model_cards/v1_h30d_chrono_h30.md`; Stage 2 variants `data/audit/stack_chrono_h30/`; frozen runs `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/` (`make train`) and `frozen_runs/stack_chrono_h30_seed{0,1,2}/` (Stage 2 variants and stack); launcher and logs `data/audit/chrono_logs/`; figures `docs/figures/chrono_split/`; reproduce with `make chrono-run` |
 | Every look at test | `data/audit/test_access_log.jsonl` (tracked, append-only) |
 
 What git tracks under `data/audit/` and what stays local is listed in its
@@ -3709,9 +3692,10 @@ What could still change the picture:
   and model hashes before the test scorer runs, and counting every look, is not built.
 - **Which 30-day model the code loads has not been decided.** The run is frozen, but `score-fleet` and the
   agent load the latest 30-day training run, so they now load `6ea7a5bc` rather than `c459046e`; pinning one
-  run id is not built. The stack is frozen as a scorer for seed 0 (`frozen_runs/stack_chrono_h30_seed0/`) and
-  all three seeds' stacks are saved in `data/audit/stack_chrono_h30_rerun/models/`; both are separate fits
-  from the `6ea7a5bc` models (a 396-tree Stage 1 against 339).
+  run id is not built. The stack is frozen as a scorer for each of the three seeds
+  (`frozen_runs/stack_chrono_h30_seed{0,1,2}/`) and also saved in
+  `data/audit/stack_chrono_h30_rerun/models/`; these are separate fits from the `6ea7a5bc` models (400-tree
+  Stage 1s against 339), and which one an agent should use is not decided.
 - **Not run under strict separation:** the 44- and 60-day horizons (`make train` refuses them: their gaps
   are longer than the 30-day embargo), the merged approach (LSTM, TCN, AFT blends), and a comparison with
   the drive-holdout run at a matched false-alarm rate.

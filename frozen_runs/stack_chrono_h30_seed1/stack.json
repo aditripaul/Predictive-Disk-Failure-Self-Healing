@@ -1,0 +1,11 @@
+{
+  "candidate_threshold": 0.1466827529197225,
+  "weights": {
+    "lightgbm": 0.4,
+    "cox": 0.6
+  },
+  "members": {
+    "lightgbm": "lightgbm",
+    "cox": "cox"
+  }
+}

@@ -41,11 +41,12 @@ check-splits:
 #   make chrono-data                                   # build-features, build-labels, check-splits (about 30 minutes)
 #   make chrono-train                                  # 30-day LightGBM two-stage; prints work_dir_kept (about 20 minutes)
 #   make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # Stage 2: LightGBM, Cox, stack (about 30 minutes)
-#   make chrono-freeze CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>  # save the LightGBM, Cox and stack Stage 2 as scorers (validation only)
+#   make chrono-freeze CHRONO_WORK_DIR=data/tmp/train_model_frame_<id> CHRONO_SEED=<0|1|2>  # freeze that seed's LightGBM, Cox and stack Stage 2 as scorers (validation only)
 #   make plot-chrono-split                             # the five figures of docs/figures/chrono_split/
 CHRONO_TAG ?= chrono_h30
 CHRONO_OUT ?= data/audit/stack_chrono_h30
-CHRONO_FREEZE ?= frozen_runs/stack_chrono_h30_seed0
+CHRONO_SEED ?= 0
+CHRONO_FREEZE ?= frozen_runs/stack_chrono_h30_seed$(CHRONO_SEED)
 chrono-run:
 	bash scripts/run_chrono_split.sh
 
@@ -63,15 +64,15 @@ chrono-stack:
 	@test -n "$(CHRONO_WORK_DIR)" || { echo "set CHRONO_WORK_DIR to the work_dir_kept path that make chrono-train printed"; exit 2; }
 	$(MAKE) experiment-model EXPERIMENT_ARGS="--work-dir $(CHRONO_WORK_DIR) --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack --two-stage-out $(CHRONO_OUT)"
 
-# Saves what chrono-stack only measured: Stage 1, the LightGBM and Cox Stage 2 and their stack (seed 0, net 0.8),
-# refitted from the kept work dir on validation rows only (the test matrix is never opened), and refused unless
+# Freezes Stage 1, the LightGBM and Cox Stage 2 and their stack (CHRONO_SEED, net 0.8) as a scorer with its validation
+# tiers, refitted from the kept work dir on validation rows only (the test matrix is never opened), and refused unless
 # the refit reproduces CHRONO_OUT's report. Never overwrites: remove CHRONO_FREEZE or point it elsewhere to redo.
 chrono-freeze:
 	@test -n "$(CHRONO_WORK_DIR)" || { echo "set CHRONO_WORK_DIR to the work_dir_kept path that make chrono-train printed"; exit 2; }
-	uv run python scripts/freeze_stack_scorer.py --work-dir $(CHRONO_WORK_DIR) --seed 0 --net 0.8 \
+	uv run python scripts/freeze_stack_scorer.py --work-dir $(CHRONO_WORK_DIR) --seed $(CHRONO_SEED) --net 0.8 \
 		--reference $(CHRONO_OUT)/experiment_two_stage.json --out $(CHRONO_FREEZE) \
-		--scores-out data/tmp/stack_scores/scores_chrono_h30_seed0.parquet \
-		--cascade-scores data/tmp/lightgbm_scores_h30_$(CHRONO_TAG).parquet --name stack_chrono_h30_seed0
+		--scores-out data/tmp/stack_scores/scores_chrono_h30_seed$(CHRONO_SEED).parquet \
+		--cascade-scores data/tmp/lightgbm_scores_h30_$(CHRONO_TAG).parquet --name stack_chrono_h30_seed$(CHRONO_SEED)
 
 plot-chrono-split:
 	uv run python scripts/plot_chrono_split.py $(ARGS)

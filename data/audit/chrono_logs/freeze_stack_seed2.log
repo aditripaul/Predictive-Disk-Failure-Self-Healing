@@ -1,0 +1,42 @@
+uv run python scripts/freeze_stack_scorer.py --work-dir data/tmp/train_model_frame_4pf36rc4 --seed 2 --net 0.8 \
+	--reference data/audit/stack_chrono_h30/experiment_two_stage.json --out frozen_runs/stack_chrono_h30_seed2 \
+	--scores-out data/tmp/stack_scores/scores_chrono_h30_seed2.parquet \
+	--cascade-scores data/tmp/lightgbm_scores_h30_chrono_h30.parquet --name stack_chrono_h30_seed2
+2026/11/10 16:35:53 INFO mlflow.agent.hint: Load the `instrumenting-with-mlflow-tracing` skill at .venv/lib64/python3.12/site-packages/mlflow/assistant/skills/instrumenting-with-mlflow-tracing/SKILL.md before writing any tracing code; it ships with this MLflow install. Set MLFLOW_DISABLE_AGENT_HINT=1 to silence this.
+[2m2026-11-10T11:05:53.778272Z[0m [[32m[1minfo     [0m] [1mmemory_limit_applied          [0m [36menforced_on[0m=[35mrss[0m [36mmax_memory_gb[0m=[35m20[0m
+[2m2026-11-10T11:09:07.045141Z[0m [[32m[1minfo     [0m] [1mfreeze_stage1_done            [0m [36mseconds[0m=[35m190[0m
+[2m2026-11-10T11:09:18.448265Z[0m [[32m[1minfo     [0m] [1mfreeze_stage2_done            [0m [36mkind[0m=[35mlightgbm[0m [36mtrees[0m=[35m199[0m
+[2m2026-11-10T11:10:02.156816Z[0m [[32m[1minfo     [0m] [1mfreeze_stage2_done            [0m [36mkind[0m=[35mcox[0m [36mtrees[0m=[35m268[0m
+[2m2026-11-10T11:10:03.972811Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m0.13578342408006533[0m [36mcheck[0m=[35mcandidate_threshold[0m [36mexpected[0m=[35m0.13578342408006536[0m [36mok[0m=[35mTrue[0m
+[2m2026-11-10T11:10:03.972939Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m400[0m [36mcheck[0m=[35mstage1_trees[0m [36mexpected[0m=[35m400[0m [36mok[0m=[35mTrue[0m
+[2m2026-11-10T11:10:03.972977Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m207712[0m [36mcheck[0m=[35mcandidates.train_rows[0m [36mexpected[0m=[35m207712[0m [36mok[0m=[35mTrue[0m
+[2m2026-11-10T11:10:03.973004Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m29457[0m [36mcheck[0m=[35mcandidates.train_positive_rows[0m [36mexpected[0m=[35m29457[0m [36mok[0m=[35mTrue[0m
+[2m2026-11-10T11:10:03.973029Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m509010[0m [36mcheck[0m=[35mcandidates.validation_rows[0m [36mexpected[0m=[35m509010[0m [36mok[0m=[35mTrue[0m
+[2m2026-11-10T11:10:03.973051Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m6210[0m [36mcheck[0m=[35mcandidates.validation_positive_rows[0m [36mexpected[0m=[35m6210[0m [36mok[0m=[35mTrue[0m
+[2m2026-11-10T11:10:03.973079Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m199[0m [36mcheck[0m=[35mlightgbm.stage2_trees[0m [36mexpected[0m=[35m199[0m [36mok[0m=[35mTrue[0m
+[2m2026-11-10T11:10:03.973104Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m268[0m [36mcheck[0m=[35mcox.stage2_trees[0m [36mexpected[0m=[35m268[0m [36mok[0m=[35mTrue[0m
+[2m2026-11-10T11:10:03.973128Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m0.3[0m [36mcheck[0m=[35mstack.weights.lightgbm[0m [36mexpected[0m=[35m0.3[0m [36mok[0m=[35mTrue[0m
+[2m2026-11-10T11:10:03.973151Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m0.7[0m [36mcheck[0m=[35mstack.weights.cox[0m [36mexpected[0m=[35m0.7[0m [36mok[0m=[35mTrue[0m
+[2m2026-11-10T11:10:03.973173Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m0.29031657424466206[0m [36mcheck[0m=[35mstack.validation_drive_ap.stack[0m [36mexpected[0m=[35m0.29031657424466206[0m [36mok[0m=[35mTrue[0m
+[2m2026-11-10T11:10:03.973209Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m0.2896358555768312[0m [36mcheck[0m=[35mstack.validation_drive_ap.equal_weights[0m [36mexpected[0m=[35m0.2896358555768312[0m [36mok[0m=[35mTrue[0m
+[2m2026-11-10T11:10:03.973245Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m0.2819178068398241[0m [36mcheck[0m=[35mstack.validation_drive_ap.lightgbm[0m [36mexpected[0m=[35m0.2819178068398241[0m [36mok[0m=[35mTrue[0m
+[2m2026-11-10T11:10:03.973269Z[0m [[32m[1minfo     [0m] [1mfreeze_check                  [0m [36mactual[0m=[35m0.28310314737550846[0m [36mcheck[0m=[35mstack.validation_drive_ap.cox[0m [36mexpected[0m=[35m0.28310314737550846[0m [36mok[0m=[35mTrue[0m
+2026/11/10 16:40:09 INFO mlflow.utils.uv_utils: Detected uv project: found uv.lock and pyproject.toml in ./
+2026/11/10 16:40:09 INFO mlflow.utils.environment: Detected uv project at ./. Attempting to export requirements via 'uv export'.
+2026/11/10 16:40:09 INFO mlflow.utils.uv_utils: Exported 164 dependencies via uv
+2026/11/10 16:40:09 INFO mlflow.utils.environment: Successfully exported 164 requirements from uv project. Skipping package capture based inference.
+2026/11/10 16:40:09 INFO mlflow.utils.uv_utils: Extracted 1 private index URL(s) from uv.lock
+2026/11/10 16:40:09 WARNING mlflow.utils.uv_utils: Private package indexes detected in uv lockfile. Ensure credentials are available at model load time via UV_INDEX_* environment variables or .netrc file.
+2026/11/10 16:40:09 WARNING mlflow.utils.environment: Failed to resolve installed pip version. ``pip`` will be added to conda.yaml environment spec without a version specifier.
+2026/11/10 16:40:09 INFO mlflow.utils.uv_utils: Detected uv project: found uv.lock and pyproject.toml in ./
+2026/11/10 16:40:09 INFO mlflow.utils.environment: Detected uv project at ./. Attempting to export requirements via 'uv export'.
+2026/11/10 16:40:09 INFO mlflow.utils.uv_utils: Exported 164 dependencies via uv
+2026/11/10 16:40:09 INFO mlflow.utils.environment: Successfully exported 164 requirements from uv project. Skipping package capture based inference.
+2026/11/10 16:40:09 INFO mlflow.utils.uv_utils: Extracted 1 private index URL(s) from uv.lock
+2026/11/10 16:40:09 WARNING mlflow.utils.uv_utils: Private package indexes detected in uv lockfile. Ensure credentials are available at model load time via UV_INDEX_* environment variables or .netrc file.
+2026/11/10 16:40:09 WARNING mlflow.utils.environment: Failed to resolve installed pip version. ``pip`` will be added to conda.yaml environment spec without a version specifier.
+reproduction passed: True (14 checks)
+stack: lift {'warn': 0.9113533255660131, 'cordon': 0.9637598153447804, 'migrate': 0.9843715699894198, 'drain': 0.9965897223740343}  cost {'warn': 0.8117246946746572, 'cordon': 0.9565689616012512, 'migrate': 0.986645145001334, 'drain': 0.99763219497303}  primary 0.9980
+lightgbm: lift {'warn': 0.5050930807554138, 'cordon': 0.7341021878905076, 'migrate': 0.8650542372564787, 'drain': 0.9467706495738966}  cost {'warn': 0.3108467178653328, 'cordon': 0.7055848365026918, 'migrate': 0.8903810312912448, 'drain': 0.9482255897303156}  primary 0.9590
+cox: lift {'warn': 0.7461680829279229, 'cordon': 0.8661043046597743, 'migrate': 0.9169870496483872, 'drain': 0.9515797414133178}  cost {'warn': 0.539235286958428, 'cordon': 0.8587911311550511, 'migrate': 0.9266816329623613, 'drain': 0.9478689105908453}  primary 0.9615
+written to frozen_runs/stack_chrono_h30_seed2 and data/tmp/stack_scores/scores_chrono_h30_seed2.parquet
