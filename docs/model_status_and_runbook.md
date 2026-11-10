@@ -1,6 +1,6 @@
 # Model status, results and runbook
 
-> **Current state (2026-11-06).** Read Section 1 first. The current model is
+> **Current state (2026-11-07).** Read Section 1 first. The current model is
 > the 30-day Q1+Q2 -> Q3 run of Section 1.1.4 (frozen run `c459046e`), tested
 > on Q3 2026; Sections 1.1.1 to 1.1.3 hold the earlier frozen runs on the
 > 2026-04/05 window. Section 4 is the
