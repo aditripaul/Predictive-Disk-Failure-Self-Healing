@@ -1,0 +1,14 @@
+=== start build-features 2026-11-10 07:57:36 UTC
+=== done build-features 2026-11-10 08:24:45 UTC
+=== start build-labels 2026-11-10 08:24:45 UTC
+=== done build-labels 2026-11-10 08:27:08 UTC
+=== start check-splits 2026-11-10 08:27:08 UTC
+=== done check-splits 2026-11-10 08:27:08 UTC
+uv run python scripts/check_split_separation.py 
+horizon 30 days, strict_separation on
+OK: train, validation and test are separate
+=== start train 2026-11-10 08:27:08 UTC
+=== done train 2026-11-10 08:47:43 UTC
+work dir: data/tmp/train_model_frame_4pf36rc4
+=== start stack 2026-11-10 08:47:43 UTC
+=== done stack 2026-11-10 09:14:43 UTC
