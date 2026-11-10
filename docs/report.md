@@ -78,7 +78,10 @@ confidence interval 52.3% to 65.5%). There validation read higher (75.0%) becaus
 0.30% on test, and the lift targets of migrate and drain converted to 89% and 133% precision, so both shared one
 cutoff that flagged 6 drives: the agent warned and cordoned. Whether to open migrate and drain at lift-derived targets
 of 28.9% and 43.4% precision, or to wait for targets set from the cost of each action, is a policy decision the model
-cannot make.
+cannot make. The project can now state what that decision involves (Section 6.3). The current lift targets are
+cost-optimal if one prevented failure is worth about 35 warnings, 16-20 cordons, 5-7 migrations and 2-4 drains.
+`configs/model.yaml` takes the real costs (the cost of a failure, and the cost of each action and how often it
+prevents the failure) in place of those implied ratios, and leaves the lift tiers in force until they are supplied.
 
 Twenty-four approaches were measured, each paired with the standard model on
 the same drives of its own test window and reported at the strength of its
@@ -457,10 +460,44 @@ the validation failure rate (0.589%): 33.3% for warn and 55.5% for cordon,
 which the curve meets at 0.653 and 0.836; but 88.9% for migrate, met only at
 the top of the curve (2 drives), and 133% for drain, which nothing can meet.
 Drain falls back to the curve's most precise point, which is where migrate's
-target is met, so both share the cutoff 0.926 and together flag 6 drives on Q3 (Section 9.3). Until the targets come from the cost of each action
-rather than from lift, the destructive tiers did not operate on that model. On the current model the validation failure rate is 0.19%, the same
-lifts convert to 10.9%, 18.1%, 28.9% and 43.4%, and every tier has its own cutoff (Section 9.1); those targets are still
-placeholders.
+target is met, so both share the cutoff 0.926 and together flag 6 drives on Q3 (Section 9.3). The destructive
+tiers did not operate on that model. On the current model the validation failure rate is 0.19%, and the same lifts
+convert to 10.9%, 18.1%, 28.9% and 43.4%. Every tier has its own cutoff (0.530, 0.734, 0.857 and 0.935), and on test
+each holds its validation precision within a point or beats it (Section 9.1). Those targets are still placeholders.
+
+**Cost-based tiers.** Where a tier should sit is a question of cost, not of precision. Acting on a drive is worth it
+when `precision x P(save) x C_failure > C_action`, where `P(save)` is how often the action prevents the failure's
+cost when the drive does fail. A second tier rule places each tier where its action pays for itself on validation.
+It flags drives while the precision of the next drives added stays at or above `1 / (1 + r)`, where `r` is how
+many unnecessary actions of that kind one prevented failure is worth. `r` is not asked for directly; it follows
+from three quantities operations can estimate:
+
+    r = P(save) x C_failure / C_action - 1
+
+These go in `configs/model.yaml` (`threshold.cost_model`). Left empty, as shipped, they leave the lift tiers in
+force. Read in reverse on the current model's validation drives, the lift tiers already encode a cost: each
+threshold is the cost-optimal cut for a narrow range of `r`. The ranges below were measured on the four frozen
+chronological scorers (the stack, its LightGBM and Cox members, and the cascade; runbook 1.9):
+
+| Tier | r the lift tier implies | Precision of the next drives at the cut | Placeholder r |
+|---|---|---|---|
+| Warn | 34-36 | 2.7-2.9% | 100 |
+| Cordon | 16-20 | 4.8-5.8% | 20 |
+| Migrate | 5-7 | 12.8-16.3% | 5 |
+| Drain | 2-4 | 21.7-33.9% | 2 |
+
+Three things follow from this:
+
+- **Operations has four numbers to confirm or replace,** not a blank form.
+- **The rule matters less than the ratio.** At the placeholder ratios, the cost tiers move warn from 59-60% to
+  68-69% of failing validation drives, at 6.5-7.3% precision instead of 10.9%. Cordon moves from 49% to 51-55%,
+  and migrate and drain barely move. The net value gained is 8-9% at warn and 2-4% at cordon, measured on the same
+  drives both rules were tuned on. Point in time, the cordon net is within 2% either way.
+- **The 68% goal is unaffected.** Costs decide where on the curve each action sits; they do not change the
+  ranking.
+
+Early warnings (failures 31 to 60 days after an alert, Section 10.4) are not credited. On the chronological split
+those days fall in the test period. ADR 0005 records the decision.
 
 A per-drive-model variant of this policy - one set of tier thresholds per
 drive model instead of one fleet-wide set - was built and measured on test, and the fleet-wide policy proved better;
@@ -1117,15 +1154,29 @@ highest-recall validation threshold with precision of at least 68% and recall of
 report fell back to the highest-precision threshold with recall of at least 10%: 51.5% at 10.2% on validation, 59.9%
 at 13.3% on test (AUROC 0.906 and 0.923). Stage 2 adds 5.1 points of precision over Stage 1 alone at that recall [0.9,
 9.4]. All four action tiers fire, unlike on the drive-holdout model, because the lift targets now convert at 0.19%
-to precision targets of 10.9%, 18.1%, 28.9% and 43.4%:
+to precision targets of 10.9%, 18.1%, 28.9% and 43.4%. Each threshold is set on validation and applied unchanged to
+test (frozen in `frozen_runs/6ea7a5bc.../action_tiers.json`):
 
-| Tier (test) | Precision | Recall | Caught | False alarms | Flagged |
-|---|---|---|---|---|---|
-| Warn | 10.8% | 65.2% | 563 | 4,661 | 5,224 |
-| Cordon | 18.1% | 56.1% | 485 | 2,192 | 2,677 |
-| Migrate | 28.0% | 44.4% | 384 | 987 | 1,371 |
-| Drain | 52.4% | 20.4% | 176 | 160 | 336 |
-| Primary | 59.9% | 13.3% | 115 | 77 | 192 |
+| Tier | Lift | Target | Threshold | Validation P / R (caught, false alarms) | Test P / R (caught, false alarms) | Test flagged |
+|---|---|---|---|---|---|---|
+| Stage 1 net | | | 0.1431 | 2.1% / 80.3% (549, 25,268) | 2.2% / 85.0% (734, 32,579) | 33,313 |
+| Warn | 56.6 | 10.9% | 0.530 | 10.9% / 59.9% (410, 3,368) | 10.8% / 65.2% (563, 4,661) | 5,224 |
+| Cordon | 94.3 | 18.1% | 0.734 | 18.1% / 49.4% (338, 1,531) | 18.1% / 56.1% (485, 2,192) | 2,677 |
+| Migrate | 151.0 | 28.9% | 0.857 | 29.0% / 38.0% (260, 638) | 28.0% / 44.4% (384, 987) | 1,371 |
+| Drain | 226.4 | 43.4% | 0.935 | 43.6% / 15.4% (105, 136) | 52.4% / 20.4% (176, 160) | 336 |
+| Primary | | 68% | 0.943 | 51.5% / 10.2% (70, 66) | 59.9% / 13.3% (115, 77) | 192 |
+
+**The tier thresholds transfer.** On test, warn, cordon and migrate hold their validation precision within a point,
+and drain beats it (52.4% against 43.6%). Every tier catches 5 to 7 points more of the failing drives, because test
+fails slightly more often (0.23% against 0.19%). On the drive-holdout model, warn and cordon lost 38% to 48% of
+their validation precision on Q3, where fewer drives failed (Section 9.3).
+
+![Validation drive-level precision-recall curve of run 6ea7a5bc with the primary threshold and the four action tiers marked](figures/chrono_split/model_h30_chrono_validation_precision_recall.png)
+
+*Figure 35. The current model's validation curve per drive (solid) and per drive-day (dashed), with the primary
+threshold, each action tier at its threshold and the top-K points. Drain and the primary threshold sit on the
+curve's steep start, above 40% precision. Warn and cordon sit at 49% to 60% recall, where precision has fallen to
+11-18%, and each further failing drive costs many false alarms.*
 
 **The Stage 2 variants**, on the same Stage 1 net: a LightGBM Stage 2, a Cox Stage 2 and a rank-blend stack of the
 two, mean of three seeds, thresholds set on validation for each recall level. Each cell is precision / recall
@@ -1170,6 +1221,19 @@ from the `make train` models:
 | 0 | 396 | 142 / 272 | 0.6 / 0.4 | 52.8% / 12.6% | 58.6% / 16.2% |
 | 1 | 401 | 354 / 355 | 0.4 / 0.6 | 52.8% / 11.1% | 50.6% / 14.1% |
 | 2 | 400 | 199 / 268 | 0.3 / 0.7 | 51.8% / 12.7% | 57.0% / 18.4% |
+
+Each frozen scorer has its own tier thresholds, from the same lift targets. The seed-0 stack, the scorer the agent's
+evidence below reads, gives these on validation:
+
+| Tier | Threshold | Validation P / R (caught, false alarms) |
+|---|---|---|
+| Warn | 0.9141 | 10.9% / 59.4% (406, 3,335) |
+| Cordon | 0.9651 | 18.1% / 49.0% (335, 1,518) |
+| Migrate | 0.9844 | 29.0% / 39.0% (267, 655) |
+| Drain | 0.9951 | 43.5% / 22.5% (154, 200) |
+
+Warn, cordon and migrate sit within a point of the LightGBM two-stage model's. Drain reaches 22.5% of failing drives
+against 15.4%, at the same precision.
 
 **The agent's evidence on this split** (runbook Section 1.1.9, run 2026-11-10; the seed-0 stack scorer, validation
 window only, so no test row was read and the access log stayed at 146 looks). Nine point-in-time snapshots three days
@@ -1244,8 +1308,9 @@ marker values are exact.*
 *Figure 10. Drive counts at the primary threshold and at each action tier on
 Q3 2026. Migrate and drain share one cutoff and flag 6 drives between them.*
 
-### 9.3 Only two of the four action tiers operate
+### 9.3 On the previous model only two of the four action tiers operate
 
+This section is about the drive-holdout model `c459046e`. On the current model all four tiers fire (Section 9.1).
 Each tier's threshold is the validation cutoff with the most recall whose precision still
 meets lift times the validation failure rate (Section 6.3). At 0.589% failing,
 migrate's lift of 151 asks for 88.9% precision and drain's 226.4 for 133%:
@@ -1266,10 +1331,11 @@ lifts would ask for 17% to 68%.*
 The agent's reachable actions on this model are therefore warn and cordon,
 whatever the model's confidence. Migrate's target is met only at the very top of
 the validation curve and drain's is impossible, so both share the cutoff 0.926
-and flag 6 drives on Q3; in the runbook's words, "on this model they are not
-usable tiers" (runbook 1.9). The runbook's open items give the way forward:
-tier targets set from the real cost of a false alarm for each action, which
-they are not yet (Section 14).
+and flag 6 drives on Q3. On this model they were not usable tiers (runbook 1.9).
+The way forward is tier targets set from the real cost of a false alarm for
+each action. The inputs for that now exist, and the current lift targets'
+implied costs are measured (Section 6.3), but the costs themselves have not
+been supplied (Section 15).
 
 ### 9.4 Validation against test: the gap is the base rate
 
@@ -2451,6 +2517,7 @@ make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # LightGBM, 
 make chrono-freeze CHRONO_WORK_DIR=data/tmp/train_model_frame_<id> CHRONO_SEED=<0|1|2>   # freeze one seed's stack
 make plot-chrono-split        # Figures 3 and 30 to 34, from the saved results
 make chrono-pit-validation    # the agent's point-in-time baseline on validation, four arms (about 3 minutes; in chrono-run)
+make chrono-cost-tiers       # lift against cost tiers, validation only (about 2 minutes; not in chrono-run)
 make chrono-knowledge         # the knowledge store: build, five self-checks, coverage, drift (about 8 minutes; in chrono-run)
 make chrono-pack-knowledge    # optional: the store as a 42 MB deterministic gzip; chrono-unpack-knowledge restores it
 ```

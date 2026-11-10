@@ -172,6 +172,7 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
 | `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md` | The attribute screen, and a safety-floor bug it found and fixed |
 | `docs/adr/0003-point-in-time-evaluation-and-the-limits-of-the-loop.md` | Why the first agent backtest was withdrawn, how the policy is measured now, and the mechanisms shown not to raise precision |
 | `docs/adr/0004-knowledge-component-and-the-screen-rule.md` | The agent's Knowledge component, and why a knowledge rule may change a decision only after a pre-registered screen (none passed) |
+| `docs/adr/0005-cost-based-action-tiers.md` | Why the action tiers take costs as inputs, what the current lift targets already assume, and why the agent stays on them until costs are supplied |
 | `docs/q3_horizon_and_cascade_run.md` | The previous model: Q1+Q2 2026 to Q3 2026 (drive holdout), three label horizons, cascade and survival Stage 2 |
 | `docs/cascade_wide_net.md` | The wide-net two-stage cascade: method, pre-registered rule and result |
 | `docs/cluster_action_policy.md` | Action by failure-mode cluster instead of tier alone (rule not passed) |
@@ -452,6 +453,7 @@ synthetic-data walkthrough (§14) - only real-data / production settings.
 | `configs/model.yaml` | `model.type` (`lightgbm` \| `xgboost`) | Only if you want XGBoost instead of the LightGBM default |
 | `configs/model.yaml` | `mlflow.tracking_uri` / `experiment_name` | Only if you want runs logged somewhere other than the local `sqlite:///mlflow/mlflow.db` default |
 | `configs/model.yaml` | `hyperparameter_search.enabled` / `smote_comparison.enabled` | Optional - both default to `false` so `make train` stays fast and deterministic |
+| `configs/model.yaml` | `threshold.cost_model` (`failure_cost`, `action_cost`, `p_save` per tier) | Before judging or adopting cost-based tiers (`threshold.tier_rule: cost`) - all null by default, which keeps the placeholder `action_cost_ratio`; `make chrono-cost-tiers` shows what the current tiers assume (runbook 1.9, ADR 0005) |
 | `configs/agent.yaml` | `action_thresholds`, `human_review.*_sla_hours` | Only to change the default risk-tier cutoffs / SLA clock before a real deployment |
 | `configs/guardrails.yaml` | `operational_state.backend` (`in_memory` \| `redis`) + `redis_url` | Only for a multi-instance deployment where drain/rate-limit counters must be shared - a single process is correct with the `in_memory` default |
 | `configs/features.yaml` | `sequences.*` | Only if using the optional LSTM branch (`make build-sequences` / `train-lstm`) |

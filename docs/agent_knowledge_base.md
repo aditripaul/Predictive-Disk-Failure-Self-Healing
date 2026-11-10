@@ -131,6 +131,10 @@ a cheap action is expected near 70-80% recall.
 - `configs/model.yaml threshold.action_cost_ratio` holds placeholders (warn 100,
   cordon 20, migrate 5, drain 2). **They are an operations decision**, not a result,
   and are marked as such.
+- Since 2026-11-10 the ratios can be derived from costs: `threshold.cost_model` (`failure_cost`, and
+  `action_cost` and `p_save` per tier) gives `r = p_save x failure_cost / action_cost - 1`, and
+  `make chrono-cost-tiers` shows that the lift tiers already imply about 35 / 16-20 / 5-7 / 2-4
+  (runbook 1.9, ADR 0005).
 - `threshold.tier_rule: lift | cost` selects which set the agent uses; the default is
   `lift`, so nothing changes until someone sets it.
 - Both sets are written to the scorer's thresholds file (`action_tiers` and

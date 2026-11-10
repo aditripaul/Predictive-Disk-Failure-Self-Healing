@@ -297,19 +297,19 @@ exact.
 
 | Precision-recall (test) | Confusion matrices (test) |
 |---|---|
-| ![30-day model: test precision-recall](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/test_precision_recall.png) | ![30-day model: test confusion matrices](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/test_confusion.png) |
+| ![30-day model: test precision-recall](figures/q3_2026/model_h30_test_precision_recall.png) | ![30-day model: test confusion matrices](figures/q3_2026/model_h30_test_confusion.png) |
 
 *44-day model, run `a2cd06d5`*
 
 | Precision-recall (test) | Confusion matrices (test) |
 |---|---|
-| ![44-day model: test precision-recall](../frozen_runs/a2cd06d53e624c09b0d12f81076def8a/figures/test_precision_recall.png) | ![44-day model: test confusion matrices](../frozen_runs/a2cd06d53e624c09b0d12f81076def8a/figures/test_confusion.png) |
+| ![44-day model: test precision-recall](figures/q3_2026/model_h44_test_precision_recall.png) | ![44-day model: test confusion matrices](figures/q3_2026/model_h44_test_confusion.png) |
 
 *60-day model, run `804a20ce`*
 
 | Precision-recall (test) | Confusion matrices (test) |
 |---|---|
-| ![60-day model: test precision-recall](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/test_precision_recall.png) | ![60-day model: test confusion matrices](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/test_confusion.png) |
+| ![60-day model: test precision-recall](figures/q3_2026/model_h60_test_precision_recall.png) | ![60-day model: test confusion matrices](figures/q3_2026/model_h60_test_confusion.png) |
 
 Validation curves and matrices (the same thresholds on the holdout that chose
 them) sit beside these in each bundle; the precision gap between the two is
@@ -318,7 +318,7 @@ example, the 30-day model on validation:
 
 | Precision-recall (validation) | Confusion matrices (validation) |
 |---|---|
-| ![30-day model: validation precision-recall](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/validation_precision_recall.png) | ![30-day model: validation confusion matrices](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/validation_confusion.png) |
+| ![30-day model: validation precision-recall](figures/q3_2026/model_h30_validation_precision_recall.png) | ![30-day model: validation confusion matrices](figures/q3_2026/model_h30_validation_confusion.png) |
 
 **Horizon comparison, paired** (`scripts/compare_horizons.py`; every model
 scored on the same 361,012 drives in 2026-07-01 .. 08-01, 1,000 drive
@@ -568,27 +568,27 @@ drive-day curve (dashed), with the primary threshold, the tiers and the top-K po
 
 | Precision-recall | Confusion matrices |
 |---|---|
-| ![44-day model: validation precision-recall](../frozen_runs/a2cd06d53e624c09b0d12f81076def8a/figures/validation_precision_recall.png) | ![44-day model: validation confusion matrices](../frozen_runs/a2cd06d53e624c09b0d12f81076def8a/figures/validation_confusion.png) |
+| ![44-day model: validation precision-recall](figures/q3_2026/model_h44_validation_precision_recall.png) | ![44-day model: validation confusion matrices](figures/q3_2026/model_h44_validation_confusion.png) |
 
 | Precision-recall (train, in-sample) | Confusion matrices (train, in-sample) |
 |---|---|
-| ![44-day model: train precision-recall (in-sample)](../frozen_runs/a2cd06d53e624c09b0d12f81076def8a/figures/train_precision_recall.png) | ![44-day model: train confusion matrices (in-sample)](../frozen_runs/a2cd06d53e624c09b0d12f81076def8a/figures/train_confusion.png) |
+| ![44-day model: train precision-recall (in-sample)](figures/q3_2026/model_h44_train_precision_recall.png) | ![44-day model: train confusion matrices (in-sample)](figures/q3_2026/model_h44_train_confusion.png) |
 
 *60-day model, run `804a20ce`*
 
 | Precision-recall | Confusion matrices |
 |---|---|
-| ![60-day model: validation precision-recall](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/validation_precision_recall.png) | ![60-day model: validation confusion matrices](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/validation_confusion.png) |
+| ![60-day model: validation precision-recall](figures/q3_2026/model_h60_validation_precision_recall.png) | ![60-day model: validation confusion matrices](figures/q3_2026/model_h60_validation_confusion.png) |
 
 | Precision-recall (train, in-sample) | Confusion matrices (train, in-sample) |
 |---|---|
-| ![60-day model: train precision-recall (in-sample)](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/train_precision_recall.png) | ![60-day model: train confusion matrices (in-sample)](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/train_confusion.png) |
+| ![60-day model: train precision-recall (in-sample)](figures/q3_2026/model_h60_train_precision_recall.png) | ![60-day model: train confusion matrices (in-sample)](figures/q3_2026/model_h60_train_confusion.png) |
 
 *30-day model, run `c459046e`: train (in-sample)*
 
 | Precision-recall (train, in-sample) | Confusion matrices (train, in-sample) |
 |---|---|
-| ![30-day model: train precision-recall (in-sample)](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/train_precision_recall.png) | ![30-day model: train confusion matrices (in-sample)](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/train_confusion.png) |
+| ![30-day model: train precision-recall (in-sample)](figures/q3_2026/model_h30_train_precision_recall.png) | ![30-day model: train confusion matrices (in-sample)](figures/q3_2026/model_h30_train_confusion.png) |
 
 ### 1.1.4a A stacked Stage 2: LightGBM + Cox (run 2026-11-06, small strict-end gain, not confirmed, outputs frozen)
 
@@ -844,7 +844,7 @@ first alert at the group's own point to failure.
 | passed Stage 1, below warn | 210 | 19.0% | 82.4% | 38.6% | 40 | 0.99 | 3.6 | 12.9% | 26 |
 | never passed Stage 1 | 222 | 20.1% | 21.6% | 1.4% | 0 | 0.96 | 2.9 | 0.0% | - |
 
-![Where each failing drive stops, and its SMART evidence](../data/audit/deep_dive_q3_h30/figures/missed_failures.png)
+![Where each failing drive stops, and its SMART evidence](figures/q3_2026/deep_dive_missed_failures.png)
 
 - **The roughly 20% that Stage 1 never passes are silent.** 98.6% of them show
   no rise in any core counter in the 30 days before failing, with complete
@@ -878,7 +878,7 @@ limited by the data, which ends 2026-09-30.
 | cordon | 877 | 79.6% | 18.5% | 17 | 99.3% (8.9%) | 86.7% | 5.7 (3.5) |
 | primary | 96 | 60.4% | 35.4% | 4 | 97.9% (8.9%) | 81.2% | 5.5 (3.5) |
 
-![What the false alarms are, by operating point](../data/audit/deep_dive_q3_h30/figures/false_alarm_outcomes.png)
+![What the false alarms are, by operating point](figures/q3_2026/deep_dive_false_alarm_outcomes.png)
 
 - **False alarms are damaged drives, not noise:** 98-99.8% of those at warn and
   above have a non-zero core counter, against 8.9% of the healthy fleet, and
@@ -915,7 +915,7 @@ every validation week (2.0-3.4%) with no matching rise in failures: SMART
 counters only accumulate, so more healthy drives look suspicious over time. A
 2x drift threshold would never fire on this; a weekly trend check would.
 
-![Week by week on Q3 and on validation](../data/audit/deep_dive_q3_h30/figures/weekly_stability.png)
+![Week by week on Q3 and on validation](figures/q3_2026/deep_dive_weekly_stability.png)
 
 **Validation against test.** The 15-20 point precision gap is the base rate,
 not overfitting:
@@ -932,7 +932,7 @@ not overfitting:
 | cordon | 55.7% | 34.8% | 51.3% | 38.9% |
 | primary | 75.0% | 59.0% | 73.9% | 60.4% |
 
-![Validation against test, restated at the validation base rate](../data/audit/deep_dive_q3_h30/figures/validation_vs_test.png)
+![Validation against test, restated at the validation base rate](figures/q3_2026/deep_dive_validation_vs_test.png)
 
 - **The ranking transferred intact:** AUROC 0.922 on validation and 0.926 on
   test, the same recall at matched false-alarm rates.
@@ -967,13 +967,13 @@ stability and failure-rate separation within band; `tables.md`):
 | C2 | pending sectors, pending vs reallocated | 22.1% (23.6%) | 11.7% / 4.5% | migrate data |
 | C3 | reallocated sectors rising, defect velocity | 9.6% (12.4%) | 33.4% / 16.1% | replace |
 
-![What each cluster is](../data/audit/cluster_policy_h30/figures/cluster_signatures.png)
+![What each cluster is](figures/q3_2026/cluster_signatures.png)
 
 The clusters are stable (Q3 shares within a factor of 2 of validation, refit ARI
 0.87) and separate risk from 1% to 33%. The action map, fixed on validation, moved
 three cells, all down (C1 and C2 at warn, C2 at cordon):
 
-![Failure rate per cluster and band on validation, moved cells outlined](../data/audit/cluster_policy_h30/figures/tier_cluster_matrix_validation.png)
+![Failure rate per cluster and band on validation, moved cells outlined](figures/q3_2026/cluster_tier_cluster_matrix_validation.png)
 
 **Q3 result** (one look, test-access log line 133; cumulative tiers, 1,105 failing
 drives):
@@ -985,7 +985,7 @@ drives):
 
 | Policy comparison | Where each policy operates on the score's curve |
 |---|---|
-| ![Precision, recall and moved drives per tier](../data/audit/cluster_policy_h30/figures/policy_comparison.png) | ![Operating points against the drive curve](../data/audit/cluster_policy_h30/figures/policy_precision_recall.png) |
+| ![Precision, recall and moved drives per tier](figures/q3_2026/cluster_policy_comparison.png) | ![Operating points against the drive curve](figures/q3_2026/cluster_policy_precision_recall.png) |
 
 - **Rule not passed:** precision is up but recall is lower at warn and cordon, so the
   agent integration was not built and the agent is unchanged.
@@ -997,7 +997,7 @@ drives):
 - The clusters stay useful as a description and a watch list (C3: 12% of suspects,
   16% failing on Q3), not as a policy.
 
-![Q3 failure rate per cluster and band](../data/audit/cluster_policy_h30/figures/tier_cluster_matrix_test.png)
+![Q3 failure rate per cluster and band](figures/q3_2026/cluster_tier_cluster_matrix_test.png)
 
 **Commands** (code `8dcca9b`; the first ablation run, stopped after 39 minutes
 because spectral clustering with an RBF kernel did not converge, produced nothing):
@@ -1019,29 +1019,29 @@ rerun once with `--overwrite` after a naming fix, resuming all 35 candidates).
 **More figures of the cluster policy** (`data/audit/cluster_policy_h30/figures/`, redrawn from the saved JSON
 without reading data; `scripts/cluster_action_policy.py`).
 
-![Clustering ablation on the validation suspects: failure-rate separation, stability and silhouette for five methods at 3 to 10 clusters](../data/audit/cluster_policy_h30/figures/clustering_ablation.png)
+![Clustering ablation on the validation suspects: failure-rate separation, stability and silhouette for five methods at 3 to 10 clusters](figures/q3_2026/cluster_clustering_ablation.png)
 
 *The clustering ablation on the validation suspects (chosen: Gaussian mixture, 4 clusters). Left, failure-rate
 separation within a score band, cross-half; centre, stability as the adjusted Rand index of one half of the suspects
 against the other, with the 0.7 floor; right, silhouette. Five methods (agglomerative, Gaussian mixture, HDBSCAN,
 k-means, spectral) at 3 to 10 clusters; the star is the chosen one.*
 
-![Drive family per cluster](../data/audit/cluster_policy_h30/figures/cluster_families.png)
+![Drive family per cluster](figures/q3_2026/cluster_families.png)
 
 *The drive-family mix of each cluster beside all suspects. C1 is almost all Seagate and C2 has almost none (mostly
 HGST, Western Digital and Toshiba); C0 and C3 are mixed.*
 
-![Share of suspects and failure rate per cluster, validation against Q3](../data/audit/cluster_policy_h30/figures/cluster_stability.png)
+![Share of suspects and failure rate per cluster, validation against Q3](figures/q3_2026/cluster_stability.png)
 
 *Left, the share of suspects in each cluster on validation and on Q3. Right, the failure rate per cluster: it falls
 by about half on Q3 (C3 33.4% to 16.1%, C2 11.7% to 4.5%) with the order C3 > C2 > C1 > C0 intact.*
 
-![Days from decision to failure for the failing drives in the warn and cordon bands, by cluster](../data/audit/cluster_policy_h30/figures/lead_time_by_cell.png)
+![Days from decision to failure for the failing drives in the warn and cordon bands, by cluster](figures/q3_2026/cluster_lead_time_by_cell.png)
 
 *Days from the decision to the failure of the failing drives in the warn band (left) and the cordon band (right),
 by cluster, with the number of failing drives per cluster in the label.*
 
-![Outcome of every flagged drive, tier-only against the cluster policy](../data/audit/cluster_policy_h30/figures/action_outcomes_by_cell.png)
+![Outcome of every flagged drive, tier-only against the cluster policy](figures/q3_2026/cluster_action_outcomes_by_cell.png)
 
 *The outcome of every flagged drive at warn and above, cordon and above, migrate and above and drain and above, for
 the tier-only policy and the cluster policy: correct, early (failed in days 31 to 60), later (failed after that),
@@ -1402,6 +1402,7 @@ make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # LightGBM, 
 make chrono-freeze CHRONO_WORK_DIR=data/tmp/train_model_frame_<id> CHRONO_SEED=<0|1|2>   # freeze one seed's stack as a scorer
 make plot-chrono-split                                              # the five figures of docs/figures/chrono_split/
 make chrono-pit-validation                                          # point-in-time snapshots on validation, four arms (about 3 minutes; in chrono-run)
+make chrono-cost-tiers                                              # lift against cost tiers, validation only (about 2 minutes; not in chrono-run; Section 1.9)
 make chrono-knowledge                                               # build, check, coverage and drift of the knowledge store (about 8 minutes; in chrono-run)
 make chrono-pack-knowledge                                          # optional: the deterministic gzip of the store (42 MB)
 ```
@@ -1764,6 +1765,7 @@ score table (`CHRONO_SEED=0` is the default; the commands read `frozen_runs/stac
 bash data/audit/chrono_logs/run_agent_evidence.sh "$PWD"
 # or one at a time (do not use make -j):
 make chrono-pit-validation          # 4 arms x 9 snapshots; about 3 minutes; rewrites data/audit/agent_pit_validation_chrono_h30/
+make chrono-cost-tiers             # lift against cost tiers on the same arms, validation only; rewrites data/audit/cost_tiers_chrono_h30/ (Section 1.9)
 make chrono-knowledge               # build (overwrites the store), check, coverage, drift; about 8 minutes
 make chrono-pack-knowledge          # optional: data/audit/agent_knowledge_chrono_h30/agent_knowledge.sqlite.gz and its hashes (42 MB)
 make chrono-unpack-knowledge        # restore the packed store without rebuilding; ARGS=--overwrite to replace one
@@ -2084,9 +2086,11 @@ README; the Q1+Q2 -> Q3 results are all tracked.
 
 The agent's four action tiers (warn, cordon, migrate, drain) are four thresholds on
 one score. Stage 2 does not create them; it produces the score, and the thresholds
-are chosen on the validation holdout to meet a precision target each. For the
-current model (frozen run `6ea7a5bc`, Section 1.1.9); the previous drive-holdout model (frozen run `c459046e`),
-whose tiers behaved differently, is given for contrast:
+are chosen on the validation window (2026-05-21 to 06-16, 356,811 drives, 684 failing; no drive holdout on
+this split) to meet a precision target each. The figures are for the current model, frozen run
+`6ea7a5bcfb954deeb4a4208e4d802744` (Section 1.1.9), and for the frozen seed-0 stack scorer the agent's
+evidence reads. The previous drive-holdout model (frozen run `c459046e`), whose tiers behaved
+differently, is given for contrast:
 
 1. **The score.** Stage 1 scores every drive-day; at or above the candidate
    threshold (0.1431, `frozen_runs/6ea7a5bc.../two_stage.json` `candidate_threshold`;
@@ -2105,17 +2109,45 @@ whose tiers behaved differently, is given for contrast:
    target (`tune_action_tiers`). A target no cutoff meets falls back to the curve's
    most precise point:
 
-| Tier | Lift | Target on validation | Threshold | Validation precision / recall | Test precision / recall |
-|---|---|---|---|---|---|
-| warn | 56.6 | 10.9% | 0.530 | 10.9% / 59.9% | 10.8% / 65.2% |
-| cordon | 94.3 | 18.1% | 0.734 | 18.1% / 49.4% | 18.1% / 56.1% |
-| migrate | 151.0 | 28.9% | 0.857 | 29.0% / 38.0% | 28.0% / 44.4% |
-| drain | 226.4 | 43.4% | 0.935 | 43.6% / 15.4% | 52.4% / 20.4% |
+| Tier | Lift | Target on validation | Threshold | Validation P / R (caught, false alarms) | Test P / R (caught, false alarms) | Test drives flagged |
+|---|---|---|---|---|---|---|
+| Stage 1 net | | | 0.1431 | 2.1% / 80.3% (549, 25,268) | 2.2% / 85.0% (734, 32,579) | 33,313 |
+| warn | 56.6 | 10.9% | 0.530 | 10.9% / 59.9% (410, 3,368) | 10.8% / 65.2% (563, 4,661) | 5,224 |
+| cordon | 94.3 | 18.1% | 0.734 | 18.1% / 49.4% (338, 1,531) | 18.1% / 56.1% (485, 2,192) | 2,677 |
+| migrate | 151.0 | 28.9% | 0.857 | 29.0% / 38.0% (260, 638) | 28.0% / 44.4% (384, 987) | 1,371 |
+| drain | 226.4 | 43.4% | 0.935 | 43.6% / 15.4% (105, 136) | 52.4% / 20.4% (176, 160) | 336 |
+| primary (step 4) | | 68% | 0.943 | 51.5% / 10.2% (70, 66) | 59.9% / 13.3% (115, 77) | 192 |
 
    Source: `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json`
    (`action_tiers`: `threshold`, `target_lift`, `target_precision`, `validation`,
-   `test`) and `action_tiers_chrono_h30.json`. Every target is reachable and the four
-   thresholds differ. **On the previous model** (base rate 0.589%) the same lifts converted to
+   `test`) and `action_tiers_chrono_h30.json`; the thresholds are frozen in
+   `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/action_tiers.json`. Every target is reachable and the four
+   thresholds differ. On test the tiers hold their validation precision within a point (warn,
+   cordon, migrate) or beat it (drain, 52.4% against 43.4%), and catch 5 to 7 points more of the
+   failing drives, because test fails a little more often (0.23% against 0.19%).
+
+   **Point in time** (nine validation snapshots, 05-23 to 06-16, `make chrono-pit-validation`; per
+   drive-snapshot, so lower than the per-drive figures above), the same frozen thresholds give warn
+   8.2% / 48.6%, cordon 14.9% [13, 17] / 35.7%, migrate 22.0% / 22.4% and drain 32.6% / 7.2%
+   (`data/audit/agent_pit_validation_chrono_h30/cascade.json`). All four tiers fire.
+
+   **The frozen stack scorer** (`frozen_runs/stack_chrono_h30_seed0/`, the arm the agent's evidence
+   reads) is a separate fit and has its own thresholds from the same lift targets
+   (`agent_thresholds_stack_chrono_h30_seed0.json` `action_tiers`; validation per drive, from
+   `data/audit/cost_tiers_chrono_h30/stack.md`):
+
+   | Tier | Threshold | Validation P / R (caught, false alarms) | Point in time P / R |
+   |---|---|---|---|
+   | warn | 0.9141 | 10.9% / 59.4% (406, 3,335) | 8.1% / 48.5% |
+   | cordon | 0.9651 | 18.1% / 49.0% (335, 1,518) | 14.9% / 35.7% |
+   | migrate | 0.9844 | 29.0% / 39.0% (267, 655) | 22.2% / 23.3% |
+   | drain | 0.9951 | 43.5% / 22.5% (154, 200) | 34.8% / 11.1% |
+
+   The stack's drain tier catches more failing drives on validation than the cascade's (22.5% against
+   15.4% recall at the same precision); the other three tiers sit within a point. Seeds 1 and 2 have
+   their own thresholds in `frozen_runs/stack_chrono_h30_seed1/` and `..._seed2/`.
+
+   **On the previous model** (base rate 0.589%) the same lifts converted to
    33.3%, 55.5%, 88.9% and 133%: warn (0.653) and cordon (0.836) worked (17.3% / 60.9% and
    34.8% / 42.4% on Q3), but migrate's target was met only by the top two validation drives and
    drain's not at all, so both shared 0.926 and flagged 6 drives on Q3 and were not usable tiers
@@ -2139,17 +2171,30 @@ whose tiers behaved differently, is given for contrast:
    the clusters.
 
 **On the current model the thresholds transfer:** validation and test base rates are close (0.19% and
-0.23%), and the primary threshold gives 51.5% on validation and 59.9% on test. **On the previous model they
-gave lower precision on Q3** because fewer drives failed there (0.300% against 0.589%); recall held
-(Section 1.1.5). Lift times each base rate gives the precision each tier would be expected to reach (figures of
-the previous model):
+0.23%), every tier's test precision is within a point of its validation precision or above it, and the
+primary threshold gives 51.5% on validation and 59.9% on test. **On the previous model they gave lower
+precision on Q3** because fewer drives failed there (0.300% against 0.589%); recall held (Section 1.1.5).
 
-| How the tiers are set (validation curve, lift-derived targets) | Lift x base rate = target |
+| Current model: validation curve with the tiers marked | Current model: base rates and precision, both designs |
 |---|---|
-| ![Validation drive curve with tier thresholds and targets](../data/audit/cluster_policy_h30/figures/tier_thresholds_validation.png) | ![Lift times base rate, validation and Q3](../data/audit/cluster_policy_h30/figures/tier_lift_targets.png) |
+| ![Validation drive-level precision-recall curve of run 6ea7a5bc with the primary threshold and the four action tiers marked](figures/chrono_split/model_h30_chrono_validation_precision_recall.png) | ![Validation and test base rates and precision of the chronological and the drive-holdout designs](figures/chrono_split/chrono_base_rate_transfer.png) |
 
-The per-run curves are in `frozen_runs/c459046e.../figures/`
-(`validation_precision_recall.png`, `test_precision_recall.png`).
+*Left, the validation precision-recall curve of `6ea7a5bc` per drive (solid) and per drive-day (dashed), with
+the primary threshold, each tier at its threshold and the top-K points. Right, the base rates of validation and
+test on both split designs, and the precision at the primary threshold: close on the chronological split, a
+factor of two apart on the drive-holdout one, where validation overstated test.* The same curve on test is
+`figures/chrono_split/model_h30_chrono_test_precision_recall.png` (Section 1.1.9).
+
+| Previous model: how the tiers were set (validation curve, lift-derived targets) | Previous model: lift x base rate = target |
+|---|---|
+| ![Validation drive curve of run c459046e with tier thresholds and targets](figures/q3_2026/cluster_tier_thresholds_validation.png) | ![Lift times base rate on validation and Q3 for run c459046e](figures/q3_2026/cluster_tier_lift_targets.png) |
+
+*For contrast, the drive-holdout model `c459046e`: at its 0.589% validation base rate the migrate and drain
+targets (88.9% and 133%) sit at or beyond the top of the curve, so both tiers share one cutoff.*
+
+The per-run curves of the current model are in `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/figures/`,
+copied as `docs/figures/chrono_split/model_h30_chrono_{train,validation,test}_{precision_recall,confusion}.png`;
+those of the previous model are `docs/figures/q3_2026/model_h30_{train,validation,test}_*.png`.
 
 **Cost-based tiers (2026-11-07, Section 1.1.7).** `src/models/threshold.py::tune_cost_tiers`
 places each tier where its action pays for itself on validation (`r x caught - false alarms`,
@@ -2157,9 +2202,13 @@ i.e. flag while marginal precision >= 1 / (1 + r)), with `r` per action in
 `configs/model.yaml threshold.action_cost_ratio`. The ratios there (warn 100, cordon 20,
 migrate 5, drain 2) are placeholders for an operations decision. `threshold.tier_rule: lift`
 (the default) keeps the lift tiers above; `cost` makes the agent read a scorer's
-`action_tiers_cost`. On the 60-day stack at r = 20, cordon would sit at 67% recall (30%
-precision) instead of 44% (64%): the strict tiers' low recall is a choice of targets, not a
-property of the model. The optimum depends on the failure rate (Q3's is half validation's).
+`action_tiers_cost`. On the chronological seed-0 stack at r = 20, cordon would sit at 54.7%
+recall (15.1% precision) instead of 49.0% (18.1%); at r = 100, warn at 68.0% (7.3%) instead of
+59.4% (10.9%) (`frozen_runs/stack_chrono_h30_seed0/cost_tiers_validation.md`). On the 60-day
+drive-holdout stack the same r = 20 moved cordon from 44% recall (64% precision) to 67% (30%).
+The strict tiers' low recall is a choice of targets, not a property of the model. The optimum
+depends on the failure rate: test fails at 0.23% against validation's 0.19% on this split (Q3 was
+half its validation's on the drive-holdout one).
 
 **What the lift tiers assume, on the chronological run (2026-11-10).** `make chrono-cost-tiers`
 (`scripts/cost_tier_report.py`; outputs and README in `data/audit/cost_tiers_chrono_h30/`) asks the
@@ -3038,7 +3087,7 @@ operate. ROC compares runs because neither axis depends on how common failures a
 
 | Failure rate by split and horizon | Validation against test metrics | Precision at the top K |
 |---|---|---|
-| ![Class imbalance by split and horizon](../data/audit/plots/class_imbalance.png) | ![Validation against test: AUPRC, precision, recall, FPR, FNR](../data/audit/plots/metric_comparison.png) | ![Precision at the top 1, 5 and 10 percent of drive-days on test](../data/audit/plots/precision_at_k_test.png) |
+| ![Class imbalance by split and horizon](figures/class_imbalance.png) | ![Validation against test: AUPRC, precision, recall, FPR, FNR](figures/metric_comparison.png) | ![Precision at the top 1, 5 and 10 percent of drive-days on test](figures/precision_at_k_test.png) |
 
 *Left, the failure rate (%) per split for the 7-, 14- and 30-day horizons that the config computed then (it now
 computes 30, 44 and 60). Centre, the headline drive-day metrics at the chosen threshold on validation and on test.
@@ -4232,6 +4281,9 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 | `configs/model.yaml` | `evaluation.top_k` | 100 .. 5000 | Precision/recall at K drives flagged, in reports and figures |
 | `configs/model.yaml` | `model.two_stage.enabled` | true | Second-stage model (Section 4.5) |
 | `configs/model.yaml` | `threshold.action_tier_lift` | 56.6 / 94.3 / 151.0 / 226.4 | Per-action lift targets (= former precision 0.15 / 0.25 / 0.40 / 0.60 at the validation rate) |
+| `configs/model.yaml` | `threshold.action_cost_ratio` | 100 / 20 / 5 / 2 | Placeholder `r` per action for the cost tiers (prevented failure worth r unnecessary actions); used while `cost_model` is empty |
+| `configs/model.yaml` | `threshold.cost_model` | all null | `failure_cost`, and `action_cost` and `p_save` per tier; when all are set, `r = p_save x failure_cost / action_cost - 1` replaces `action_cost_ratio` (Section 1.9, ADR 0005). The lift tiers currently imply about 35 / 16-20 / 5-7 / 2-4 |
+| `configs/model.yaml` | `threshold.tier_rule` | lift | Which tier set the agent reads from a precomputed scorer's thresholds file: `lift` (`action_tiers`) or `cost` (`action_tiers_cost`) |
 | `configs/model.yaml` | `diagnostics.shap_enabled` | false | SHAP is slow on real data and fails its additivity check with extreme leaves |
 | `configs/data.yaml` | `resource_limits.max_memory_gb` | 20 | RSS cap for every pipeline process |
 | `configs/data.yaml` | `resource_limits.scratch_dir` | null | Scratch location (default `<gold_dir>/../tmp`) |
@@ -4249,6 +4301,8 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
   `make train` fits in RAM, the model experiment workflow, the current
   evaluation rules and second stage, and the frozen-run evaluation.
 - `docs/pipeline_usage.md`: every command and option.
+- `docs/adr/0005-cost-based-action-tiers.md`: why the action tiers take costs as inputs, what the
+  current lift targets imply, and why the agent stays on the lift tiers until costs are supplied.
 - `docs/adr/0001-training-memory-isolation.md`: why `make train` runs as four
   processes, and the debugging history behind it.
 - `docs/design_goal.md`, `docs/dataset_strategy.md` and

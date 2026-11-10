@@ -544,6 +544,34 @@ uv run python scripts/cluster_action_policy.py --run-dir frozen_runs/<run id> \
 records no test look. Outputs: `data/audit/deep_dive_q3_h30/`,
 `data/audit/cluster_policy_h30/`.
 
+### Cost tiers (chronological run)
+
+```bash
+# lift tiers against cost tiers on the four chronological arms (stack, LightGBM, Cox Stage 2,
+# cascade 6ea7a5bc), validation only; needs chrono-freeze scores and chrono-pit-validation output
+make chrono-cost-tiers
+
+# the same with what-if costs instead of configs/model.yaml threshold.cost_model
+# (overwrites data/audit/cost_tiers_chrono_h30/)
+make chrono-cost-tiers COST_ARGS="--failure-cost 1000 --action-cost warn=1 cordon=10 migrate=50 drain=200 \
+    --p-save warn=0.1 cordon=0.5 migrate=0.8 drain=0.9"
+
+# one score table, any output path
+uv run python scripts/cost_tier_report.py --scores <score table> --score-column score --label <name> \
+    --out <file.md> [--thresholds <thresholds.json>] [--pit-observations <observations.parquet>]
+```
+
+Each report gives:
+
+- the ratios in force and their break-even marginal precision;
+- what each lift tier implies (the range of `r` for which its threshold is cost-optimal);
+- both tier sets on the validation drive table, with net value `r x caught - false alarms`;
+- with `--pit-observations`, both tier sets per point-in-time snapshot;
+- with `--thresholds`, a cross-check of the recomputed lift tiers against the saved ones.
+
+Only `split == "validation"` rows are read. A `.json` with the same content is written beside the
+markdown. Outputs: `data/audit/cost_tiers_chrono_h30/`. Background: runbook 1.9, ADR 0005.
+
 ### Whole pipeline
 
 | Command | What it does |

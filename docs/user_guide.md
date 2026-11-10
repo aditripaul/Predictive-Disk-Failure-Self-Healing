@@ -378,6 +378,35 @@ always means no real drive-failure data has been loaded yet - see §9.
 
 ---
 
+## 8a. Telling the system what each action costs
+
+Each action level (warn, cordon, migrate, drain) fires when a drive's risk score passes a cutoff.
+Where that cutoff should sit is a business question, not a model question. A lower cutoff catches
+more failing drives but also acts on more healthy ones. The model cannot tell you what a false
+alarm is worth to you, so the system asks for four kinds of number, in `configs/model.yaml` under
+`threshold.cost_model`:
+
+| Setting | What to put there |
+|---|---|
+| `failure_cost` | What one unplanned drive failure costs you when nothing was done in advance: outage time, emergency rebuild, risk to data. Any unit (dollars, engineer-hours), as long as you use the same unit throughout |
+| `action_cost.<tier>` | What taking that action on one drive costs, whether or not it was going to fail. For example, cordoning costs some capacity; draining costs a full data move |
+| `p_save.<tier>` | When the drive really was about to fail, the share of the failure's cost the action avoids. A warning alone may avoid little; a completed drain nearly all of it |
+
+From these the system works out, for each action, how many false alarms one prevented failure is
+worth. It then places each cutoff where the action pays for itself. For example, an action that
+costs 1% of a failure and always prevents it pays for itself as long as at least 1 in 100 of the
+drives it flags really fail.
+
+Two practical points:
+
+- **You don't have to start from nothing.** The current cutoffs already behave as if one prevented
+  failure were worth about 35 warnings, 16-20 cordons, 5-7 migrations and 2-4 drains. If those feel
+  right, the current settings already match your costs. If they don't, fill in your own numbers.
+- **Nothing changes until all the values are set.** Leave everything empty (the default) and the
+  system keeps its current cutoffs. Fill in only some and it refuses to start, rather than guessing
+  the rest. Whoever runs the system can show you where the cutoffs would move before anything is
+  switched over (`make chrono-cost-tiers`).
+
 ## 9. If you're setting this up with real fleet data
 
 The demo/dashboard defaults ship with a hardcoded two-drive scenario so the

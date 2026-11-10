@@ -130,6 +130,7 @@ would fail with "ruff: command not found."
 | `make check-splits` | Checks that train, validation and test stay separate under `configs/model.yaml` `splits` (config and label table; `ARGS="--horizon-days 60"`). Exits 1 only when `splits.strict_separation` is on (`src/labels/split_checks.py`; `docs/dataset_strategy.md` section 9.5) |
 | `make chrono-run` | The chronological split run end to end (`scripts/run_chrono_split.sh`): `build-features`, `build-labels`, `check-splits`, the 30-day train, the Stage 2 variants, the three seed freezes, the agent's point-in-time baseline and knowledge store, the figures; one log per step in `data/audit/chrono_logs/` (`CHRONO_LOGS=<dir>`). About 105 minutes. **Replaces `data/gold/`** (runbook 1.1.9) |
 | `make chrono-data` / `chrono-train` / `chrono-stack` / `plot-chrono-split` | The steps of `chrono-run` one at a time. `chrono-train` is `make train TRAIN_TAG=chrono_h30` for the 30-day horizon and prints `work_dir_kept`; `chrono-stack CHRONO_WORK_DIR=<that path>` runs the LightGBM, Cox and stack Stage 2 into `CHRONO_OUT` (default `data/audit/stack_chrono_h30`); `plot-chrono-split` draws `docs/figures/chrono_split/` from the saved results and scores nothing |
+| `make chrono-cost-tiers` | Lift tiers against cost tiers on the four chronological arms, validation only (`scripts/cost_tier_report.py`; §5.13): the ratios in force, what each lift tier implies, both tier sets on the drive table and the point-in-time snapshots. `COST_ARGS` passes what-if costs. Needs the `chrono-freeze` score tables and the `chrono-pit-validation` observations |
 | `make install-hooks` | Points git at `scripts/githooks/` (once per clone). The pre-commit and commit-msg hooks refuse a commit that adds an absolute path |
 | `make check-paths` | Runs that absolute-path check by hand on the staged changes, or `RANGE=main..HEAD` |
 | `make family-calibration` | Per-family recalibration fitted on validation snapshots, judged on test (§6.5) |
@@ -1300,6 +1301,50 @@ see the runbook and the ADR for the full result and why. **Nothing consumes
 these thresholds**; serving and the agent apply only the fleet-wide ones,
 and should not be rewired to this.
 
+**Cost-based tiers: the same four tiers placed by cost** (`src/models/threshold.py`, ADR 0005).
+The lift tiers place each tier at a precision target; the cost tiers place it where its action
+pays for itself. The pieces:
+
+- `tune_cost_tiers(drive_ids, y, scores, cost_ratios=...)` picks, per tier, the threshold that
+  maximises `r x caught - false_alarms` on the validation drive table, where `r` is how many
+  unnecessary actions of that kind one prevented failure is worth. That is the same as flagging
+  while marginal precision >= `1 / (1 + r)`. Ratios must not increase from warn to drain.
+  Thresholds are forced non-decreasing, as for the lift tiers. A tier with no cut of positive
+  value gets `None` and never fires.
+- `cost_ratios_from_costs(failure_cost, action_cost, p_save)` derives `r` from quantities
+  operations can estimate. A true alert is worth `p_save x failure_cost - action_cost` and a
+  false one costs `action_cost`, so `r = p_save x failure_cost / action_cost - 1`. It raises if an
+  action never pays (`r <= 0`) or if the ratios increase towards drain.
+- `resolve_cost_ratios(threshold_cfg)` is the one lookup. It uses `threshold.cost_model` when that
+  is fully set, otherwise the placeholder `threshold.action_cost_ratio` (100 / 20 / 5 / 2), and
+  raises if `cost_model` is partly filled. It returns `(ratios, source)`.
+  `scripts/freeze_stack_scorer.py` and `scripts/cost_tier_report.py` call it. Do not read
+  `action_cost_ratio` directly anywhere else, or a filled-in cost model will be ignored there.
+- `implied_cost_ratio(labels, scores, threshold)` answers the inverse question: for which `r` is
+  this threshold the cost-optimal cut? It takes one row per drive (`drive_level_table`). Every
+  optimum lies on the upper convex hull of the (false alarms, caught) curve, and a hull vertex is
+  optimal for `r` between the inverse slopes of its two hull segments. A cut strictly under a hull
+  segment is optimal for no `r` (`on_hull: False`) and reports that segment's `r`. A cut at a
+  vertex's false-alarm count but with fewer caught is dominated by that vertex and reports its
+  range. Lift tiers usually land just off the hull, because a precision target picks a jagged
+  point of the curve.
+
+Where they are used. `make train` writes only the lift tiers (`action_tiers.json`).
+`freeze_stack_scorer.py` writes both sets into a frozen scorer's thresholds file (`action_tiers`
+and `action_tiers_cost`, with `cost_ratios` and `cost_ratio_source`). `threshold.tier_rule: cost`
+makes the agent read `action_tiers_cost`, but only from a precomputed scorer
+(`src/agent/fleet.py::load_precomputed_scores`); an MLflow run has no cost tiers.
+
+Things that will bite you:
+
+- **Same-drive tuning and reporting.** Tuned and reported on the same validation drives, the cost
+  tiers win on net value by construction. `cost_tier_report.py` says so in every report.
+- **The optimum moves with the failure rate.** A cost tier tuned at one base rate flags more than is
+  optimal on a period with a lower rate, and less on one with a higher rate.
+- **Late hits are not credited.** On the chronological split, days 31-60 after a validation date fall
+  in the test period.
+
+
 **Experiment tool additions** (`pipelines/experiment_model.py`):
 
 | Flag / variant | What it measures |
@@ -1502,6 +1547,7 @@ Three modules and four entry points, none of which touch hardware.
 | Point-in-time measurement | `src/agent/point_in_time.py` | Fixed-date snapshots, tier metrics, the cluster bootstrap, and `compare_scorings` for paired recall at matched false-alarm rate. `make agent-pit` drives it |
 | False-positive profiling | `src/agent/false_positives.py`, `scripts/analyze_false_positives.py` | Late hits, precision and PLR by drive model and age, flag streaks, attribute profile, other ways to combine two looks |
 | Per-family calibration | `src/agent/family_calibration.py`, `scripts/evaluate_family_calibration.py` | A shrunk per-family intercept on the score's log-odds; refuses to fit on or after the test window |
+| Cost-tier report | `scripts/cost_tier_report.py` | Lift against cost tiers on validation: the ratios in force (`resolve_cost_ratios`), what each lift tier implies (`implied_cost_ratio`), both tier sets on the drive table and the point-in-time snapshots; `make chrono-cost-tiers` (§5.13) |
 | Look-ahead diagnostic | `scripts/check_agent_lookahead.py` | Re-reads a saved `agent-fleet` run and measures how much of its result is look-ahead |
 
 Things that will bite you:
