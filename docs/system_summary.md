@@ -2,8 +2,9 @@
 
 Status: 2026-11-10 (current model tested on Q3 2026; stacked Stage 2, deep
 dive and cluster policy, runbook Sections 1.1.4 to 1.1.6 and 1.9). The config now holds the
-chronological split of runbook 1.1.9, which has not been run: the model described below is still the
-drive-holdout run `c459046e`.
+chronological split of runbook 1.1.9, which was run on 2026-11-10 and did not meet the goal (stack 55.4%
+at 16.2% recall, LightGBM two-stage 59.9% at 13.3%, test); that run is not frozen, so the model described
+below is still the drive-holdout run `c459046e`.
 This is the entry point for a reviewer. It describes what
 the project built, how a decision flows through it, what was measured on real
 data, and what is not done. Detailed results are in
@@ -82,6 +83,8 @@ validation, 1,105 failing and 367,583 healthy test drives:
 | Cordon tier | 34.8% | 42.4% | 469 / 636 / 877 |
 | **Primary threshold** | **59.0%** [52.3, 65.5] | **12.5%** [10.5, 14.3] | 138 / 967 / 96 |
 | Migrate = drain (fallback cutoff) | 33.3% | 0.2% | 2 / 1,103 / 4 |
+
+![Precision against recall of Stage 1 and the three Stage 2 variants on the chronological test, with the goal region](figures/chrono_split/chrono_precision_recall.png)
 
 - **The goal (68% precision at 10% or more recall on the stacked cascade, Stage 1 LightGBM and Stage 2 LightGBM + Cox; 90% until 2026-11-10) is not met on test:** the stack gives 64.9% at 11.6% (3-seed mean, runbook 1.1.4a) and the shipped LightGBM two-stage 59.0% at 12.5%. Drive AUROC is
   0.926 and recall at a 0.1% false-alarm rate 30.4%.

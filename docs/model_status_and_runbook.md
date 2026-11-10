@@ -10,9 +10,9 @@
 > number to its file under `data/audit/` and `frozen_runs/`.
 >
 > The split design behind the Q3 results (drive holdout, 62-day test) and a
-> stricter chronological split (the config since 2026-11-10; labels, features and models not yet
-> rebuilt or run) are in Sections 1.1.8 and 1.1.9. Until that run is made, the model of record is still
-> `c459046e`, trained under the drive-holdout design.
+> stricter chronological split (the config since 2026-11-10, run the same day; the 68% goal was not
+> met) are in Sections 1.1.8 and 1.1.9. The model of record is still `c459046e`, trained under the
+> drive-holdout design; the chronological run is not frozen.
 
 This document records what was run on real Backblaze data, what was learned,
 what is still open, and how to run the pipeline end to end. Numbers are
@@ -1081,7 +1081,7 @@ file limit uncompressed; SHA-256 `8e39368aa8d75a3c`, content fingerprint `662ab2
 in `agent_knowledge_pack.json`); `make unpack-knowledge` restores and verifies it. The score
 table `data/tmp/stack_scores/scores_h60_seed0.parquet` is local and rebuilt by the commands above.
 
-### 1.1.8 The split designs: drive holdout with a Q3 test (the runs of 1.1.4 to 1.1.7), and a chronological split with gaps (the config since 2026-11-10, not yet run)
+### 1.1.8 The split designs: drive holdout with a Q3 test (the runs of 1.1.4 to 1.1.7), and a chronological split with gaps (the config since 2026-11-10; run the same day, goal not met)
 
 Every result in Sections 1.1.4 to 1.1.7 comes from one split design. This section records it
 as it was, what it costs, and a stricter alternative that was worked out on 2026-11-10. The
@@ -1149,6 +1149,8 @@ failing drives at 30 days), and continuity with every frozen run.
 
 #### The alternative: a chronological split with gaps (the config since 2026-11-10; run in Section 1.1.9)
 
+![The two split designs on one date axis: drive holdout against chronological with 30-day gaps](figures/chrono_split/chrono_split_timeline.png)
+
 Train, validation and test are consecutive periods, with a gap of one label horizon at each
 boundary. A row's 30-day label is decided by events up to 30 days later, so a boundary is clean only
 if the later period starts at least 30 days after the earlier period's last labelled row.
@@ -1199,10 +1201,12 @@ may not be read past 05-31).
 **What it changes.** Validation and test base rates get close (about 0.19% and 0.23% of drives in
 the proposed layout, against 0.59% and 0.30%; each is failing drives over drives in the window, the
 same definition that reproduces Section 1.1.4's 0.59% and 0.30% from the label table), which should let a
-threshold tuned to 68% on validation transfer to test. That transfer is an expectation, not a
-measurement: nothing has been trained on this layout. The costs: training stops at 04-20 and keeps 2,018 failing drives (the failing-drive count of the
+threshold tuned to 68% on validation transfer to test. That transfer was an expectation when this was written; Section 1.1.9 measured it (validation 51.5%
+against test 59.9% at base rates 0.19% and 0.23%: it transferred, and the goal still failed on validation). The costs: training stops at 04-20 and keeps 2,018 failing drives (the failing-drive count of the
 old design's training set was not recounted for this comparison), the test
 window shrinks from 62 days (1,105 failing drives) to 46 (864), and Q3 stays a looked-at test set.
+
+![Base rate and precision at the primary threshold, validation against test, for the two split designs (measured in Section 1.1.9)](figures/chrono_split/chrono_base_rate_transfer.png)
 
 **Horizons do not carry over.** A 44- or 60-day label needs gaps of 44 or 60 days at both
 boundaries and its last row is 08-17 or 08-01. Keeping the same 60/15/25 shares gives, for 44 days,
@@ -1233,20 +1237,18 @@ config; unless the pipelines can write to separate output folders (not checked),
 
 **Status.** On 2026-11-10 the settings, the checks and their tests were built (items 2 to 4 above; the
 full test suite passes), and the recommendation below was taken. `configs/model.yaml` was then switched to the chronological split (the drive-holdout values are in a
-comment of its `splits` block). Labels and gold features have not been rebuilt and nothing has been
-trained on it; Section 1.1.9 has the data split, the intent and the run. The recommendation for
+comment of its `splits` block). Section 1.1.9 has the data split, the intent, the run and its result. The recommendation for
 the 68% goal (Section 7) is the chronological split, for the base-rate reason above; the
 drive-holdout design stays the record for Sections 1.1.4 to 1.1.7 and the one to use for the horizon
 comparison. Its values are in the `splits` comment of `configs/model.yaml`.
 
-### 1.1.9 The chronological split run: design intent, data split and how to run it (config switched 2026-11-10; not yet run)
+### 1.1.9 The chronological split run: design intent, data split, how to run it and the result (run 2026-11-10; goal not met)
 
-`configs/model.yaml` holds the chronological split with gaps since 2026-11-10. **No label table,
-gold feature or model has been rebuilt or trained under it.** Until the run below is made, the
-current model of record is still frozen run `c459046e` (Section 1.1.4), trained under the
-drive-holdout design of Section 1.1.8, and every number elsewhere in this document is from that
-design or an earlier one. This section is written before the run; the results go in the table at
-its end.
+`configs/model.yaml` has held the chronological split with gaps since 2026-11-10, and the run below was
+made the same day. The intent, split and decisions were written before it; the result table at the end
+was filled after. The run is not frozen, so the model of record is still frozen run `c459046e`
+(Section 1.1.4), trained under the drive-holdout design of Section 1.1.8, and the numbers elsewhere in
+this document are from that design or an earlier one unless a line says otherwise.
 
 #### Design intent
 
@@ -1277,6 +1279,8 @@ its end.
 
 Row dates; a row's 30-day label looks 30 days ahead. Failing drives are drives with any positive 30-day
 label in the window, counted from the label table on 2026-11-10.
+
+![The two split designs on one date axis: drive holdout against chronological with 30-day gaps](figures/chrono_split/chrono_split_timeline.png)
 
 | Role | Row dates | Days | Failing drives | Used for |
 |---|---|---|---|---|
@@ -1309,25 +1313,24 @@ reported with its test base rate, a drive-bootstrap interval, and the number of 
 
 #### How to run it
 
-Run from the repository root with `uv run --python 3.12` if the default Python is 3.15 (the pinned
-`.python-version` handles it). Timings are from the same steps on 2026-11-06.
+From the repository root, with the pinned Python (`.python-version`). Every step is a Makefile target, and
+`make chrono-run` runs them all and logs each one (about 80 minutes; the section "How to reproduce it" at
+the end of the result has the variables and what each step overwrites).
 
 ```bash
-make build-features   # ~29 min. Statistics now stop at 2026-04-21, so every feature table value can change.
-make build-labels     # ~3 min. split column from train_end, validation_end, sealed_start; no holdout.
-make check-splits     # must print "OK: train, validation and test are separate"; exit 1 otherwise.
-make train TRAIN_TAG=chrono_h30 TRAIN_ARGS="--horizon-days 30 --keep-work-dir --save-scores"   # ~26 min
-make experiment-model EXPERIMENT_ARGS="--work-dir data/tmp/train_model_frame_<dir> --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack --two-stage-out data/audit/stack_chrono_h30"   # ~39 min
+make chrono-run                                                     # everything below
+# or a step at a time, in order (do not use make -j):
+make chrono-data                                                    # build-features, build-labels, check-splits; must print "OK: ..."
+make chrono-train                                                   # Stage 1 + LightGBM Stage 2, 30 days; prints work_dir_kept
+make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # LightGBM, Cox and stack Stage 2
+make plot-chrono-split                                              # the five figures of docs/figures/chrono_split/
 ```
 
-`<dir>` is the kept work directory `make train` prints (`work_dir_kept`). `make train` records one
-test-split look in `data/audit/test_access_log.jsonl`, and so does the experiment. Both overwrite
-nothing from the earlier runs (`TRAIN_TAG` suffixes its files; the experiment writes to its own
-`--two-stage-out`), but `make build-features` and `make build-labels` replace `data/gold/`, which the
-drive-holdout design also reads. To go back to that design, restore the values listed in the comment of
-`configs/model.yaml` `splits` and run the same two steps. Freezing the stack as a scorer is
-`scripts/freeze_stack_scorer.py`; its defaults are the 60-day stack, so read its options before using
-it for this run. It is not needed for the numbers above.
+`make build-features` and `make build-labels` replace `data/gold/`, which the drive-holdout design also
+reads; to go back to that design, restore the values listed in the comment of `configs/model.yaml`
+`splits` and run the same two steps. Freezing the stack as a scorer is `scripts/freeze_stack_scorer.py`;
+its defaults are the 60-day stack, so read its options before using it for this run. It is not needed for
+the numbers below.
 
 Other tools under this config:
 
@@ -1341,18 +1344,292 @@ Other tools under this config:
 - **Synthetic stub and tests.** Both derive their dates from the same config and pass under it; the
   point-in-time tests pin their own embargo of 0.
 
-#### Result (to fill after the run)
+#### Result (run 2026-11-10, 13:27 to 14:44 IST)
 
-| | Value |
+**The 68% goal is not met on the chronological split, by any Stage 2 model, on validation or on test.**
+The run is not frozen (no `frozen_runs/` entry), so the model of record is still `c459046e`. Everything
+below is per drive, 30-day horizon, test period 07-17 to 08-31 (864 failing of 368,124 drives) unless a
+line says validation (684 failing of 356,811).
+
+![Precision against recall of Stage 1 and the three Stage 2 variants on the test period, with the goal region and a zoom on it](figures/chrono_split/chrono_precision_recall.png)
+
+##### The run
+
+| Step | Make target | Command it runs | Time | Output |
+|---|---|---|---|---|
+| Gold features | `make build-features` | `pipelines/build_gold_features.py` | 27 min | `data/gold/features/`, statistics on rows before 2026-04-21 |
+| Labels | `make build-labels` | `pipelines/build_labels.py` | 2.4 min | `data/gold/labels/` (380,478,465 rows), `data/audit/dataset_versions/20261110T082656102066Z.json` |
+| Separation check | `make check-splits` | `scripts/check_split_separation.py` | instant | `OK: train, validation and test are separate` |
+| Stage 1 and LightGBM Stage 2 | `make chrono-train` | `make train TRAIN_TAG=chrono_h30 TRAIN_ARGS="--horizon-days 30 --keep-work-dir --save-scores"` | 20.5 min | MLflow `08aedf53015243a3a12b467468421163`; report, tiers and model card tagged `chrono_h30`; work dir `data/tmp/train_model_frame_4pf36rc4` (local) |
+| Stage 2 variants and the stack | `make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_4pf36rc4` | `make experiment-model EXPERIMENT_ARGS="--work-dir <work dir> --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack --two-stage-out data/audit/stack_chrono_h30"` | 27 min | `data/audit/stack_chrono_h30/` (nets 0.5 and 0.8, 3 seeds) |
+| Figures | `make plot-chrono-split` | `scripts/plot_chrono_split.py` | seconds | `docs/figures/chrono_split/` |
+
+All of it is `make chrono-run` (Section "How to reproduce it" below). Code at git `4e37458`. The launcher
+of this run and its logs are in `data/audit/chrono_logs/` (`run_chrono.sh`, `progress.log`). Test looks: 4
+(139 to 143 entries in `data/audit/test_access_log.jsonl`).
+
+##### Stage 1: the wide net
+
+The net is the validation threshold 0.1431 that keeps 80% of failing validation drives. It behaves as
+designed: about 80% recall at about 2% precision, passing 7 to 9% of drives to Stage 2.
+
+| Stage 1 net (per drive) | Validation | Test |
+|---|---|---|
+| Recall (failing drives kept) | 80.3% (549 of 684) | 85.0% (734 of 864) |
+| Precision | 2.13% | 2.20% |
+| Drives passed to Stage 2 | 25,817 (7.2%) | 33,313 (9.0%) |
+| Base rate | 0.19% | 0.23% |
+
+The recall and precision are computed from the saved scores (`data/tmp/lightgbm_scores_h30_chrono_h30.parquet`,
+local); the report has the pass counts only. The method reproduces the report's validation pass count
+exactly. The candidate pools of the experiment (means over seeds; the 0.5 net is the earlier net, for
+comparison):
+
+| Net (Stage 2) | Seeds trained | Train candidate rows | Positive share | Validation candidate rows | Test candidate rows | Ceiling (test recall at T1) | Ceiling with lead | Test drives passing Stage 1 |
+|---|---|---|---|---|---|---|---|---|
+| 50% | 3/3 | 17,550 | 71.1% | 21,762 | 41,085 | 56.8% | 56.8% | 0.8% |
+| 80% | 3/3 | 203,028 | 14.5% | 502,589 | 922,119 | 85.1% | 85.1% | 9.5% |
+| 80% cox | 3/3 | 203,028 | 14.5% | 502,589 | 922,119 | 85.1% | 85.1% | 9.5% |
+| 80% stack | 3/3 | 203,028 | 14.5% | 502,589 | 922,119 | 85.1% | 85.1% | 9.5% |
+
+The ceiling column is the share of failing test drives the net passes, so no Stage 2 model can catch more:
+85.1% at the 0.8 net, 56.8% at the 0.5 net. The roughly 15% it never passes are the silent failures of
+Section 1.2.
+
+##### The LightGBM two-stage model (`make train`)
+
+Stage 1 (339 trees) and a LightGBM Stage 2 (103 trees) trained on 29,667 positive of 201,052 candidate train
+rows (14.8%). The primary threshold (0.943) is the highest-recall validation threshold with precision >= 68%
+at recall >= 10%; it was unreachable, so the report fell back to the highest-precision threshold with
+recall >= 10% and recorded `target_met: false` (gap 16.5 points).
+
+| Per drive | Validation | Test |
+|---|---|---|
+| Failing / healthy drives | 684 / 356,127 | 864 / 367,260 |
+| **Primary threshold: precision** | 51.5% | **59.9%** [52.5, 66.3] |
+| **Primary threshold: recall** | 10.2% | **13.3%** [11.1, 15.6] |
+| Caught / false alarms | 70 / 66 | 115 / 77 |
+| Drive AUROC / AUPRC | 0.906 / 0.223 | 0.923 / 0.269 |
+| Lift / positive likelihood ratio | 268 / 552 | 255 / 635 |
+| Stage 2 gain at the primary point against Stage 1 alone (matched recall 13.3%) | | +5.1 points [+0.9, +9.4]; Stage 1 alone 54.8% |
+
+**The action tiers.** Each tier is a threshold chosen on validation for a lift target
+(`threshold.action_tier_lift`). A lift converts to precision at the validation base rate, 0.19% here, so the
+targets are 10.9, 18.1, 28.9 and 43.4%. Every tier is reachable and the four thresholds differ, where on the
+drive-holdout model (0.59% base rate) migrate and drain needed 88.9% and 133% and shared one cutoff
+(Section 1.9).
+
+| Tier | Threshold | Lift target | Validation P / R (caught, false alarms) | Test P / R (caught, false alarms) | Test drives flagged |
+|---|---|---|---|---|---|
+| Stage 1 net | 0.1431 | | 2.1% / 80.3% (549, 25,268) | 2.2% / 85.0% (734, 32,579) | 33,313 |
+| Warn | 0.530 | 56.6 | 10.9% / 59.9% (410, 3,368) | 10.8% / 65.2% (563, 4,661) | 5,224 |
+| Cordon | 0.734 | 94.3 | 18.1% / 49.4% (338, 1,531) | 18.1% / 56.1% (485, 2,192) | 2,677 |
+| Migrate | 0.857 | 151.0 | 29.0% / 38.0% (260, 638) | 28.0% / 44.4% (384, 987) | 1,371 |
+| Drain | 0.935 | 226.4 | 43.6% / 15.4% (105, 136) | 52.4% / 20.4% (176, 160) | 336 |
+| Primary | 0.943 | | 51.5% / 10.2% (70, 66) | 59.9% / 13.3% (115, 77) | 192 |
+
+The tiers' thresholds are not frozen into a scorer; they are in
+`data/audit/data_quality_reports/action_tiers_chrono_h30.json`.
+
+| Precision-recall (test) | Confusion matrices (test) |
 |---|---|
-| Label table and `make check-splits` | |
-| Stage 1 run id / Stage 2 stack output | |
-| Validation base rate / test base rate (failing drives over drives) | |
-| Primary threshold: validation precision / recall | |
-| Primary threshold: test precision [95% CI] / recall [95% CI] | |
-| Goal (68% at >= 10% recall) met on test? | |
-| Test looks logged for the run | |
-| Comparison with the drive-holdout run (59.0% at 12.5%; stack 64.9% at 11.6%), at matched false-alarm rate | |
+| ![LightGBM two-stage on the chronological test: precision-recall](figures/chrono_split/model_h30_chrono_test_precision_recall.png) | ![LightGBM two-stage on the chronological test: confusion matrices](figures/chrono_split/model_h30_chrono_test_confusion.png) |
+
+| Precision-recall (validation) | Confusion matrices (validation) |
+|---|---|
+| ![LightGBM two-stage on the chronological validation: precision-recall](figures/chrono_split/model_h30_chrono_validation_precision_recall.png) | ![LightGBM two-stage on the chronological validation: confusion matrices](figures/chrono_split/model_h30_chrono_validation_confusion.png) |
+
+##### Stage 2 variants: LightGBM, Cox and their stack
+
+The same Stage 1 net with a LightGBM Stage 2, a Cox Stage 2 (survival, on censored time to failure) and a
+rank-blend stack of the two, as in Section 1.1.4a. Test, per drive, mean of 3 seeds; each level's threshold
+is set on validation for that recall; "P / R" is precision / recall.
+
+| Recall level | Stage 1 alone (P / R) | LightGBM Stage 2 | Cox Stage 2 | Stack (LightGBM + Cox) | False alarms: Stage 1 / stack |
+|---|---|---|---|---|---|
+| 5% | 57.3% / 8.7% | 62.1% / 8.3% | 61.1% / 9.3% | 64.0% / 8.3% | 55 / 40 |
+| 10% | 55.8% / 13.0% | 56.8% / 13.7% | 52.6% / 17.6% | 55.4% / 16.2% | 89 / 113 |
+| 20% | 44.3% / 26.0% | 44.6% / 25.6% | 45.2% / 26.5% | 46.7% / 25.9% | 283 / 256 |
+| 35% | 31.5% / 42.0% | 30.9% / 41.0% | 32.5% / 41.0% | 32.0% / 41.4% | 788 / 762 |
+| 50% | 17.4% / 56.8% | 16.9% / 56.1% | 17.8% / 57.3% | 17.3% / 57.1% | 2,338 / 2,354 |
+| 60% | 10.8% / 65.4% | 10.4% / 66.0% | 10.9% / 65.7% | 10.7% / 65.9% | 4,667 / 4,759 |
+| 70% | 5.0% / 74.2% | 5.1% / 74.1% | 5.9% / 74.1% | 5.4% / 74.4% | 12,118 / 11,178 |
+| 80% | 2.1% / 85.1% | 2.2% / 85.0% | 2.1% / 84.8% | 2.1% / 85.0% | 34,143 / 33,658 |
+
+The four curves coincide above about 30% recall (first figure of this section), because the net sets the
+pool and Stage 2 only re-ranks it. The differences are all at the strict end, in the zoom. At the goal's
+10% level, with each seed (three seeds is a small sample, and the spread between seeds is as large as the
+gap between models):
+
+| Stage 2 | Seed | 5% level: test P / R | 10% level: validation P / R | 10% level: test P / R | 20% level: test P / R |
+|---|---|---|---|---|---|
+| LightGBM | 0 | 66.0% / 11.5% | 48.6% / 10.2% | 61.0% / 15.0% | 46.2% / 25.3% |
+| LightGBM | 1 | 55.4% / 6.5% | 54.8% / 10.1% | 53.1% / 12.0% | 43.5% / 24.7% |
+| LightGBM | 2 | 64.9% / 7.1% | 50.4% / 10.1% | 56.3% / 13.9% | 44.2% / 26.7% |
+| Cox | 0 | 63.3% / 10.2% | 49.8% / 15.2% | 53.2% / 20.0% | 46.5% / 25.5% |
+| Cox | 1 | 59.7% / 9.3% | 50.6% / 13.3% | 50.3% / 17.6% | 44.4% / 26.4% |
+| Cox | 2 | 60.3% / 8.4% | 50.4% / 10.1% | 54.4% / 15.2% | 44.8% / 27.5% |
+| Stack | 0 | 69.0% / 9.0% | 52.8% / 12.6% | 58.6% / 16.2% | 49.4% / 25.8% |
+| Stack | 1 | 60.8% / 6.8% | 52.8% / 11.1% | 50.6% / 14.1% | 45.7% / 24.4% |
+| Stack | 2 | 62.1% / 8.9% | 51.8% / 12.7% | 57.0% / 18.4% | 45.1% / 27.5% |
+
+![Precision at the 10% recall level on validation and test, per Stage 2 variant, with each seed](figures/chrono_split/chrono_goal_validation_vs_test.png)
+
+**Precision against the LightGBM Stage 2**, paired over the same drives; "seeds above / below 0" counts the
+seeds whose 95% interval lies entirely above or below zero:
+
+| Level | Cox minus LightGBM, precision | Seeds above 0 / below 0 | Stack minus LightGBM, precision | Seeds above 0 / below 0 |
+|---|---|---|---|---|
+| 5% | -1.0% | 0 / 0 | +1.9% | 0 / 0 |
+| 10% | -4.2% | 0 / 1 | -1.4% | 0 / 0 |
+| 20% | +0.6% | 0 / 0 | +2.1% | 1 / 0 |
+| 35% | +1.6% | 3 / 0 | +1.1% | 2 / 0 |
+| 50% | +0.8% | 2 / 0 | +0.4% | 1 / 1 |
+| 60% | +0.5% | 3 / 0 | +0.3% | 2 / 0 |
+| 70% | +0.7% | 3 / 0 | +0.3% | 3 / 0 |
+| 80% | -0.0% | 0 / 2 | -0.0% | 0 / 2 |
+
+Cox beats LightGBM at 35 to 70% recall in 2 to 3 of 3 seeds, by 0.5 to 1.6 points, which is far above the
+goal's recall. At the goal's 10% level it is 4.2 points lower and the stack 1.4 points lower, with no seed's
+interval excluding zero in the stack's case.
+
+**Top K drives flagged over the test window** (no threshold involved: the K highest-scored drives of each
+model; mean P / R):
+
+| K drives flagged | Stage 1 alone (P / R) | LightGBM Stage 2 | Cox Stage 2 | Stack |
+|---|---|---|---|---|
+| 100 | 58.7% / 6.8% | 61.7% / 7.1% | 64.3% / 7.4% | 64.3% / 7.4% |
+| 250 | 53.6% / 15.5% | 55.6% / 16.1% | 53.7% / 15.5% | 54.8% / 15.9% |
+| 500 | 44.5% / 25.8% | 44.5% / 25.8% | 45.3% / 26.2% | 45.9% / 26.6% |
+| 1,000 | 34.2% / 39.6% | 33.1% / 38.3% | 33.8% / 39.2% | 34.2% / 39.5% |
+| 2,500 | 19.0% / 54.9% | 18.6% / 53.7% | 19.1% / 55.3% | 18.9% / 54.7% |
+| 5,000 | 11.2% / 65.1% | 11.2% / 64.8% | 11.3% / 65.3% | 11.3% / 65.2% |
+
+**C-index on the test candidates** (per drive, latest candidate row; 0.5 is chance):
+
+| Net | Stage 1 | Cascade |
+|---|---|---|
+| 50% | 0.792 | 0.746 |
+| 80% | 0.889 | 0.883 |
+| 80% cox | 0.889 | 0.882 |
+| 80% stack | 0.889 | 0.883 |
+
+The 0.5 net's cascade ranks its candidates worse than Stage 1 does (0.746 against 0.792); the 0.8 net's
+three variants all lose about 0.006 to Stage 2.
+
+| Precision-recall, seed 0 | Confusion matrices at the 10% and 60% levels, seed 0 |
+|---|---|
+| ![Stage 1 and every Stage 2 variant, test, seed 0: precision-recall](figures/chrono_split/stack_chrono_precision_recall.png) | ![Stage 1 and every Stage 2 variant, test, seed 0: confusion matrices](figures/chrono_split/stack_chrono_confusion.png) |
+
+##### How many failing drives each stage isolates
+
+![Failing test drives isolated by the Stage 1 net, Stage 1 alone, the LightGBM and Cox Stage 2 and the stack at the 10, 20 and 35% recall levels, as counts and shares](figures/chrono_split/chrono_true_positives_isolated.png)
+
+The same numbers as counts and shares (test, mean of 3 seeds, 864 failing drives). "Of the pool" is the
+share of the failing drives the Stage 1 net passes (735 on average; 734 for the seed that scored the
+training run), the most any Stage 2 model could isolate. The thresholds are set on validation for each
+recall target, so the models land at different test recall and different false alarms; read the counts
+beside the precision of the levels table above.
+
+Drives isolated (share of all 864 failing drives / share of the Stage 1 pool):
+
+| Recall level | Stage 1 alone | LightGBM Stage 2 | Cox Stage 2 | Stack (LightGBM + Cox) |
+|---|---|---|---|---|
+| Stage 1 net (pool) | 735 (85.1% / 100%) | | | |
+| 10% | 112 (13.0% / 15.2%) | 118 (13.7% / 16.0%) | 152 (17.6% / 20.7%) | 140 (16.2% / 19.1%) |
+| 20% | 225 (26.0% / 30.6%) | 221 (25.6% / 30.1%) | 229 (26.5% / 31.1%) | 224 (25.9% / 30.5%) |
+| 35% | 363 (42.0% / 49.4%) | 355 (41.0% / 48.2%) | 355 (41.0% / 48.2%) | 357 (41.4% / 48.6%) |
+
+- **Stage 1 does the filtering.** The net isolates 735 of the 864 failing drives (85.1%) and passes 9.0% of
+  the fleet to do it. Everything after it can only choose among those 735.
+- **Stage 2 isolates a minority of the pool at the goal's level.** At the 10% level the LightGBM Stage 2
+  flags 118 of the 735 (16.0%), the stack 140 (19.1%) and Cox 152 (20.7%). About four in five of the failing
+  drives the net found stay below the threshold, because they look like the 32,600 healthy drives it also
+  passed.
+- **At the 10% level Cox and the stack isolate more drives than Stage 1 alone, and pay for them.** Stage 1
+  alone flags 112 failing drives (13.0%), Cox 152 and the stack 140, against 89, 137 and 113 false alarms
+  (Stage 1 and LightGBM share 89). The extra 28 to 40 drives cost 24 to 48 more false alarms, which is why
+  the precision column is flat (55.8%, 52.6%, 55.4%) while the count moves.
+- **From the 20% level up Stage 2 adds no failing drives.** All four models isolate 221 to 229 drives at
+  20% and 355 to 363 at 35%, within about 4% of one another. The ranking inside the pool is no better than
+  Stage 1's, as the C-index above says (0.889 against 0.883).
+- **The stack sits between its parts.** It isolates 140 where LightGBM isolates 118 and Cox 152 at the 10%
+  level, and 224 and 357 at 20% and 35%, never the most of the four. Its edge is precision at the 5% and 20% levels
+  (64.0% and 46.7%), not the number of drives isolated.
+
+##### Against the drive-holdout split
+
+| | Drive holdout (`c459046e`, Section 1.1.4) | Chronological with gaps |
+|---|---|---|
+| Validation / test base rate | 0.589% / 0.300% | 0.19% / 0.23% |
+| Test window | 62 days, 1,105 failing | 46 days, 864 failing |
+| LightGBM two-stage, primary threshold: validation P / R | 75.0% / 10.0% | 51.5% / 10.2% |
+| LightGBM two-stage, primary threshold: test P / R | 59.0% / 12.5% | 59.9% / 13.3% |
+| Test AUROC (validation AUROC) | 0.926 (0.922) | 0.923 (0.906) |
+| Stack, the 10% recall level, test P / R (3-seed mean) | 64.9% / 11.6% | 55.4% / 16.2% |
+| Migrate and drain tiers | share one cutoff, flag 6 drives | distinct cutoffs, flag 1,371 and 336 drives |
+| Goal (68% at >= 10% recall) met on validation / test | no / no | no / no |
+
+![Base rate and precision at the primary threshold, validation against test, for the two split designs](figures/chrono_split/chrono_base_rate_transfer.png)
+
+The two designs are not like for like: different test windows and base rates, and the stack's 10% level now
+sits at 16.2% recall, not 11.6%. A comparison at a matched false-alarm rate was not run. Test AUROC is
+0.923 against 0.926, and the primary-threshold precision is 59.9% against 59.0%.
+
+##### What it shows
+
+- **Strict separation did not move the result.** The ranking is as good as before and the ceiling is the
+  same.
+- **The base-rate mismatch is fixed, and it was not what kept the goal out of reach.** Validation no longer
+  overstates test (51.5% against 59.9%, base rates 0.19% against 0.23%), so a threshold tuned on validation
+  transfers. But the goal fails on validation itself: no threshold at >= 10% recall gets near 68% there.
+  The expectation of this section held for the transfer and does not rescue the goal.
+- **The stack does not help at the goal's operating point.** Its gains are at 5% and 20% recall, as in
+  Section 1.1.4a; at 10% it is 1.4 points below LightGBM Stage 2.
+- **Stage 1 works as designed,** and the agent's four tiers all fire on this split.
+- **What would change it.** The silent failures Stage 1 never passes (Section 1.2; about 15% of failing test
+  drives here) cap recall, and the failing drives it passes look like the 9% of healthy drives beside them. A
+  threshold or a split cannot move that; it needs signal the 246 features do not carry.
+- **Limits.** Three seeds, one test period, and Q3 is not a fresh test (143 logged looks). A recall of 10 to
+  18% rests on 115 caught drives, and the test interval on the primary threshold is 52.5 to 66.3%.
+
+##### How to reproduce it
+
+From the repository root, with the pinned Python (`.python-version`). **This replaces `data/gold/`**, which
+the drive-holdout design also reads; back it up first if you want to return to that design without a
+rebuild (`cp -a data/gold data/tmp/gold_drive_holdout_backup`, 6.2 GB), or restore the values in the
+comment of `configs/model.yaml` `splits` and run the same steps. About 80 minutes in all.
+
+```bash
+make chrono-run            # everything below, one log per step in data/audit/chrono_logs/ (CHRONO_LOGS=<dir> to move them)
+```
+
+The same, a step at a time (do not use `make -j`; each step needs the one before):
+
+```bash
+make chrono-data           # build-features (27 min), build-labels (2.4 min), check-splits; must print "OK: ..."
+make chrono-train          # Stage 1 + LightGBM Stage 2, 30 days, tag chrono_h30 (20 min); prints work_dir_kept
+make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # LightGBM, Cox and stack Stage 2 (27 min)
+make plot-chrono-split     # the five new figures, from the files above; scores nothing
+```
+
+`<id>` is the `work_dir_kept` path `make chrono-train` printed (`chrono-run` reads it from the log). The
+variables are `CHRONO_TAG` (default `chrono_h30`, the tag of the `make train` files), `CHRONO_OUT`
+(default `data/audit/stack_chrono_h30`) and `CHRONO_WORK_DIR` (required by `chrono-stack`). A tagged
+`make train` refuses to overwrite a run with the same tag (`TRAIN_ARGS="... --overwrite"` replaces it), and
+every run adds test looks to `data/audit/test_access_log.jsonl` (`chrono-train` and `chrono-stack` two
+each). The launcher of the 2026-11-10 run is `data/audit/chrono_logs/run_chrono.sh`; `chrono-run` runs
+`scripts/run_chrono_split.sh`, the same sequence through the Makefile targets.
+
+##### Files
+
+| What | Where |
+|---|---|
+| Training report, tiers, model card | `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json`, `action_tiers_chrono_h30.json`; `data/audit/model_cards/v1_h30d_chrono_h30.json` and `.md` |
+| Stage 2 variants | `data/audit/stack_chrono_h30/` (`tables.md`, `experiment_two_stage.json`, `figures/`, `mlflow_run.json`) |
+| Run launcher and logs | `data/audit/chrono_logs/` |
+| Figures | `docs/figures/chrono_split/` (its README lists each source); `make plot-chrono-split` redraws the five new ones |
+| Every look at test | `data/audit/test_access_log.jsonl` |
 
 ### 1.2 The two-stage gain is not established
 
@@ -1526,7 +1803,7 @@ three places:
 |---|---|---|
 | [`data/audit/`](../data/audit/) | Reports and results the pipelines write: training reports, experiment outputs, horizon comparison, deep dive, agent runs, run logs, the test-access log | [`data/audit/README.md`](../data/audit/README.md) |
 | [`frozen_runs/`](../frozen_runs/) | One folder per frozen training run: spec, thresholds, both model stages, model card, figures, checksums | [`frozen_runs/README.md`](../frozen_runs/README.md) |
-| [`docs/figures/`](figures/) | Copies of figures embedded here (Q3 cascade and horizon comparison) | [`docs/figures/q3_2026/README.md`](figures/q3_2026/README.md) |
+| [`docs/figures/`](figures/) | Copies of figures embedded here (Q3 cascade and horizon comparison; the chronological split run) | [`docs/figures/q3_2026/README.md`](figures/q3_2026/README.md), [`docs/figures/chrono_split/README.md`](figures/chrono_split/README.md) |
 
 Where each section's numbers come from:
 
@@ -1539,6 +1816,7 @@ Where each section's numbers come from:
 | 1.1.6 (cluster action policy) | `data/audit/cluster_policy_h30/` |
 | 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` |
 | 4.7 - 4.10 (point-in-time policy, family calibration) | `data/audit/agent_point_in_time*`, `agent_pit_validation*`, `family_calibration.json` |
+| 1.1.9 (chronological split run) | Training report `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json` and `action_tiers_chrono_h30.json`; model card `data/audit/model_cards/v1_h30d_chrono_h30.md`; Stage 2 variants `data/audit/stack_chrono_h30/`; launcher and logs `data/audit/chrono_logs/`; figures `docs/figures/chrono_split/`; reproduce with `make chrono-run` |
 | Every look at test | `data/audit/test_access_log.jsonl` (tracked, append-only) |
 
 What git tracks under `data/audit/` and what stays local is listed in its
@@ -3280,9 +3558,11 @@ stacked cascade (Stage 1 LightGBM; Stage 2 a stack of LightGBM and Cox, Section
 1.1.4a), 30-day horizon** (`configs/model.yaml` `threshold.target_precision`, was
 0.90). That stack is a compared model, not part of `make train`: it is not logged
 to MLflow and is frozen as a scorer only at 60 days (`frozen_runs/stack_h60_seed0`).
-**Measured against the revised goal, the 30-day stack gives 64.9% precision at
+**Measured against the revised goal on the drive-holdout split, the 30-day stack gives 64.9% precision at
 11.6% recall at the 10% recall level (3-seed mean, Q3 2026 test): below 68%, by
-3 points; the three seeds give 65.6%, 66.7% and 62.3%, all below 68%.** The statements below that call the
+3 points; the three seeds give 65.6%, 66.7% and 62.3%, all below 68%. On the chronological split
+(Section 1.1.9, 2026-11-10) it gives 55.4% at 16.2% recall, and the LightGBM two-stage 59.9% at 13.3%:
+the goal is not met there either, on validation or on test.** The statements below that call the
 goal "90%" are the record of how it stood when each result was measured.
 The model `make train` ships, the LightGBM two-stage
 (frozen run `c459046e`, Q3 2026 test), gives 59.0% precision at 12.5% recall: **below 68% on the test set**.
@@ -3290,6 +3570,12 @@ On validation the primary threshold gives 75.0%, but that is the validation
 failure rate (Section 1.1.5), so the test figure at its own base rate is the
 one that counts. The saved thresholds were tuned for 90% and have not been
 re-tuned for 68%; the statuses in this section were not re-measured.
+
+The chronological run's Stage 2 variants against the goal, and the goal at its 10% recall level on both validation and test (Section 1.1.9):
+
+| Precision against recall, test | Precision at the 10% level, validation and test |
+|---|---|
+| ![Precision against recall for Stage 1 and the three Stage 2 variants, with the goal region](figures/chrono_split/chrono_precision_recall.png) | ![Precision at the 10% recall level on validation and test per Stage 2 variant](figures/chrono_split/chrono_goal_validation_vs_test.png) |
 
 **Neither goal is met on the real fleet.** The original goal was 95%
 precision at 35-50% recall per drive; it was later set to 90% at >= 10%
@@ -3400,6 +3686,23 @@ What could still change the picture:
   Not available in the Backblaze data.
 
 ## 8. Open items
+
+**From the chronological split run (2026-11-10, Section 1.1.9; the goal was not met):**
+
+- **The 68% goal is out of reach with these features.** The stack gives 55.4% precision at 16.2% recall and
+  the LightGBM two-stage 59.9% at 13.3% on test; validation is about 52%. Choices that remain, none made
+  here: lower the goal, add signal the 246 features lack (ADR 0003 names features for the weak drive
+  families), or accept a warn and cordon policy with the precision above.
+- **No frozen record before the test look.** The settings and checks exist; committing thresholds, weights
+  and model hashes before the test scorer runs, and counting every look, is not built.
+- **The run is not frozen.** The model of record is still `c459046e`. `scripts/freeze_stack_scorer.py`
+  defaults to the 60-day stack; freezing the 30-day stack on this split needs its options checked.
+- **Not run under strict separation:** the 44- and 60-day horizons (`make train` refuses them: their gaps
+  are longer than the 30-day embargo), the merged approach (LSTM, TCN, AFT blends), and a comparison with
+  the drive-holdout run at a matched false-alarm rate.
+- **Not adapted:** the knowledge store and `agent-pit-validation`, which were built on drive-holdout
+  validation drives; their `validation` split is now a later period of all drives.
+- **Q3 is not a fresh test set** (143 logged looks); the first Q4 2026 download is the clean one.
 
 **Implemented and run on 2026-10-06 (results in Section 4.2):**
 

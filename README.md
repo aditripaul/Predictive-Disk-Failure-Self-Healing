@@ -648,7 +648,7 @@ AUPRC - Area Under the Precision-Recall Curve
 The original target was precision ≥ 95% at recall 35–50%, per drive. It was
 later 90% precision at ≥ 10% recall, and since 2026-11-10 **68% precision at
 ≥ 10% recall on the stacked cascade** (Stage 1 LightGBM; Stage 2 LightGBM + Cox) (`configs/model.yaml`
-`threshold`). **None is met on the test set** (stack: 64.9% at 11.6%; shipped two-stage: 59.0% at 12.5%).
+`threshold`). **None is met on the test set** (drive-holdout split: stack 64.9% at 11.6%, shipped two-stage 59.0% at 12.5%; chronological split of 2026-11-10: stack 55.4% at 16.2%, two-stage 59.9% at 13.3%).
 
 ### Measured Result (Backblaze, 30-day horizon, per drive, test)
 
