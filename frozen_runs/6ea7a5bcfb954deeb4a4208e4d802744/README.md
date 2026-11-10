@@ -24,8 +24,9 @@ holdout, feature statistics from rows before 04-21.
 Not included: the score table `lightgbm_scores_h30_chrono_h30.parquet` (validation and test scores,
 197,723,045 bytes, SHA-256 `a78bb20804c006c02d05fed66ffaab27271ece2c2c2107c8b4d12e2217e66b2c`), and each
 model's `conda.yaml` (`MLmodel` still names it; the pinned `requirements.txt` and `python_env.yaml` are
-here). The stack of Stage 2 variants (LightGBM, Cox, stack) is **not** part of this folder: its results are
-in `data/audit/stack_chrono_h30/` and it is not saved as a scorer.
+here). The Cox Stage 2 and the stack are **not** part of this folder: their results are in
+`data/audit/stack_chrono_h30/`, and their seed-0 refit is frozen in `frozen_runs/stack_chrono_h30_seed0/`
+(a separate fit with a 396-tree Stage 1, not this run's 339-tree one, so its thresholds differ).
 
 Trained with mlflow 3.16.1, lightgbm 4.7.0, skops 0.16.0, **Python 3.12.16** (the earlier frozen runs used
 3.14.8; the repository pins 3.12 in `.python-version` since 2026-11-10).

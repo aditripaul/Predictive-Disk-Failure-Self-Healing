@@ -1349,7 +1349,7 @@ Other tools under this config:
 
 **The 68% goal is not met on the chronological split, by any Stage 2 model, on validation or on test.**
 The run is frozen as `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744` (2026-11-10, checksummed, both stages
-load from it); the stack of Stage 2 variants is not saved as a scorer. `score-fleet` and the agent take the
+load from it); the Cox Stage 2 and the stack are frozen as a scorer in `frozen_runs/stack_chrono_h30_seed0/` (seed 0; a separate fit from this run's models). `score-fleet` and the agent take the
 latest training run for the horizon by MLflow start time, which is now this run, not `c459046e`: freezing
 does not change that, and no one chose it (`frozen_runs/README.md`). Everything
 below is per drive, 30-day horizon, test period 07-17 to 08-31 (864 failing of 368,124 drives) unless a
@@ -1365,7 +1365,7 @@ line says validation (684 failing of 356,811).
 | Labels | `make build-labels` | `pipelines/build_labels.py` | 2.4 min | `data/gold/labels/` (380,478,465 rows), `data/audit/dataset_versions/20261110T082656102066Z.json` |
 | Separation check | `make check-splits` | `scripts/check_split_separation.py` | instant | `OK: train, validation and test are separate` |
 | Stage 1 and LightGBM Stage 2 | `make chrono-train` | `make train TRAIN_TAG=chrono_h30 TRAIN_ARGS="--horizon-days 30 --keep-work-dir --save-scores"` | 20.5 min | MLflow `6ea7a5bcfb954deeb4a4208e4d802744`; frozen as `frozen_runs/6ea7a5bc…`; report, tiers and model card tagged `chrono_h30`; work dir `data/tmp/train_model_frame_4pf36rc4` (local) |
-| Stage 2 variants and the stack | `make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_4pf36rc4` | `make experiment-model EXPERIMENT_ARGS="--work-dir <work dir> --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack --two-stage-out data/audit/stack_chrono_h30"` | 27 min | `data/audit/stack_chrono_h30/` (nets 0.5 and 0.8, 3 seeds; MLflow `08aedf53015243a3a12b467468421163`) |
+| Stage 2 variants and the stack | `make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_4pf36rc4` | `make experiment-model EXPERIMENT_ARGS="--work-dir <work dir> --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack --two-stage-out data/audit/stack_chrono_h30"` | 27 min | `data/audit/stack_chrono_h30/` (nets 0.5 and 0.8, 3 seeds; MLflow `08aedf53015243a3a12b467468421163`). The experiment now also saves each seed's stack to `models/seed<k>_net0.80/`; this 2026-11-10 run predates that, so its models come from `make chrono-freeze` (seed 0) |
 | Figures | `make plot-chrono-split` | `scripts/plot_chrono_split.py` | seconds | `docs/figures/chrono_split/` |
 
 All of it is `make chrono-run` (Section "How to reproduce it" below). Code at git `4e37458`. The launcher
@@ -1619,7 +1619,13 @@ make plot-chrono-split     # the five new figures, from the files above; scores 
 
 `<id>` is the `work_dir_kept` path `make chrono-train` printed (`chrono-run` reads it from the log). The
 variables are `CHRONO_TAG` (default `chrono_h30`, the tag of the `make train` files), `CHRONO_OUT`
-(default `data/audit/stack_chrono_h30`) and `CHRONO_WORK_DIR` (required by `chrono-stack`). A tagged
+(default `data/audit/stack_chrono_h30`), `CHRONO_WORK_DIR` (required by `chrono-stack` and `chrono-freeze`)
+and `CHRONO_FREEZE` (default `frozen_runs/stack_chrono_h30_seed0`). `chrono-stack` saves what it fits: each
+seed's stack, with Stage 1 and the LightGBM and Cox Stage 2 it blends, goes to
+`$CHRONO_OUT/models/seed<k>_net0.80/` (`pipelines/experiment_model.py`; `--no-save-models` skips it, and it
+refuses to start if `models/` exists). `chrono-freeze` refits seed 0 on validation only, checks it against
+the experiment's report, and freezes it as a scorer with its tiers; it never overwrites, so `chrono-run`
+skips it when the folder exists. A tagged
 `make train` refuses to overwrite a run with the same tag (`TRAIN_ARGS="... --overwrite"` replaces it), and
 every run adds test looks to `data/audit/test_access_log.jsonl` (`chrono-train` and `chrono-stack` two
 each). The launcher of the 2026-11-10 run is `data/audit/chrono_logs/run_chrono.sh`; `chrono-run` runs
@@ -1630,7 +1636,8 @@ each). The launcher of the 2026-11-10 run is `data/audit/chrono_logs/run_chrono.
 | What | Where |
 |---|---|
 | Training report, tiers, model card | `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json`, `action_tiers_chrono_h30.json`; `data/audit/model_cards/v1_h30d_chrono_h30.json` and `.md` |
-| Stage 2 variants | `data/audit/stack_chrono_h30/` (`tables.md`, `experiment_two_stage.json`, `figures/`, `mlflow_run.json`) |
+| Stage 2 variants | `data/audit/stack_chrono_h30/` (`tables.md`, `experiment_two_stage.json`, `figures/`, `mlflow_run.json`; a run made with the current code also has `models/seed<k>_net0.80/`) |
+| Stage 2 variants and the stack as scorers | `frozen_runs/stack_chrono_h30_seed0/` (seed 0, `make chrono-freeze`: Stage 1, the LightGBM and Cox Stage 2, the stack, validation tiers) |
 | Run launcher and logs | `data/audit/chrono_logs/` |
 | Figures | `docs/figures/chrono_split/` (its README lists each source); `make plot-chrono-split` redraws the five new ones |
 | Every look at test | `data/audit/test_access_log.jsonl` |
@@ -1820,7 +1827,7 @@ Where each section's numbers come from:
 | 1.1.6 (cluster action policy) | `data/audit/cluster_policy_h30/` |
 | 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` |
 | 4.7 - 4.10 (point-in-time policy, family calibration) | `data/audit/agent_point_in_time*`, `agent_pit_validation*`, `family_calibration.json` |
-| 1.1.9 (chronological split run) | Training report `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json` and `action_tiers_chrono_h30.json`; model card `data/audit/model_cards/v1_h30d_chrono_h30.md`; Stage 2 variants `data/audit/stack_chrono_h30/`; frozen run `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/`; launcher and logs `data/audit/chrono_logs/`; figures `docs/figures/chrono_split/`; reproduce with `make chrono-run` |
+| 1.1.9 (chronological split run) | Training report `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json` and `action_tiers_chrono_h30.json`; model card `data/audit/model_cards/v1_h30d_chrono_h30.md`; Stage 2 variants `data/audit/stack_chrono_h30/`; frozen runs `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/` (`make train`) and `frozen_runs/stack_chrono_h30_seed0/` (Stage 2 variants and stack, seed 0); launcher and logs `data/audit/chrono_logs/`; figures `docs/figures/chrono_split/`; reproduce with `make chrono-run` |
 | Every look at test | `data/audit/test_access_log.jsonl` (tracked, append-only) |
 
 What git tracks under `data/audit/` and what stays local is listed in its
@@ -3701,8 +3708,10 @@ What could still change the picture:
   and model hashes before the test scorer runs, and counting every look, is not built.
 - **Which 30-day model the code loads has not been decided.** The run is frozen, but `score-fleet` and the
   agent load the latest 30-day training run, so they now load `6ea7a5bc` rather than `c459046e`; pinning one
-  run id is not built. The stack is not saved as a scorer: `scripts/freeze_stack_scorer.py` defaults to the
-  60-day stack, and freezing the 30-day stack on this split needs its options checked.
+  run id is not built. The stack is frozen for seed 0 only (`frozen_runs/stack_chrono_h30_seed0/`, a separate
+  fit from the `6ea7a5bc` models); seeds 1 and 2 of the 2026-11-10 experiment were not saved, because it
+  predates `--save-models`' default (re-running `make chrono-stack` with another `CHRONO_OUT` saves all
+  three, 27 minutes and 2 more test looks).
 - **Not run under strict separation:** the 44- and 60-day horizons (`make train` refuses them: their gaps
   are longer than the 30-day embargo), the merged approach (LSTM, TCN, AFT blends), and a comparison with
   the drive-holdout run at a matched false-alarm rate.

@@ -1,0 +1,109 @@
+{
+  "score_column": "score_lightgbm",
+  "failure_rate": 0.0019169812589858496,
+  "drives": 356811,
+  "failing_drives": 684,
+  "action_tiers": {
+    "warn": 0.5234370713217503,
+    "cordon": 0.7402624933098012,
+    "migrate": 0.8656669298142238,
+    "drain": 0.9348449177540274
+  },
+  "action_tiers_cost": {
+    "warn": 0.2862659374941432,
+    "cordon": 0.6860612830683965,
+    "migrate": 0.8758600070466172,
+    "drain": 0.9433273144011827
+  },
+  "threshold": 0.9505822016499913,
+  "validation": {
+    "lift": {
+      "warn": {
+        "threshold": 0.5234370713217503,
+        "flagged": 3741,
+        "flagged_share": 0.010484542236646292,
+        "caught": 406,
+        "precision": 0.10852713178294573,
+        "recall": 0.5935672514619883
+      },
+      "cordon": {
+        "threshold": 0.7402624933098012,
+        "flagged": 1842,
+        "flagged_share": 0.005162396899198735,
+        "caught": 333,
+        "precision": 0.18078175895765472,
+        "recall": 0.4868421052631579
+      },
+      "migrate": {
+        "threshold": 0.8656669298142238,
+        "flagged": 887,
+        "flagged_share": 0.002485909907486036,
+        "caught": 257,
+        "precision": 0.2897406989853439,
+        "recall": 0.3757309941520468
+      },
+      "drain": {
+        "threshold": 0.9348449177540274,
+        "flagged": 306,
+        "flagged_share": 0.0008575968790199853,
+        "caught": 133,
+        "precision": 0.434640522875817,
+        "recall": 0.19444444444444445
+      }
+    },
+    "cost": {
+      "warn": {
+        "threshold": 0.2862659374941432,
+        "flagged": 6904,
+        "flagged_share": 0.019349179257365946,
+        "caught": 469,
+        "precision": 0.06793163383545771,
+        "recall": 0.685672514619883
+      },
+      "cordon": {
+        "threshold": 0.6860612830683965,
+        "flagged": 2293,
+        "flagged_share": 0.006426371384290283,
+        "caught": 364,
+        "precision": 0.1587440034888792,
+        "recall": 0.5321637426900585
+      },
+      "migrate": {
+        "threshold": 0.8758600070466172,
+        "flagged": 783,
+        "flagged_share": 0.002194439072786433,
+        "caught": 245,
+        "precision": 0.3128991060025543,
+        "recall": 0.358187134502924
+      },
+      "drain": {
+        "threshold": 0.9433273144011827,
+        "flagged": 226,
+        "flagged_share": 0.0006333885446356755,
+        "caught": 107,
+        "precision": 0.47345132743362833,
+        "recall": 0.1564327485380117
+      }
+    },
+    "primary": {
+      "threshold": 0.9505822016499913,
+      "flagged": 144,
+      "flagged_share": 0.00040357500189175784,
+      "caught": 70,
+      "precision": 0.4861111111111111,
+      "recall": 0.1023391812865497
+    }
+  },
+  "cost_ratios": {
+    "warn": 100,
+    "cordon": 20,
+    "migrate": 5,
+    "drain": 2
+  },
+  "lift_targets": {
+    "warn": 56.6,
+    "cordon": 94.3,
+    "migrate": 151.0,
+    "drain": 226.4
+  }
+}
