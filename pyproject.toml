@@ -3,7 +3,7 @@ name = "disk-failure-self-healing-agent"
 version = "0.1.0"
 description = "Predictive disk-failure self-healing agent for server fleets, with a reliability/trust meta-validator."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.15"
 license = { text = "MIT" }
 
 dependencies = [
