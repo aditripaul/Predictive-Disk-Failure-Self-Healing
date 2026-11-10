@@ -57,7 +57,7 @@ confirmed on untouched data.
 **The resulting operating points**, per drive on Q3: the warn tier reaches
 60.9% of failing drives at 17.3% precision, cordon 42.4% at 34.8%, and the
 primary threshold 12.5% at 59.0% (95% confidence interval 52.3% to 65.5%).
-The goal of 90% precision at 10% or more recall is not met. Validation reads
+The goal, revised on 2026-11-10 from 90% to 68% precision at 10% or more recall on the stacked cascade (Stage 1 LightGBM, Stage 2 LightGBM + Cox), is not met on test (64.9% at 11.6% for the stack, 3-seed mean; 59.0% for the shipped LightGBM two-stage). Validation reads
 higher (75.0% at the primary threshold), but that is the failure rate, not
 overfitting: the ranking carries over intact (AUROC 0.922 and 0.926), and test
 precision restated at the validation failure rate is 73.9%. The cascade also

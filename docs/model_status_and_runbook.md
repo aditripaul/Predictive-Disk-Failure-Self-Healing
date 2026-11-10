@@ -2993,6 +2993,22 @@ Thresholds are always chosen on validation and applied to test.
 
 ## 7. Goal status and what would change it
 
+**Goal revised 2026-11-10: 68% precision at >= 10% recall, per drive, on the
+stacked cascade (Stage 1 LightGBM; Stage 2 a stack of LightGBM and Cox, Section
+1.1.4a), 30-day horizon** (`configs/model.yaml` `threshold.target_precision`, was
+0.90). That stack is a compared model, not part of `make train`: it is not logged
+to MLflow and is frozen as a scorer only at 60 days (`frozen_runs/stack_h60_seed0`).
+**Measured against the revised goal, the 30-day stack gives 64.9% precision at
+11.6% recall at the 10% recall level (3-seed mean, Q3 2026 test): below 68%, by
+3 points, with a seed-to-seed spread of several points.** The statements below that call the
+goal "90%" are the record of how it stood when each result was measured.
+The model `make train` ships, the LightGBM two-stage
+(frozen run `c459046e`, Q3 2026 test), gives 59.0% precision at 12.5% recall: **below 68% on the test set**.
+On validation the primary threshold gives 75.0%, but that is the validation
+failure rate (Section 1.1.5), so the test figure at its own base rate is the
+one that counts. The saved thresholds were tuned for 90% and have not been
+re-tuned for 68%; the statuses in this section were not re-measured.
+
 **Neither goal is met on the real fleet.** The original goal was 95%
 precision at 35-50% recall per drive; it was later set to 90% at >= 10%
 recall (`configs/model.yaml` `threshold`). The frozen model gives 49.6% at
@@ -3230,7 +3246,7 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 | `configs/model.yaml` | `model.max_train_rows` | 5000000 | Training-row cap |
 | `configs/model.yaml` | `model.positive_weight_power` | 0.5 | Positive weight = (neg/pos)^0.5 |
 | `configs/model.yaml` | `model.early_stopping_rounds` | 50 | Early stopping patience (average precision) |
-| `configs/model.yaml` | `threshold.target_precision` | 0.90 | Goal precision, at recall >= 10%, **30-day horizon** (was 0.95 at 35-50%). See Section 7: the horizon is part of the goal |
+| `configs/model.yaml` | `threshold.target_precision` | 0.68 | Goal precision, at recall >= 10%, on the stacked cascade (Stage 1 LightGBM, Stage 2 LightGBM + Cox), **30-day horizon** (was 0.90 until 2026-11-10, 0.95 at 35-50% before that). See Section 7: the horizon is part of the goal |
 | `configs/model.yaml` | `threshold.target_recall_range` | [0.10, 0.50] | Goal recall range |
 | `configs/model.yaml` | `splits.train_start` / `train_end` / `validation_end` | 2026-01-01 / 2026-05-01 / 2026-05-01 | Q1+Q2 2026 train, validation a drive holdout over the same dates (Section 1.1.4). Was 2026-02-14 / 2026-03-31 with Q2 2026 as test (Section 2.2); the earlier frozen runs used 2026-04-15 / 2026-05-10 / 2026-05-31 |
 | `configs/model.yaml` | `splits.test_end` / `observation_end` / `test_split` | 2026-08-31 / 2026-09-30 / sealed | Test is the sealed-labeled window (Q3 2026) up to min(test_end, observation_end - horizon) |

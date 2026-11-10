@@ -645,8 +645,9 @@ AUPRC - Area Under the Precision-Recall Curve
 ### Target Operating Point
 
 The original target was precision ≥ 95% at recall 35–50%, per drive. It was
-later set to 90% precision at ≥ 10% recall (`configs/model.yaml`
-`threshold`). **Neither is met on real data.**
+later 90% precision at ≥ 10% recall, and since 2026-11-10 **68% precision at
+≥ 10% recall on the stacked cascade** (Stage 1 LightGBM; Stage 2 LightGBM + Cox) (`configs/model.yaml`
+`threshold`). **None is met on the test set** (stack: 64.9% at 11.6%; shipped two-stage: 59.0% at 12.5%).
 
 ### Measured Result (Backblaze, 30-day horizon, per drive, test)
 
@@ -906,7 +907,7 @@ make test
 
 | Metric | Target |
 |---|---:|
-| Prediction precision | ≥ 95% originally, later ≥ 90% (not met: 48.6% on the real fleet at the primary threshold, 95% CI [38.9%, 58.2%]; see §15) |
+| Prediction precision | ≥ 95% originally, later ≥ 90%, now ≥ 68% on the stacked cascade (not met: 48.6% on the real fleet at the primary threshold, 95% CI [38.9%, 58.2%]; see §15) |
 | Prediction recall | 35–50% originally, later ≥ 10% (8.7% at the primary threshold) |
 | Loop cycle time | < 5 minutes |
 | Guardrail evaluation latency | < 500 ms |

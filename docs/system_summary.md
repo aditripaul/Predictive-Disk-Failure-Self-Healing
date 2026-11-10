@@ -81,7 +81,7 @@ validation, 1,105 failing and 367,583 healthy test drives:
 | **Primary threshold** | **59.0%** [52.3, 65.5] | **12.5%** [10.5, 14.3] | 138 / 967 / 96 |
 | Migrate = drain (fallback cutoff) | 33.3% | 0.2% | 2 / 1,103 / 4 |
 
-- **The goal (90% precision at 10% or more recall) is not met.** Drive AUROC is
+- **The goal (68% precision at 10% or more recall on the stacked cascade, Stage 1 LightGBM and Stage 2 LightGBM + Cox; 90% until 2026-11-10) is not met on test:** the stack gives 64.9% at 11.6% (3-seed mean, runbook 1.1.4a) and the shipped LightGBM two-stage 59.0% at 12.5%. Drive AUROC is
   0.926 and recall at a 0.1% false-alarm rate 30.4%.
 - **Validation reads 15-20 points higher, and that is the base rate** (0.59% of
   validation drives fail, 0.30% of test drives): AUROC is the same on both

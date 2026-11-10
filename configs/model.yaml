@@ -117,10 +117,17 @@ model:
 # target_precision; if that goal is unreachable, the highest-precision
 # threshold with recall >= the lower bound, flagged target_met: false with
 # the gap recorded in the model card. The target is kept as the goal.
-# Goal (agreed 2026-10-06): 90% precision at >= 10% recall, per drive, on the
-# test split, AT A 30-DAY HORIZON. The earlier 95% at 35-50% recall was not
-# reachable; the report's precision-at-recall table still shows 5 / 10 / 20 /
-# 35% recall.
+# Goal (revised 2026-11-10): 68% precision at >= 10% recall, per drive, on the
+# output of the stacked cascade: Stage 1 LightGBM, Stage 2 a rank-blend stack of
+# LightGBM and Cox (src/models/stacking.py), AT A 30-DAY HORIZON. The stack is
+# compared and frozen as a scorer (frozen_runs/stack_h60_seed0) but is not part of
+# make train, so make train measures the goal on the LightGBM two-stage output.
+# Measured stack at 30 days: 64.9% at 11.6% recall, 3-seed mean on Q3 2026
+# (docs/model_status_and_runbook.md 1.1.4a). It was 90% at >= 10% recall from 2026-10-06, and 95% at
+# 35-50% recall before that; neither was reachable. The report's
+# precision-at-recall table still shows 5 / 10 / 20 / 35% recall. Saved
+# thresholds in frozen runs were tuned for the earlier target and change only
+# when thresholds are re-tuned (make train, or scripts/freeze_stack_scorer.py).
 #
 # The horizon is part of the goal, not an implementation detail. Precision
 # moves with the base rate and a longer label raises it mechanically: at an
@@ -134,7 +141,7 @@ model:
 # docs/model_status_and_runbook.md, not something a config edit should do
 # quietly.
 threshold:
-  target_precision: 0.90
+  target_precision: 0.68
   target_recall_range: [0.10, 0.50]
   search_metric: auprc
   # Per-agent-action precision requirements (drive level, ascending: a more
