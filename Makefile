@@ -1,4 +1,4 @@
-.PHONY: install lint format install-hooks check-paths check-splits agent-pit-validation agent-knowledge pack-knowledge unpack-knowledge test test-unit test-integration test-chaos test-golden test-property \
+.PHONY: install lint format install-hooks check-paths check-splits chrono-run chrono-data chrono-train chrono-stack plot-chrono-split agent-pit-validation agent-knowledge pack-knowledge unpack-knowledge test test-unit test-integration test-chaos test-golden test-property \
 	data-check smoke coverage ci clean clean-data \
 	download-backblaze download-smartz \
 	ingest-backblaze ingest-smartz ingest-synthetic-stub build-silver build-features build-labels train experiment-model clean-kept full-experiment full-pipeline \
@@ -33,6 +33,34 @@ check-paths:
 # make check-splits ARGS="--horizon-days 60"
 check-splits:
 	uv run python scripts/check_split_separation.py $(ARGS)
+
+# The chronological split run (docs/model_status_and_runbook.md section 1.1.9), configs/model.yaml `splits`.
+# `chrono-run` does everything and logs each step to data/audit/chrono_logs/ (about 80 minutes;
+# CHRONO_LOGS=<dir> to log elsewhere). It REPLACES data/gold/, which the drive-holdout design also reads.
+# The steps alone, in order (do not use make -j):
+#   make chrono-data                                   # build-features, build-labels, check-splits (about 30 minutes)
+#   make chrono-train                                  # 30-day LightGBM two-stage; prints work_dir_kept (about 20 minutes)
+#   make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # Stage 2: LightGBM, Cox, stack (about 30 minutes)
+#   make plot-chrono-split                             # the five figures of docs/figures/chrono_split/
+CHRONO_TAG ?= chrono_h30
+CHRONO_OUT ?= data/audit/stack_chrono_h30
+chrono-run:
+	bash scripts/run_chrono_split.sh
+
+chrono-data:
+	$(MAKE) build-features
+	$(MAKE) build-labels
+	$(MAKE) check-splits
+
+chrono-train:
+	$(MAKE) train TRAIN_TAG=$(CHRONO_TAG) TRAIN_ARGS="--horizon-days 30 --keep-work-dir --save-scores"
+
+chrono-stack:
+	@test -n "$(CHRONO_WORK_DIR)" || { echo "set CHRONO_WORK_DIR to the work_dir_kept path that make chrono-train printed"; exit 2; }
+	$(MAKE) experiment-model EXPERIMENT_ARGS="--work-dir $(CHRONO_WORK_DIR) --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack --two-stage-out $(CHRONO_OUT)"
+
+plot-chrono-split:
+	uv run python scripts/plot_chrono_split.py $(ARGS)
 
 # --- tests -------------------------------------------------------------------
 # `test` runs everything; the test-* targets run one layer at a time (see
