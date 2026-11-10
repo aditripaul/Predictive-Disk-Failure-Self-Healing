@@ -144,13 +144,16 @@ threshold:
   # and `make score-fleet` uses those thresholds instead of the hand-picked
   # probability cutoffs in configs/agent.yaml. A tier whose target is
   # unreachable never fires. These are placeholders to be set from the real
-  # cost of a false alarm per action - on Q1 2026 data the shipped model
-  # reaches ~17% precision at ~38% recall, ~40% at ~13%, ~95% only at ~1%.
+  # cost of a false alarm per action. On the Q3 2026 test the current model's warn
+  # tier reaches 17.3% precision at 60.9% recall and cordon 34.8% at 42.4%; migrate
+  # and drain are not reachable (docs/system_summary.md section 4, runbook 1.9).
   # Targets are LIFT (alerted-drive failure rate / fleet failure rate), not raw
   # precision: precision moves with the base rate, which differs by split and
   # fleet, and lift does not. Lift = precision / validation drive-level failure
-  # rate (0.265%), so these reproduce the former precision targets 0.15 / 0.25 /
-  # 0.40 / 0.60 on validation. Thresholds are still tuned on validation only.
+  # rate (0.265% on the Q1 2026 validation split when these were set; 0.59% on the
+  # current holdout, where the same lifts mean higher precision targets - runbook
+  # 1.9), so these reproduced the former precision targets 0.15 / 0.25 / 0.40 / 0.60
+  # on the Q1 split. Thresholds are still tuned on validation only.
   action_tier_lift:
     warn: 56.6
     cordon: 94.3
