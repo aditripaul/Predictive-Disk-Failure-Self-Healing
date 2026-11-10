@@ -8,6 +8,10 @@
 > lessons from the earlier Q1-only, 14-day work, which still apply. For a
 > shorter overview see `docs/system_summary.md`. Section 1.8 maps every
 > number to its file under `data/audit/` and `frozen_runs/`.
+>
+> The split design behind the Q3 results (drive holdout, 62-day test) and a
+> stricter chronological alternative that is proposed and not built are in
+> Section 1.1.8.
 
 This document records what was run on real Backblaze data, what was learned,
 what is still open, and how to run the pipeline end to end. Numbers are
@@ -1076,6 +1080,154 @@ file limit uncompressed; SHA-256 `8e39368aa8d75a3c`, content fingerprint `662ab2
 in `agent_knowledge_pack.json`); `make unpack-knowledge` restores and verifies it. The score
 table `data/tmp/stack_scores/scores_h60_seed0.parquet` is local and rebuilt by the commands above.
 
+### 1.1.8 The split design: drive holdout with a Q3 test (in use), and a chronological split with gaps (proposed, not built) (2026-11-10)
+
+Every result in Sections 1.1.4 to 1.1.7 comes from one split design. This section records it
+as it is, what it costs, and a stricter alternative that was worked out on 2026-11-10 and **not
+built or run**. Nothing in the code or the config changed because of this section. The failing-drive
+counts below were taken from the 30-day label table (`data/gold/labels/part.parquet`) on
+2026-11-10: a drive counts as failing in a window if any of its rows in the window has label 1.
+
+#### The design in use: "Old: drive holdout, Q3 test"
+
+| Role | Rows | Used for |
+|---|---|---|
+| Train | 80% of drives, 2026-01-01 to 05-01 | Stage 1, Stage 2 (out-of-fold Stage 1 scores, folds by drive), Cox |
+| Validation | the other 20% of drives, same dates (`splits.holdout_fraction: 0.2`, seed 42, drawn from drives first seen before 07-01) | Early stopping, the candidate cutoff, tier thresholds, the primary threshold, the stack's blend weights |
+| Unused | 2026-05-02 to 06-30 | Their 60-day labels depend on Q3 outcomes |
+| Test | all drives, Q3 from 07-01, cut at the last row whose label is observed (data ends 09-30): 08-31 for 30 days (62 days), 08-17 for 44 (48 days), 08-01 for 60 (32 days) | Scored after thresholds are fixed |
+
+Config that produces it (`configs/model.yaml`): `train_end` and `validation_end` 2026-05-01,
+`purge_label_window: false`, `validation_after_train_only: false`, `test_split: sealed`,
+`sealed_start: 2026-07-01`, `test_end: 2026-08-31`, `observation_end: 2026-09-30`. Q4 2025 is
+feature history only. The fleet-wide feature statistics (model-family z-scores, expected SMART
+attributes) are computed on rows before `sealed_start`.
+
+Section 1.1.4a uses the same frames: it reads the kept work directory of each 1.1.4 training run
+(`fag3o60h`, `ff5ejt7a`, `xjxdieoe`) and refits Stage 1 and the Stage 2 models per seed, with nets
+0.5 and 0.8, survival nets at 0.8, 3 seeds, the stack's weights searched on validation candidate
+rows, and paired drive bootstraps on test.
+
+**Why it was chosen** (`docs/q3_horizon_and_cascade_run.md`): all three horizons train on identical
+rows, so only the label differs; it needs one gap (60 days, 05-01 to 07-01) because validation
+shares the training dates; a later validation period would either read June labels that depend on
+Q3 or shorten training to Q1; and 20% of drives gives about twice as many failing validation
+drives as the earlier 10% (the config comment says about 500; the 30-day label table has 418 failing
+drives among 70,977 validation drives, measured 2026-11-10).
+
+**What it costs**
+
+- **Validation and test sit at different base rates.** Validation spans 121 days with 0.59% of
+  drives failing, test 62 days with 0.30% (re-derived from the 30-day label table on 2026-11-10:
+  418 of 70,977 validation drives, 0.589%; 1,105 of 368,688 test drives, 0.300%). At the 30-day primary threshold validation reads
+  75.0% precision and test 59.0%, with AUROC 0.922 and 0.926 (Section 1.1.5: the base rate, not
+  overfitting). A threshold tuned on validation to reach a given precision therefore lands lower
+  on test. For a goal stated as precision (68% at >= 10% recall, Section 7), the threshold would
+  be tuned to the validation rate and measured at about half of it.
+- **Validation is not later in time than training.** The drives differ, the dates do not.
+  `_split_period_predicate` in `pipelines/train_model.py` records that thresholds chosen on a
+  held-out-drive validation "carried over to test worse than ones chosen on a later period".
+- **Q3 is not a fresh test set.** `data/audit/test_access_log.jsonl` had 139 entries on
+  2026-11-10, and the 30-day horizon, the 0.8 net, the stack and the 68% goal were chosen or
+  evaluated while looking at Q3 (Section 1.4). It is a held-out quarter, not a prospective one.
+- **The same boundary gap was missing in the quarter-aligned window** (Section 2.2): validation ended
+  03-31 and test began 04-01, so its validation labels for the last 30 days (to 04-30) reach into the
+  test period. Measured on 2026-11-10 over every drive with a validation-window row (02-15 to 03-31):
+  615 of the 1,124 failing drives (55%) failed on or after 04-01, inside the test window, and they are
+  41.6% of that window's 1,479 failing test drives. Thresholds and weights fitted on those validation
+  labels therefore used outcomes the test then scored. How much this moved the Section 4.6 to 4.8
+  numbers was **not measured**: that needs a re-run of that window, and only the extent of the overlap
+  is known. If validation used only a subset of those drives, the counts apply to that subset. The drive-holdout design avoids that by construction, since validation shares the
+  training dates and 60 days stay unused before Q3.
+- **Feature statistics reach past the train boundary.** They use every row before 07-01, which
+  includes validation and the unused months; test rows are excluded.
+
+**What it is good for.** Identical rows across 30, 44 and 60 days (the horizon comparison of
+Section 1.1.4 and the paired stack comparison of Section 1.1.4a), the largest test window (1,105
+failing drives at 30 days), and continuity with every frozen run.
+
+#### The alternative: a chronological split with gaps (proposed, not built)
+
+Train, validation and test are consecutive periods, with a gap of one label horizon at each
+boundary. A row's 30-day label is decided by events up to 30 days later, so a boundary is clean only
+if the later period starts at least 30 days after the earlier period's last labelled row.
+
+| Split | Row dates | Days | Failing drives (30-day label) |
+|---|---|---|---|
+| Train | 01-01 to 04-20 | 110 | 2,018 |
+| Gap (train labels run to 05-20) | 04-21 to 05-20 | 30 | not used |
+| Validation | 05-21 to 06-16 | 27 | 684 |
+| Gap (validation labels run to 07-16) | 06-17 to 07-16 | 30 | not used |
+| Test | 07-17 to 08-31 | 46 | 864 |
+
+A variant with a longer train (01-01 to 04-30, validation 05-31 to 06-30, test 07-31 to 08-31) gives
+2,158, 755 and 684 failing drives. Rows from 09-01 have no observable 30-day label, so the last test
+row is 08-31. Confirmed failures by month (distinct drives, 30-day label table): 2025-10 467, 11 326,
+12 152, 2026-01 306, 02 320, 03 404, 04 660, 05 522, 06 340, 07 451, 08 371, 09 351; the failure rate
+falls from the April and May peak into the test months, so test precision carries a lower base rate
+and is always quoted with it (Section 1.7).
+
+A plain 50/5/45 calendar division of Q1 and Q2 (train 01-01 to 03-31, validation 04-01 to 04-09, test
+04-10 to 06-30) was also checked and rejected: without the label purge, train labels run into the
+validation and test periods, and validation labels (to 05-09) run into the test window, so thresholds
+would be tuned on test-period outcomes. A strict version of that split needs both gaps: train 01-01 to
+03-01 (974 failing drives), validation 04-01 to 04-09 (777), test 05-10 to 06-30 (1,070; 636 if labels
+may not be read past 05-31).
+
+**What strict separation needs (none of it exists yet)**
+
+1. **Label purge on:** `purge_label_window: true` and `validation_after_train_only: true`. The code
+   supports both.
+2. **An embargo between validation and test:** a setting for the test start (for example
+   `splits.test_embargo_days`). The code has no such setting, so validation-to-test label overlap is
+   currently unchecked.
+3. **A feature-statistics cutoff at the train boundary:** a `feature_stats_end` setting used in place
+   of `sealed_start` in `pipelines/build_gold_features.py`, then a gold-feature rebuild. Rolling
+   windows look backward only and are unaffected.
+4. **Automated checks that fail the run:** no drive-day in two splits; each split's last label date
+   before the next split's start; the statistics cutoff at or before `train_end`; no test row inside
+   the embargo.
+5. **A frozen record before the test look:** thresholds, blend weights and model hashes committed
+   before the test scorer runs, with the test access log counting every look.
+
+**What it changes.** Validation and test base rates get close (about 0.19% and 0.23% of drives in
+the proposed layout, against 0.59% and 0.30%; each is failing drives over drives in the window, the
+same definition that reproduces Section 1.1.4's 0.59% and 0.30% from the label table), which should let a
+threshold tuned to 68% on validation transfer to test. That transfer is an expectation, not a
+measurement: nothing has been trained on this layout. The costs: training stops at 04-20 and keeps 2,018 failing drives (the failing-drive count of the
+old design's training set was not recounted for this comparison), the test
+window shrinks from 62 days (1,105 failing drives) to 46 (864), and Q3 stays a looked-at test set.
+
+**Horizons do not carry over.** A 44- or 60-day label needs gaps of 44 or 60 days at both
+boundaries and its last row is 08-17 or 08-01. Keeping the same 60/15/25 shares gives, for 44 days,
+train 01-01 to 03-26, validation 05-10 to 05-30, test 07-14 to 08-17 (35 days); for 60 days, train 01-01
+to 02-25, validation 04-27 to 05-10, test 07-10 to 08-01 (23 days). Failing drives for these two
+layouts were not counted. The three horizons would no longer share training rows, which was the point
+of Section 1.1.4. The horizon question is already answered there (longer horizons rank no better once
+the base rate is removed; 30 days stays primary), so the chronological split would be used for the
+30-day goal only. A repeat of the horizon comparison would keep the drive-holdout design above and
+compare in ROC space.
+
+**Run time of the chronological design for 30 days**, from the logs of the same steps on 2026-11-06:
+gold features about 29 min (`q3_build_gold.log`), labels about 3 min (`build_labels.log`),
+`make train` about 26 min (`train_h30.log`), the cascade comparison about 28 min (`cascade_h30.log`),
+the stack run about 39 min (`stack_h30.log`): about 2 hours. Not timed: freezing the stack as a
+scorer, the checks and the unit tests (about 2 min). The code changes are development time.
+
+**Keeping both designs runnable.** The new settings would be opt-in with defaults equal to today's
+behaviour: an embargo of 0 days, and a statistics cutoff that falls back to `sealed_start`. The
+checks would apply to the chronological profile only, because the drive-holdout design shares dates
+by construction. Tests would pin the old split predicates and cutoff. The frozen runs are files on
+disk and are untouched. Switching designs means rebuilding the labels (about 3 min) and the gold
+features (about 29 min), because the label `split` column and the feature statistics depend on the
+config; unless the pipelines can write to separate output folders (not checked), the two designs share
+`data/gold/`. A re-run of the old design would reproduce the method, not the same files.
+
+**Status.** Proposed on 2026-11-10; nothing built, rebuilt or trained for it. The recommendation for
+the 68% goal (Section 7) is the chronological split, for the base-rate reason above; the
+drive-holdout design stays the record for Sections 1.1.4 to 1.1.7 and the one to use for the horizon
+comparison.
+
 ### 1.2 The two-stage gain is not established
 
 Two paired bootstraps now exist, both over the same resampled drives with
@@ -2100,6 +2252,10 @@ precision and recall (test, drive level, thresholds from validation):
 
 ### 4.6 Quarter-aligned splits (2026-10-18): the window moved, the model did not
 
+> Caveat added 2026-11-10: this window had no gap between validation and test, so 55% of its
+> validation failing drives failed inside the test window (Section 1.1.8). The effect on the figures
+> below was not measured.
+
 First run on the quarter-aligned window of Section 2.2 - Q4 2025 and Q1 2026
 train and validate, Q2 2026 tests. 93,507,195 drive-days over 273 days, nine
 Bronze partitions, 47 silver batches. Both memory fixes from Section 3 held;
@@ -3000,7 +3156,7 @@ stacked cascade (Stage 1 LightGBM; Stage 2 a stack of LightGBM and Cox, Section
 to MLflow and is frozen as a scorer only at 60 days (`frozen_runs/stack_h60_seed0`).
 **Measured against the revised goal, the 30-day stack gives 64.9% precision at
 11.6% recall at the 10% recall level (3-seed mean, Q3 2026 test): below 68%, by
-3 points, with a seed-to-seed spread of several points.** The statements below that call the
+3 points; the three seeds give 65.6%, 66.7% and 62.3%, all below 68%.** The statements below that call the
 goal "90%" are the record of how it stood when each result was measured.
 The model `make train` ships, the LightGBM two-stage
 (frozen run `c459046e`, Q3 2026 test), gives 59.0% precision at 12.5% recall: **below 68% on the test set**.
