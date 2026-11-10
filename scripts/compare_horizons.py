@@ -22,6 +22,7 @@ from pathlib import Path
 import polars as pl
 import yaml
 
+from src.labels.splits import first_test_date
 from src.models.access_log import _git_sha, record_test_access
 from src.models.evaluation import drive_level_table
 from src.models.horizon_comparison import (
@@ -110,7 +111,11 @@ def main(argv: list[str] | None = None) -> None:
     splits = model_config.get("splits", {})
     scores_paths = dict(args.scores)
     horizons = sorted(scores_paths)
-    start = args.start or dt.date.fromisoformat(str(splits["sealed_start"]))
+    start = (
+        args.start
+        or first_test_date(model_config)
+        or dt.date.fromisoformat(str(splits["sealed_start"]))
+    )
     end = args.end or (
         dt.date.fromisoformat(str(splits["observation_end"])) - dt.timedelta(days=max(horizons))
     )

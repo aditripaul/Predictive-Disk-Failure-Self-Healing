@@ -625,9 +625,10 @@ To test whether the model is merely memorizing specific drives, create a drive-l
 
 This evaluates generalization to unseen physical units.
 
-This project uses it for validation since 2026-11-06: 20% of the drives first seen before 2026-07-01
-are held out of training, over the training dates (`splits.holdout_fraction`). Test is a later quarter
-with all drives. Section 9.5 lists every window used.
+This project used it for validation from 2026-11-06 to 2026-11-10: 20% of the drives first seen before
+2026-07-01 were held out of training, over the training dates (`splits.holdout_fraction`), and test was
+a later quarter with all drives. Since 2026-11-10 `holdout_fraction` is 0 and validation is a later
+period. Section 9.5 lists every window used.
 
 ---
 
@@ -664,8 +665,8 @@ Section 9.1 is the principle; this is what was run. Dates are row dates; a row's
 | Q1 only, 14-day (earliest) | to 02-22 | to 03-06 | to 03-17 | 14-day purge | runbook 2.5, 4 to 5 |
 | Earlier frozen run (2026-10-09) | 01-01 to 03-16 (75 days; `train_end` 04-15) | 04-16 to 05-10 (25 days) | 05-11 to 05-31 (21 days) | 30-day purge before validation | runbook 1.1 to 1.1.3 |
 | Quarter-aligned (2026-10-18) | 2025-10-01 to 01-15 | 02-15 to 03-31 (45 days) | 04-01 to 05-31 (61 days) | 30-day purge before validation; **none between validation and test** | runbook 2.2, 4.6 to 4.8 |
-| **Drive holdout, Q3 test (in use since 2026-11-06)** | 80% of drives, 01-01 to 05-01 | the other 20% of drives, same dates | Q3 from 07-01, to 08-31 / 08-17 / 08-01 for 30 / 44 / 60 days | none needed between train and validation; 60 days left unused before Q3 | runbook 1.1.4 to 1.1.7 |
-| Chronological with gaps (settings and checks built 2026-11-10, **not yet run**) | 01-01 to 04-20 | 05-21 to 06-16 | 07-17 to 08-31 | 30-day gap at both boundaries | runbook 1.1.8 |
+| Drive holdout, Q3 test (runs of 2026-11-06 to 11-07; frozen run `c459046e`) | 80% of drives, 01-01 to 05-01 | the other 20% of drives, same dates | Q3 from 07-01, to 08-31 / 08-17 / 08-01 for 30 / 44 / 60 days | none needed between train and validation; 60 days left unused before Q3 | runbook 1.1.4 to 1.1.7 |
+| **Chronological with gaps (the config since 2026-11-10; labels and models not yet rebuilt)** | 01-01 to 04-20 | 05-21 to 06-16 | 07-17 to 08-31 | 30-day gap at both boundaries | runbook 1.1.8 |
 
 **The rules a split must satisfy to keep its parts separate**
 

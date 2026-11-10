@@ -67,6 +67,7 @@ from src.agent.point_in_time import (
     tier_metrics,
     write_observations_partition,
 )
+from src.labels.splits import first_date_after_validation
 from src.logging_config import configure_logging, get_logger
 from src.models.access_log import record_test_access
 from src.models.trained_thresholds import action_thresholds_for_run, latest_run_id_for_horizon
@@ -226,9 +227,8 @@ def main(argv: list[str] | None = None) -> None:
     data_end = dt.date.fromisoformat(data_config["sources"]["backblaze"]["end_date"])
     splits = model_config["splits"]
     latest_ok = last_observable_date(data_end, horizon)
-    start = _date(args.start_date) or dt.date.fromisoformat(
-        splits["validation_end"]
-    ) + dt.timedelta(1)
+    start = _date(args.start_date) or first_date_after_validation(model_config)
+    assert start is not None, "configs/model.yaml splits.validation_end is not set"
     end = _date(args.end_date) or min(dt.date.fromisoformat(splits["test_end"]), latest_ok)
     if end > latest_ok:
         raise SystemExit(

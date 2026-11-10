@@ -54,6 +54,7 @@ import polars as pl
 import yaml
 
 import mlflow
+from src.labels.splits import embargo_days
 from src.logging_config import configure_logging, get_logger
 from src.models.access_log import record_test_access
 from src.models.ensemble import (
@@ -162,7 +163,7 @@ def split_windows(model_config: dict, horizon_days: int) -> dict[str, dt.date]:
         "train_last_row": train_end - dt.timedelta(days=horizon_days),
         "validation_start": train_end + dt.timedelta(days=1),
         "validation_end": validation_end,
-        "test_start": validation_end + dt.timedelta(days=1),
+        "test_start": validation_end + dt.timedelta(days=embargo_days(model_config) + 1),
         "test_end": test_end,
     }
 

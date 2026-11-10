@@ -243,85 +243,71 @@ diagnostics:
 
 splits:
   strategy: chronological
-  # Q1+Q2 2026 -> Q3 2026 (2026-11-06). Train on Q1+Q2, validate on a drive
-  # holdout over the same dates, test on Q3. Horizons 30, 44 and 60 are
-  # trained on identical rows so the horizon is the only variable
-  # (docs/q3_horizon_and_cascade_run.md).
+  # CHRONOLOGICAL SPLIT WITH GAPS (2026-11-10; docs/model_status_and_runbook.md 1.1.8 and
+  # 1.1.9; docs/dataset_strategy.md 9.5). Train, validation and test are consecutive
+  # periods, with a gap of one label horizon at each boundary, so no label and no feature
+  # statistic of an earlier period depends on a later one. Designed for the 30-day goal
+  # (threshold.target_precision) on the stacked cascade; the 44- and 60-day horizons need
+  # longer gaps, so `make train` refuses them while strict_separation is on.
   #
-  #   train        80% of drives, 2026-01-01 .. 2026-05-01
-  #   validation   the other 20% (holdout_fraction), same dates
-  #   unused       2026-05-02 .. 2026-06-30 (their 60-day labels depend on Q3)
-  #   test         Q3 rows from 2026-07-01 to min(test_end,
-  #                observation_end - horizon): 08-31 / 08-17 / 08-01
+  #   train        2026-01-01 .. 2026-04-20   (train_end 05-20 minus the 30-day purge)
+  #   gap          2026-04-21 .. 2026-05-20   train labels resolve; no row used
+  #   validation   2026-05-21 .. 2026-06-16   thresholds, early stopping, stack weights
+  #   gap          2026-06-17 .. 2026-07-16   validation labels resolve (test_embargo_days)
+  #   test         2026-07-17 .. 2026-08-31   scored once, after everything is frozen
+  #   (no usable row after 08-31: its 30-day label is not observed by 09-30)
   #
-  # Every 60-day label of a train or validation row is observed by 06-30, so
-  # no fitting or tuning decision depends on a Q3 outcome. There is no purge
-  # gap because validation is not a later period. Q4 2025 is feature history
-  # only (the rolling windows of early January read it).
+  # Failing drives, 30-day label (runbook 1.1.8, counted 2026-11-10): train 2,018 (to 04-20),
+  # validation 684, test 864. Q4 2025 is feature history only. All drives appear in every
+  # period (no drive holdout); only rows are separated by date.
   #
-  # Q3 WAS the sealed quarter for frozen run 839d92bc. Its single-shot
-  # evaluation was skipped by decision on 2026-11-06 and Q3 is used here as
-  # an ordinary test set (test_split: sealed), so it is no longer sealed.
-  # No later quarter is available yet, so nothing is sealed (runbook 1.4).
+  # Q3 is not a fresh test set: 139 logged test looks by 2026-11-10 (runbook 1.4). The first
+  # Q4 2026 download is the only fully clean test.
   #
-  # The previous window (Q4 2025 + Q1 2026 train/validation, Q2 2026 test,
-  # 2026-02-14 / 2026-03-31 / 2026-05-31 with the 30-day purge) is recorded
-  # in docs/model_status_and_runbook.md section 2.2; the frozen runs were
-  # trained on it.
+  # The drive-holdout design of runbook 1.1.4 to 1.1.7 (frozen runs c459046e and others;
+  # train 80% of drives to 05-01, validation the other 20% over the same dates, test Q3)
+  # is these values; restore them and rebuild labels and gold features to repeat it:
+  #   train_end 2026-05-01, validation_end 2026-05-01, test_embargo_days 0,
+  #   holdout_fraction 0.2, purge_label_window false, validation_after_train_only false,
+  #   feature_stats_end null, strict_separation false
   train_start: "2026-01-01"
-  train_end: "2026-05-01"
-  validation_end: "2026-05-01"
+  train_end: "2026-05-20"
+  validation_end: "2026-06-16"
   # Read directly by src/agent/fleet.py and src/ingest/synthetic_stub.py.
   # make train caps the test split at min(test_end, observation_end -
   # horizon): the last row whose horizon-day label is fully observed.
   test_end: "2026-08-31"
   observation_end: "2026-09-30"
+  # No test row within this many days after validation_end. A validation row's label looks
+  # `horizon` days ahead, so this must be at least the horizon; the checks enforce it.
+  test_embargo_days: 30
   # Which label-table split make train tests on. "sealed" = the rows dated on
-  # or after sealed_start (Q3).
+  # or after sealed_start (Q3); with the embargo, test starts 07-17.
   test_split: sealed
-  # Rows dated on or after this are labeled split="sealed". It is also the
-  # cutoff of the fleet-wide feature statistics
-  # (pipelines/build_gold_features.py::sealed_start), so it stays at
-  # 2026-07-01 while Q3 is the test set.
+  # Rows dated on or after this are labeled split="sealed". It no longer sets the cutoff of
+  # the fleet-wide feature statistics (feature_stats_end does), but drives first seen on or
+  # after it are never in the holdout pool.
   sealed_start: "2026-07-01"
+  # Fleet-wide feature statistics (model-family z-scores, expected SMART attributes) use rows
+  # before this date: the day after the last train row (train_end minus the 30-day horizon).
+  # Changing it needs `make build-features`. null falls back to sealed_start, which includes
+  # the validation period.
+  feature_stats_end: "2026-04-21"
   # Share of drives (first seen before sealed_start) held out as validation
-  # (pipelines/build_labels.py). Was a fixed 0.1; 0.2 gives about 500 failing
-  # validation drives for thresholds and early stopping.
-  holdout_fraction: 0.2
+  # (pipelines/build_labels.py). 0: validation is a later period, not held-out drives.
+  holdout_fraction: 0
   # Applied when `make train` extracts each split
-  # (pipelines/train_model.py::_split_period_predicate):
+  # (src/labels/splits.py::split_period_predicate):
   # - purge_label_window: train only on rows dated at least the label horizon
-  #   before train_end. Off here: validation shares the training dates.
-  # - validation_after_train_only: validation holds only dates after
-  #   train_end. Off here: validation IS the held-out drives' rows.
+  #   before train_end (04-20), because a later row's label is decided inside validation.
+  # - validation_after_train_only: validation holds only dates after train_end.
   # train_start bounds train and validation; the test cap is always applied.
-  purge_label_window: false
-  validation_after_train_only: false
-  # Strict separation (docs/dataset_strategy.md section 9.5; runbook 1.1.8). All three default
-  # to today's behaviour. `make check-splits` reports what a given setting would break.
-  # - test_embargo_days: no test row within this many days after validation_end. A validation
-  #   row's label looks `horizon` days ahead, so this must be at least the horizon.
-  # - feature_stats_end: fleet-wide feature statistics (z-scores, expected SMART attributes)
-  #   use rows before this date. null falls back to sealed_start, which includes validation.
-  # - strict_separation: true makes `make train` fail before any work if a check fails.
-  test_embargo_days: 0
-  feature_stats_end: null
-  strict_separation: false
-  #
-  # The chronological split with gaps (30-day horizon), for a drive-holdout-free run. Replace the
-  # keys above and in this block with these, then rebuild labels and gold features
-  # (`make build-features build-labels`) and run `make check-splits`:
-  #   train_start: "2026-01-01"       train rows 01-01 .. 04-20 (the purge drops 04-21 .. 05-20)
-  #   train_end: "2026-05-20"
-  #   validation_end: "2026-06-16"    validation rows 05-21 .. 06-16
-  #   test_embargo_days: 30           test rows 07-17 .. 08-31
-  #   test_end: "2026-08-31"
-  #   test_split: sealed              sealed_start stays 2026-07-01
-  #   holdout_fraction: 0             no drive holdout
-  #   purge_label_window: true
-  #   validation_after_train_only: true
-  #   feature_stats_end: "2026-04-21"
-  #   strict_separation: true
+  purge_label_window: true
+  validation_after_train_only: true
+  # true makes `make train` fail before any work if `make check-splits` would
+  # (src/labels/split_checks.py): the purge and holdout flags, the embargo and statistics
+  # cutoff against the horizon, and the label table's date ranges.
+  strict_separation: true
 
 sequence_model:
   window_days: 30

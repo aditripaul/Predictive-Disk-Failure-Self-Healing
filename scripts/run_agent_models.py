@@ -27,6 +27,7 @@ from pathlib import Path
 
 import yaml
 
+from src.labels.splits import first_date_after_validation
 from src.outputs import refuse_overwrite
 
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
@@ -45,9 +46,10 @@ def write_thresholds(report: dict, model: str, path: Path) -> dict:
 
 
 def default_window() -> tuple[dt.date, dt.date]:
-    splits = yaml.safe_load(MODEL_CONFIG_PATH.read_text())["splits"]
-    start = dt.date.fromisoformat(str(splits["validation_end"])) + dt.timedelta(days=1)
-    return start, dt.date.fromisoformat(str(splits["test_end"]))
+    model_config = yaml.safe_load(MODEL_CONFIG_PATH.read_text())
+    start = first_date_after_validation(model_config)
+    assert start is not None, "configs/model.yaml splits.validation_end is not set"
+    return start, dt.date.fromisoformat(str(model_config["splits"]["test_end"]))
 
 
 def main(argv: list[str] | None = None) -> None:

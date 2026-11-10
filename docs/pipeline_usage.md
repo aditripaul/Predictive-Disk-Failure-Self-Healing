@@ -57,38 +57,44 @@ test period must end at least 30 days before the last day of data, because a
 ```yaml
 splits:
   strategy: chronological
-  train_start: "2026-01-01"       # the repo default (2026-11-06): Q1+Q2 2026
-  train_end: "2026-05-01"         # train, validation = a 20% drive holdout
-  validation_end: "2026-05-01"    # over the same dates (holdout_fraction)
+  train_start: "2026-01-01"       # the repo default (2026-11-10): chronological split with gaps
+  train_end: "2026-05-20"         # train rows end 04-20 (the 30-day purge)
+  validation_end: "2026-06-16"    # validation rows 05-21 .. 06-16
   test_end: "2026-08-31"
   observation_end: "2026-09-30"   # test stops at observation_end - horizon
-  test_split: sealed              # test on the sealed-labelled rows (Q3 2026)
+  test_embargo_days: 30           # test rows start 07-17
+  test_split: sealed              # test on the sealed-labelled rows (Q3 2026), after the embargo
   sealed_start: "2026-07-01"
-  holdout_fraction: 0.2
-  purge_label_window: false
-  validation_after_train_only: false
+  feature_stats_end: "2026-04-21" # feature statistics use train rows only
+  holdout_fraction: 0             # no drive holdout
+  purge_label_window: true
+  validation_after_train_only: true
+  strict_separation: true         # make train runs `make check-splits` first
 ```
 
-`sealed_start` labels rows from there on `split=sealed` and is the cutoff of
-the fleet-wide feature statistics. With `test_split: sealed` those rows are the
+`sealed_start` labels rows from there on `split=sealed`. It is also the cutoff of the
+fleet-wide feature statistics unless `feature_stats_end` is set (it is, in the shipped config). With `test_split: sealed` those rows are the
 test set and `make evaluate-frozen` refuses them; without it (the earlier
 window), test is the rows after `validation_end` up to `test_end`, and the
 sealed rows are scored once, later, by `make evaluate-frozen` (section 2.5).
 
-Three more keys make the split strict (`docs/dataset_strategy.md` section 9.5), all off by default:
-`test_embargo_days` keeps test rows more than that many days after `validation_end`;
-`feature_stats_end` stops the fleet-wide feature statistics at the train boundary (it needs a
-`make build-features` rebuild); `strict_separation: true` makes `make train` fail before any work if
-`make check-splits` would fail. The chronological values for the 30-day horizon are in a comment
-in `configs/model.yaml`, and `holdout_fraction: 0` then holds no drive out.
+Three keys make the split strict (`docs/dataset_strategy.md` section 9.5). Each defaults to the
+earlier behaviour when absent, and the shipped config sets all three: `test_embargo_days` keeps test
+rows more than that many days after `validation_end`; `feature_stats_end` stops the fleet-wide feature
+statistics at the train boundary (changing it needs a `make build-features` rebuild);
+`strict_separation: true` makes `make train` fail before any work if `make check-splits` would fail,
+which also refuses the 44- and 60-day horizons (their gaps are longer). `holdout_fraction: 0` holds no
+drive out. The data split, its intent and the steps to run it are in
+`docs/model_status_and_runbook.md` section 1.1.9; the earlier drive-holdout values are in the comment
+of `configs/model.yaml`'s `splits` block.
 
 `make train` applies these dates when it extracts each split: train and
 validation start at `train_start`; with `purge_label_window: true` training
 stops one horizon before `train_end`, with `validation_after_train_only: true`
 validation uses only dates after `train_end` (both for a chronological
 validation period; see `docs/model_status_and_runbook.md` section 4.4); test
-stops at `min(test_end, observation_end - horizon)`, so runs of several
-horizons share one config. `holdout_fraction` is the share of drives
+stops at `min(test_end, observation_end - horizon)` and starts after the embargo, so runs of
+several horizons share one config when `strict_separation` is off. `holdout_fraction` is the share of drives
 `make build-labels` moves from train to validation.
 
 One quarter is too short for the 30-day default: after the purge, training

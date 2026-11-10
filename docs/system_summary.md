@@ -1,7 +1,9 @@
 # System summary: a self-healing disk agent that can be trusted
 
-Status: 2026-11-07 (current model tested on Q3 2026; stacked Stage 2, deep
-dive and cluster policy, runbook Sections 1.1.4 to 1.1.6 and 1.9).
+Status: 2026-11-10 (current model tested on Q3 2026; stacked Stage 2, deep
+dive and cluster policy, runbook Sections 1.1.4 to 1.1.6 and 1.9). The config now holds the
+chronological split of runbook 1.1.9, which has not been run: the model described below is still the
+drive-holdout run `c459046e`.
 This is the entry point for a reviewer. It describes what
 the project built, how a decision flows through it, what was measured on real
 data, and what is not done. Detailed results are in

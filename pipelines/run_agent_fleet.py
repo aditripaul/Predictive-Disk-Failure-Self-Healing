@@ -52,6 +52,7 @@ from src.agent.backtest import ACTIVE_ACTIONS, load_labels, score_decisions
 from src.agent.fleet import DEFAULT_MAX_CANDIDATES, build_fleet_dependencies
 from src.agent.graph import compiled_agent
 from src.config import AgentSettings
+from src.labels.splits import first_date_after_validation
 from src.logging_config import configure_logging, get_logger
 from src.outputs import refuse_overwrite
 from src.resource_limits import apply_memory_limit_from_config
@@ -391,7 +392,11 @@ def _score(fleet, decisions: list[dict], *, horizon_days: int | None = None) -> 
 
     start, end = fleet.window
     splits = model_config["splits"]
-    start = start or dt.date.fromisoformat(splits["validation_end"]) + dt.timedelta(days=1)
+    start = (
+        start
+        or first_date_after_validation(model_config)
+        or dt.date.fromisoformat(splits["validation_end"])
+    )
     end = end or dt.date.fromisoformat(splits["test_end"])
     resolved_horizon = horizon_days or model_config["primary_horizon_days"]
 

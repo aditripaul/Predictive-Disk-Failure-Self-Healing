@@ -26,6 +26,8 @@ from src.labels.splits import (
     apply_drive_level_holdout,
     embargo_days,
     feature_stats_cutoff,
+    first_date_after_validation,
+    first_test_date,
     resolved_test_end,
     sample_holdout_drive_ids,
     split_period_predicate,
@@ -255,3 +257,34 @@ def test_gold_features_read_the_cutoff_from_the_model_config(tmp_path, monkeypat
     )
     assert bgf.feature_stats_cutoff() == D(2026, 4, 21)
     assert bgf.sealed_start() == D(2026, 7, 1)  # the sealed window itself is unchanged
+
+
+def test_first_dates_without_an_embargo_are_what_the_consumers_computed_before():
+    """Old design: windows after validation start the day after `validation_end`, and the
+    sealed test starts at `sealed_start` (fleet.overlaps_test_split, run_agent_models)."""
+    assert first_date_after_validation(OLD_DESIGN) == D(2026, 5, 2)
+    assert first_test_date(OLD_DESIGN) == D(2026, 7, 1)
+    unsealed = _with(OLD_DESIGN, test_split="test")
+    assert first_test_date(unsealed) == D(2026, 5, 2)
+
+
+def test_first_dates_with_the_embargo_skip_it():
+    assert first_date_after_validation(NEW_DESIGN) == D(2026, 7, 17)
+    assert first_test_date(NEW_DESIGN) == D(
+        2026, 7, 17
+    )  # after sealed_start 07-01, so the embargo binds
+    late_seal = _with(NEW_DESIGN, sealed_start="2026-08-01")
+    assert first_test_date(late_seal) == D(2026, 8, 1)  # a later sealed_start binds instead
+    assert first_test_date({"splits": {}}) is None
+
+
+def test_the_agent_overlap_guard_uses_the_embargo():
+    from src.agent.fleet import overlaps_test_split
+
+    splits = NEW_DESIGN["splits"]
+    assert not overlaps_test_split(D(2026, 7, 1), D(2026, 7, 16), splits)  # inside the embargo
+    assert overlaps_test_split(D(2026, 7, 1), D(2026, 7, 17), splits)
+    assert overlaps_test_split(None, None, splits)
+    old = OLD_DESIGN["splits"]
+    assert not overlaps_test_split(D(2026, 5, 2), D(2026, 6, 30), old)
+    assert overlaps_test_split(D(2026, 6, 30), D(2026, 7, 1), old)

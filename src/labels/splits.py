@@ -177,6 +177,27 @@ def embargo_days(model_config: dict) -> int:
     return int(model_config.get("splits", {}).get("test_embargo_days") or 0)
 
 
+def first_date_after_validation(model_config: dict) -> dt.date | None:
+    """The first date after `validation_end` and the embargo: where a window that follows
+    validation starts. The day after `validation_end` when there is no embargo."""
+    validation_end = split_boundary(model_config, "validation_end")
+    if validation_end is None:
+        return None
+    return validation_end + dt.timedelta(days=embargo_days(model_config) + 1)
+
+
+def first_test_date(model_config: dict) -> dt.date | None:
+    """First date of the test split. After the embargo, and, when `test_split` is "sealed",
+    not before `sealed_start` (the Q3 window of runbook 1.1.4, where the days between
+    `validation_end` and `sealed_start` are unused). None when neither bound is set."""
+    start = first_date_after_validation(model_config)
+    splits = model_config.get("splits", {})
+    sealed_start = split_boundary(model_config, "sealed_start")
+    if splits.get("test_split") == "sealed" and sealed_start is not None:
+        return sealed_start if start is None else max(start, sealed_start)
+    return start
+
+
 def feature_stats_cutoff(model_config: dict) -> dt.date | None:
     """Rows before this date feed the fleet-wide feature statistics (model-family z-scores,
     expected SMART attributes): `splits.feature_stats_end` when set, else `splits.sealed_start`

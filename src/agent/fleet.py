@@ -50,6 +50,7 @@ import yaml
 
 from src.agent.deps import ActionLedger, AgentDependencies, InMemoryActionLedger
 from src.guardrails.adapter import build_guardrail_evaluator
+from src.labels.splits import first_test_date
 from src.logging_config import get_logger
 from src.models.access_log import record_test_access
 from src.models.features import _as_dataframe, chunked_inner_join, select_feature_columns
@@ -126,16 +127,14 @@ def _configs(
 def overlaps_test_split(start: dt.date | None, end: dt.date | None, splits: dict[str, Any]) -> bool:
     """Whether `[start, end]` touches the test split.
 
-    Test runs from the day after `validation_end` through `test_end`
-    (`src/labels/splits.py`, `pipelines/train_model.py`), or from
-    `sealed_start` when `test_split` is "sealed" (the Q1+Q2 -> Q3 window of
-    configs/model.yaml, where the days between `validation_end` and
-    `sealed_start` are unused). An open-ended window counts as overlapping,
+    Test runs from `first_test_date` (the day after `validation_end` plus
+    `test_embargo_days`, and not before `sealed_start` when `test_split` is
+    "sealed") through `test_end` (`src/labels/splits.py`,
+    `pipelines/train_model.py`). An open-ended window counts as overlapping,
     because it cannot be shown not to."""
-    if splits.get("test_split") == "sealed" and splits.get("sealed_start"):
-        test_start = dt.date.fromisoformat(str(splits["sealed_start"]))
-    else:
-        test_start = dt.date.fromisoformat(splits["validation_end"]) + dt.timedelta(days=1)
+    test_start = first_test_date({"splits": splits})
+    if test_start is None:
+        return True
     test_end = dt.date.fromisoformat(splits["test_end"])
     return (start is None or start <= test_end) and (end is None or end >= test_start)
 

@@ -10,8 +10,9 @@
 > number to its file under `data/audit/` and `frozen_runs/`.
 >
 > The split design behind the Q3 results (drive holdout, 62-day test) and a
-> stricter chronological alternative (settings and checks built 2026-11-10, not yet rebuilt or
-> run) are in Section 1.1.8.
+> stricter chronological split (the config since 2026-11-10; labels, features and models not yet
+> rebuilt or run) are in Sections 1.1.8 and 1.1.9. Until that run is made, the model of record is still
+> `c459046e`, trained under the drive-holdout design.
 
 This document records what was run on real Backblaze data, what was learned,
 what is still open, and how to run the pipeline end to end. Numbers are
@@ -1080,15 +1081,15 @@ file limit uncompressed; SHA-256 `8e39368aa8d75a3c`, content fingerprint `662ab2
 in `agent_knowledge_pack.json`); `make unpack-knowledge` restores and verifies it. The score
 table `data/tmp/stack_scores/scores_h60_seed0.parquet` is local and rebuilt by the commands above.
 
-### 1.1.8 The split design: drive holdout with a Q3 test (in use), and a chronological split with gaps (settings built, not yet run) (2026-11-10)
+### 1.1.8 The split designs: drive holdout with a Q3 test (the runs of 1.1.4 to 1.1.7), and a chronological split with gaps (the config since 2026-11-10, not yet run)
 
 Every result in Sections 1.1.4 to 1.1.7 comes from one split design. This section records it
-as it is, what it costs, and a stricter alternative that was worked out on 2026-11-10 and **not
-built or run**. Nothing in the code or the config changed because of this section. The failing-drive
+as it was, what it costs, and a stricter alternative that was worked out on 2026-11-10. The
+alternative's settings and checks are built and `configs/model.yaml` holds it; the run is Section 1.1.9. The failing-drive
 counts below were taken from the 30-day label table (`data/gold/labels/part.parquet`) on
 2026-11-10: a drive counts as failing in a window if any of its rows in the window has label 1.
 
-#### The design in use: "Old: drive holdout, Q3 test"
+#### The drive-holdout design (the runs of Sections 1.1.4 to 1.1.7)
 
 | Role | Rows | Used for |
 |---|---|---|
@@ -1097,7 +1098,7 @@ counts below were taken from the 30-day label table (`data/gold/labels/part.parq
 | Unused | 2026-05-02 to 06-30 | Their 60-day labels depend on Q3 outcomes |
 | Test | all drives, Q3 from 07-01, cut at the last row whose label is observed (data ends 09-30): 08-31 for 30 days (62 days), 08-17 for 44 (48 days), 08-01 for 60 (32 days) | Scored after thresholds are fixed |
 
-Config that produces it (`configs/model.yaml`): `train_end` and `validation_end` 2026-05-01,
+Config that produced it (`configs/model.yaml` until 2026-11-10; the values are kept in the comment of its `splits` block): `train_end` and `validation_end` 2026-05-01,
 `purge_label_window: false`, `validation_after_train_only: false`, `test_split: sealed`,
 `sealed_start: 2026-07-01`, `test_end: 2026-08-31`, `observation_end: 2026-09-30`. Q4 2025 is
 feature history only. The fleet-wide feature statistics (model-family z-scores, expected SMART
@@ -1146,7 +1147,7 @@ drives among 70,977 validation drives, measured 2026-11-10).
 Section 1.1.4 and the paired stack comparison of Section 1.1.4a), the largest test window (1,105
 failing drives at 30 days), and continuity with every frozen run.
 
-#### The alternative: a chronological split with gaps (settings built, not yet run)
+#### The alternative: a chronological split with gaps (the config since 2026-11-10; run in Section 1.1.9)
 
 Train, validation and test are consecutive periods, with a gap of one label horizon at each
 boundary. A row's 30-day label is decided by events up to 30 days later, so a boundary is clean only
@@ -1231,12 +1232,127 @@ config; unless the pipelines can write to separate output folders (not checked),
 `data/gold/`. A re-run of the old design would reproduce the method, not the same files.
 
 **Status.** On 2026-11-10 the settings, the checks and their tests were built (items 2 to 4 above; the
-full test suite passes). `configs/model.yaml` still holds the drive-holdout design, with the
-chronological values in a comment; labels and gold features have not been rebuilt, and nothing has
-been trained on it. The recommendation for
+full test suite passes), and the recommendation below was taken. `configs/model.yaml` was then switched to the chronological split (the drive-holdout values are in a
+comment of its `splits` block). Labels and gold features have not been rebuilt and nothing has been
+trained on it; Section 1.1.9 has the data split, the intent and the run. The recommendation for
 the 68% goal (Section 7) is the chronological split, for the base-rate reason above; the
 drive-holdout design stays the record for Sections 1.1.4 to 1.1.7 and the one to use for the horizon
-comparison.
+comparison. Its values are in the `splits` comment of `configs/model.yaml`.
+
+### 1.1.9 The chronological split run: design intent, data split and how to run it (config switched 2026-11-10; not yet run)
+
+`configs/model.yaml` holds the chronological split with gaps since 2026-11-10. **No label table,
+gold feature or model has been rebuilt or trained under it.** Until the run below is made, the
+current model of record is still frozen run `c459046e` (Section 1.1.4), trained under the
+drive-holdout design of Section 1.1.8, and every number elsewhere in this document is from that
+design or an earlier one. This section is written before the run; the results go in the table at
+its end.
+
+#### Design intent
+
+- **The question.** Does the stacked cascade (Stage 1 LightGBM; Stage 2 a rank-blend stack of
+  LightGBM and Cox) reach 68% precision at >= 10% recall per drive at the 30-day horizon
+  (`threshold.target_precision`, Section 7), when its thresholds are tuned on a validation period that
+  comes after training and its test period comes after both?
+- **Why a different split from Sections 1.1.4 to 1.1.7.** There, thresholds were tuned on held-out
+  drives from the training dates, where 0.59% of drives fail, and applied to a test quarter where 0.30%
+  do, so validation read 15 to 20 points more precision than test (Section 1.1.5). A goal stated as
+  precision cannot be tuned that way. Here validation and test sit at about 0.19% and 0.23% (counted
+  2026-11-10, Section 1.1.8), so a threshold tuned for 68% on validation should land near it on test.
+  That is an expectation, not a result.
+- **Strict separation.** A gap of one label horizon (30 days) at each boundary; feature statistics that
+  stop at the last training row; no drive holdout. Nothing fitted or tuned on an earlier period can
+  have seen an outcome or a row of a later one. `make check-splits`, and `make train` when
+  `splits.strict_separation` is on, fail if that is not so (`src/labels/split_checks.py`).
+- **Scope.** The 30-day horizon only. The 44- and 60-day horizons need gaps of 44 and 60 days, and
+  `make train` refuses them under this config (the embargo and the statistics cutoff are too short for
+  them). The horizon comparison of Sections 1.1.4 and 1.1.4a stands as the record, and a repeat would use
+  the drive-holdout design.
+- **What it cannot show.** Q3 is not a fresh test: 139 test looks were logged by 2026-11-10, and the
+  horizon, the 0.8 net, the stack and the 68% goal were chosen or evaluated while looking at it
+  (Section 1.4). Passing here would show the goal is reachable on a later period under strict
+  separation, not that it holds prospectively. The first Q4 2026 download is the clean test.
+
+#### The data split
+
+Row dates; a row's 30-day label looks 30 days ahead. Failing drives are drives with any positive 30-day
+label in the window, counted from the label table on 2026-11-10.
+
+| Role | Row dates | Days | Failing drives | Used for |
+|---|---|---|---|---|
+| Feature history | 2025-10-01 to 2025-12-31 | 92 | | Rolling windows of early January only |
+| Train | 2026-01-01 to 04-20 | 110 | 2,018 | Stage 1, Stage 2 (out-of-fold, folds by drive), Cox |
+| Gap | 04-21 to 05-20 | 30 | | Train labels resolve; no row used |
+| Validation | 05-21 to 06-16 | 27 | 684 | Early stopping, candidate cutoff, tier and primary thresholds, stack weights |
+| Gap | 06-17 to 07-16 | 30 | | Validation labels resolve; no row used |
+| Test | 07-17 to 08-31 | 46 | 864 | Scored once, after everything is frozen |
+| No label yet | 09-01 to 09-30 | 30 | | Their 30-day labels are not observed by the data's end |
+
+Configuration (`configs/model.yaml` `splits`):
+
+| Key | Value | Effect |
+|---|---|---|
+| `train_start` / `train_end` | 2026-01-01 / 2026-05-20 | With the purge, train rows end 04-20 |
+| `validation_end` | 2026-06-16 | Validation rows are after `train_end` |
+| `test_embargo_days` | 30 | No test row before 07-17 |
+| `test_end` / `observation_end` | 2026-08-31 / 2026-09-30 | Test stops at the last row with an observed label |
+| `test_split` / `sealed_start` | sealed / 2026-07-01 | Test reads the sealed-labelled rows (07-01 on), cut by the embargo |
+| `feature_stats_end` | 2026-04-21 | Feature statistics use rows before it, so train rows only |
+| `holdout_fraction` | 0 | No drive is held out; all drives appear in every period |
+| `purge_label_window` / `validation_after_train_only` | true / true | Train stops a horizon before `train_end`; validation starts after it |
+| `strict_separation` | true | `make train` runs the checks first |
+
+**Decisions fixed before the run.** The primary threshold is the highest-recall validation threshold with
+precision >= 68% at recall >= 10% (`src/models/threshold.py`; `target_met: false` is recorded if
+unreachable, and the goal stays 68%). Nothing is re-tuned after the test look. The result is
+reported with its test base rate, a drive-bootstrap interval, and the number of test looks it took.
+
+#### How to run it
+
+Run from the repository root with `uv run --python 3.12` if the default Python is 3.15 (the pinned
+`.python-version` handles it). Timings are from the same steps on 2026-11-06.
+
+```bash
+make build-features   # ~29 min. Statistics now stop at 2026-04-21, so every feature table value can change.
+make build-labels     # ~3 min. split column from train_end, validation_end, sealed_start; no holdout.
+make check-splits     # must print "OK: train, validation and test are separate"; exit 1 otherwise.
+make train TRAIN_TAG=chrono_h30 TRAIN_ARGS="--horizon-days 30 --keep-work-dir --save-scores"   # ~26 min
+make experiment-model EXPERIMENT_ARGS="--work-dir data/tmp/train_model_frame_<dir> --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack --two-stage-out data/audit/stack_chrono_h30"   # ~39 min
+```
+
+`<dir>` is the kept work directory `make train` prints (`work_dir_kept`). `make train` records one
+test-split look in `data/audit/test_access_log.jsonl`, and so does the experiment. Both overwrite
+nothing from the earlier runs (`TRAIN_TAG` suffixes its files; the experiment writes to its own
+`--two-stage-out`), but `make build-features` and `make build-labels` replace `data/gold/`, which the
+drive-holdout design also reads. To go back to that design, restore the values listed in the comment of
+`configs/model.yaml` `splits` and run the same two steps. Freezing the stack as a scorer is
+`scripts/freeze_stack_scorer.py`; its defaults are the 60-day stack, so read its options before using
+it for this run. It is not needed for the numbers above.
+
+Other tools under this config:
+
+- **Agent loop and point-in-time scripts.** `make agent-fleet`, `agent-pit` and `agent-models` start their
+  default window after the embargo (`first_date_after_validation`), and the sealed-window guard in
+  `src/agent/fleet.py` uses the test start (07-17). The knowledge store and `agent-pit-validation` were
+  built on drive-holdout validation drives; their `validation` split is now a later period of all
+  drives. They were not adapted or re-run for this split, so read their inputs before using them.
+- **Merged approach.** `train_merged_models` takes its test start from the embargo; the LSTM, TCN and AFT
+  blends were not re-run.
+- **Synthetic stub and tests.** Both derive their dates from the same config and pass under it; the
+  point-in-time tests pin their own embargo of 0.
+
+#### Result (to fill after the run)
+
+| | Value |
+|---|---|
+| Label table and `make check-splits` | |
+| Stage 1 run id / Stage 2 stack output | |
+| Validation base rate / test base rate (failing drives over drives) | |
+| Primary threshold: validation precision / recall | |
+| Primary threshold: test precision [95% CI] / recall [95% CI] | |
+| Goal (68% at >= 10% recall) met on test? | |
+| Test looks logged for the run | |
+| Comparison with the drive-holdout run (59.0% at 12.5%; stack 64.9% at 11.6%), at matched false-alarm rate | |
 
 ### 1.2 The two-stage gain is not established
 
@@ -3414,8 +3530,10 @@ stage's peak memory was not recorded here (the estimate was 5-7 GB).
 | `configs/model.yaml` | `model.early_stopping_rounds` | 50 | Early stopping patience (average precision) |
 | `configs/model.yaml` | `threshold.target_precision` | 0.68 | Goal precision, at recall >= 10%, on the stacked cascade (Stage 1 LightGBM, Stage 2 LightGBM + Cox), **30-day horizon** (was 0.90 until 2026-11-10, 0.95 at 35-50% before that). See Section 7: the horizon is part of the goal |
 | `configs/model.yaml` | `threshold.target_recall_range` | [0.10, 0.50] | Goal recall range |
-| `configs/model.yaml` | `splits.train_start` / `train_end` / `validation_end` | 2026-01-01 / 2026-05-01 / 2026-05-01 | Q1+Q2 2026 train, validation a drive holdout over the same dates (Section 1.1.4). Was 2026-02-14 / 2026-03-31 with Q2 2026 as test (Section 2.2); the earlier frozen runs used 2026-04-15 / 2026-05-10 / 2026-05-31 |
-| `configs/model.yaml` | `splits.test_end` / `observation_end` / `test_split` | 2026-08-31 / 2026-09-30 / sealed | Test is the sealed-labeled window (Q3 2026) up to min(test_end, observation_end - horizon) |
+| `configs/model.yaml` | `splits.train_start` / `train_end` / `validation_end` | 2026-01-01 / 2026-05-20 / 2026-06-16 | Chronological split with gaps (Section 1.1.9; since 2026-11-10). Was 2026-01-01 / 2026-05-01 / 2026-05-01 with validation a drive holdout (Sections 1.1.4 to 1.1.8), 2026-02-14 / 2026-03-31 with Q2 2026 as test (Section 2.2); the earliest frozen runs used 2026-04-15 / 2026-05-10 / 2026-05-31 |
+| `configs/model.yaml` | `splits.test_embargo_days` / `feature_stats_end` / `holdout_fraction` | 30 / 2026-04-21 / 0 | No test row within 30 days after `validation_end`; feature statistics from train rows only; no drive holdout. Were 0 / null (sealed_start) / 0.2 |
+| `configs/model.yaml` | `splits.purge_label_window` / `validation_after_train_only` / `strict_separation` | true / true / true | The purge and validation-after-train rules on, and `make train` runs the checks first (`make check-splits`). Were false / false / false |
+| `configs/model.yaml` | `splits.test_end` / `observation_end` / `test_split` | 2026-08-31 / 2026-09-30 / sealed | Test is the sealed-labeled window (Q3 2026) from the end of the embargo (07-17) up to min(test_end, observation_end - horizon) |
 | `configs/model.yaml` | `splits.holdout_fraction` | 0.2 | Share of pre-sealed drives held out as validation (was a fixed 0.1) |
 | `configs/model.yaml` | `splits.purge_label_window` | false | Off: validation shares the training dates (was true) |
 | `configs/model.yaml` | `splits.validation_after_train_only` | false | Off: validation is the held-out drives (was true) |

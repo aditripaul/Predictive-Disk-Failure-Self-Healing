@@ -69,8 +69,9 @@ def _configs(tmp_path: Path, gold: Path) -> tuple[Path, Path]:
             "test_end": "2026-05-31",
             "train_end": "2026-04-01",
             # The fixture's gold data is the old chronological window, where test
-            # follows validation directly.
+            # follows validation directly (no embargo, whatever configs/model.yaml says).
             "test_split": "test",
+            "test_embargo_days": 0,
         }
     )
     data_path, model_path = tmp_path / "data.yaml", tmp_path / "model.yaml"
