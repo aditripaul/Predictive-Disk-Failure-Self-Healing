@@ -55,7 +55,7 @@ untracked like the other score tables; SHA-256
 ## Validation tiers (drive level; failure rate 0.192%, 684 failing of 356,811 drives)
 
 Precision / recall (drives flagged) at each tier; the lift tiers use `threshold.action_tier_lift`, converted
-to precision at this validation rate (10.9, 18.1, 29.0 and 43.4%).
+to precision at this validation rate (10.9, 18.1, 28.9 and 43.4%).
 
 | Arm | Lift warn | Lift cordon | Lift migrate | Lift drain | Primary |
 |---|---|---|---|---|---|

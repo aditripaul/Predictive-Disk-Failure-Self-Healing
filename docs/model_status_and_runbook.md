@@ -1315,8 +1315,8 @@ run was made (Section 1.1.9 has the data split, the intent, the run and its resu
 ### 1.1.9 The chronological split run: design intent, data split, how to run it and the result (run 2026-11-10; goal not met)
 
 `configs/model.yaml` has held the chronological split with gaps since 2026-11-10, and the run below was
-made the same day. The intent, split and decisions were written before it; the result table at the end
-was filled after. The run is frozen as `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744` (2026-11-10). The numbers of Sections
+made the same day. The intent, split and decisions below were written before it; the result, the frozen
+scorers and the discussion were added after. The run is frozen as `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744` (2026-11-10). The numbers of Sections
 1.1.4 to 1.1.7 are from the drive-holdout design (`c459046e`, also frozen), and the numbers elsewhere in this
 document are from that design or an earlier one unless a line says otherwise.
 
@@ -1331,7 +1331,7 @@ document are from that design or an earlier one unless a line says otherwise.
   do, so validation read 15 to 20 points more precision than test (Section 1.1.5). A goal stated as
   precision cannot be tuned that way. Here validation and test sit at about 0.19% and 0.23% (counted
   2026-11-10, Section 1.1.8), so a threshold tuned for 68% on validation should land near it on test.
-  That is an expectation, not a result.
+  That was the expectation; the outcome is under "What it shows".
 - **Strict separation.** A gap of one label horizon (30 days) at each boundary; feature statistics that
   stop at the last training row; no drive holdout. Nothing fitted or tuned on an earlier period can
   have seen an outcome or a row of a later one. `make check-splits`, and `make train` when
@@ -1340,10 +1340,16 @@ document are from that design or an earlier one unless a line says otherwise.
   `make train` refuses them under this config (the embargo and the statistics cutoff are too short for
   them). The horizon comparison of Sections 1.1.4 and 1.1.4a stands as the record, and a repeat would use
   the drive-holdout design.
-- **What it cannot show.** Q3 is not a fresh test: 139 test looks were logged by 2026-11-10, and the
+- **What it cannot show.** Q3 is not a fresh test: 139 test looks were logged before this run (146 after it), and the
   horizon, the 0.8 net, the stack and the 68% goal were chosen or evaluated while looking at it
   (Section 1.4). Passing here would show the goal is reachable on a later period under strict
   separation, not that it holds prospectively. The first Q4 2026 download is the clean test.
+
+**Outcome against this intent** (details under "What it shows"). The question: no. The 68% goal is not met, on
+validation (the stack's 10% level, 52.5% at 12.1% recall) or on test (55.4% at 16.2%; the LightGBM two-stage's
+primary threshold, 59.9% at 13.3%). The expectation: a threshold tuned on validation did transfer (51.5% on
+validation, 59.9% on test), and that did not rescue the goal. Strict separation held: the checks passed before
+training and no test row was read by any freeze.
 
 #### The data split
 
@@ -1352,15 +1358,15 @@ label in the window, counted from the label table on 2026-11-10.
 
 ![The two split designs on one date axis: drive holdout against chronological with 30-day gaps](figures/chrono_split/chrono_split_timeline.png)
 
-| Role | Row dates | Days | Failing drives | Used for |
-|---|---|---|---|---|
-| Feature history | 2025-10-01 to 2025-12-31 | 92 | | Rolling windows of early January only |
-| Train | 2026-01-01 to 04-20 | 110 | 2,018 | Stage 1, Stage 2 (out-of-fold, folds by drive), Cox |
-| Gap | 04-21 to 05-20 | 30 | | Train labels resolve; no row used |
-| Validation | 05-21 to 06-16 | 27 | 684 | Early stopping, candidate cutoff, tier and primary thresholds, stack weights |
-| Gap | 06-17 to 07-16 | 30 | | Validation labels resolve; no row used |
-| Test | 07-17 to 08-31 | 46 | 864 | Scored once, after everything is frozen |
-| No label yet | 09-01 to 09-30 | 30 | | Their 30-day labels are not observed by the data's end |
+| Role | Row dates | Days | Drives | Failing drives | Used for |
+|---|---|---|---|---|---|
+| Feature history | 2025-10-01 to 2025-12-31 | 92 | | | Rolling windows of early January only |
+| Train | 2026-01-01 to 04-20 | 110 | 353,011 | 2,018 | Stage 1, Stage 2 (out-of-fold, folds by drive), Cox |
+| Gap | 04-21 to 05-20 | 30 | | | Train labels resolve; no row used |
+| Validation | 05-21 to 06-16 | 27 | 356,811 | 684 | Early stopping, candidate cutoff, tier and primary thresholds, stack weights |
+| Gap | 06-17 to 07-16 | 30 | | | Validation labels resolve; no row used |
+| Test | 07-17 to 08-31 | 46 | 368,124 | 864 | Scored once, after everything is frozen |
+| No label yet | 09-01 to 09-30 | 30 | | | Their 30-day labels are not observed by the data's end |
 
 Configuration (`configs/model.yaml` `splits`):
 
@@ -1384,7 +1390,7 @@ reported with its test base rate, a drive-bootstrap interval, and the number of 
 #### How to run it
 
 From the repository root, with the pinned Python (`.python-version`). Every step is a Makefile target, and
-`make chrono-run` runs them all and logs each one (about 80 minutes; the section "How to reproduce it" at
+`make chrono-run` runs them all and logs each one (about 95 minutes; the section "How to reproduce it" at
 the end of the result has the variables and what each step overwrites).
 
 ```bash
@@ -1392,15 +1398,16 @@ make chrono-run                                                     # everything
 # or a step at a time, in order (do not use make -j):
 make chrono-data                                                    # build-features, build-labels, check-splits; must print "OK: ..."
 make chrono-train                                                   # Stage 1 + LightGBM Stage 2, 30 days; prints work_dir_kept
-make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # LightGBM, Cox and stack Stage 2
+make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # LightGBM, Cox and stack Stage 2; saves each seed's stack
+make chrono-freeze CHRONO_WORK_DIR=data/tmp/train_model_frame_<id> CHRONO_SEED=<0|1|2>   # freeze one seed's stack as a scorer
 make plot-chrono-split                                              # the five figures of docs/figures/chrono_split/
 ```
 
 `make build-features` and `make build-labels` replace `data/gold/`, which the drive-holdout design also
 reads; to go back to that design, restore the values listed in the comment of `configs/model.yaml`
-`splits` and run the same two steps. Freezing the stack as a scorer is `scripts/freeze_stack_scorer.py`;
-its defaults are the 60-day stack, so read its options before using it for this run. It is not needed for
-the numbers below.
+`splits` and run the same two steps. `chrono-freeze` runs `scripts/freeze_stack_scorer.py` for one seed on
+validation rows only (the test matrix is never opened) and refuses unless the refit reproduces the experiment's
+report; its results are under "The frozen stack scorers" below.
 
 Other tools under this config:
 
@@ -1417,12 +1424,20 @@ Other tools under this config:
 #### Result (run 2026-11-10, 13:27 to 14:44 IST)
 
 **The 68% goal is not met on the chronological split, by any Stage 2 model, on validation or on test.**
+Everything below is per drive, 30-day horizon, test period 07-17 to 08-31 (864 failing and 367,260 healthy drives,
+368,124 in all) unless a line says validation (684 failing and 356,127 healthy, 356,811 in all).
+
+| At a glance (test) | Precision | Recall | Caught | False alarms |
+|---|---|---|---|---|
+| Stage 1 net (cutoff 0.1431) | 2.2% | 85.0% | 734 | 32,579 |
+| LightGBM two-stage, primary threshold (`make train`, frozen) | 59.9% [52.5, 66.3] | 13.3% [11.1, 15.6] | 115 | 77 |
+| Stack, the 10% recall level (mean of 3 seeds) | 55.4% | 16.2% | 140 | 113 |
+| **The goal** | **68%** | **>= 10%** | | |
+
 The run is frozen as `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744` (2026-11-10, checksummed, both stages
 load from it); the Cox Stage 2 and the stack are frozen as scorers in `frozen_runs/stack_chrono_h30_seed{0,1,2}/` (separate fits from this run's models). `score-fleet` and the agent take the
 latest training run for the horizon by MLflow start time, which is now this run, not `c459046e`: freezing
-does not change that, and no one chose it (`frozen_runs/README.md`). Everything
-below is per drive, 30-day horizon, test period 07-17 to 08-31 (864 failing of 368,124 drives) unless a
-line says validation (684 failing of 356,811).
+does not change that, and no one chose it (`frozen_runs/README.md`).
 
 ![Precision against recall of Stage 1 and the three Stage 2 variants on the test period, with the goal region and a zoom on it](figures/chrono_split/chrono_precision_recall.png)
 
@@ -1434,10 +1449,13 @@ line says validation (684 failing of 356,811).
 | Labels | `make build-labels` | `pipelines/build_labels.py` | 2.4 min | `data/gold/labels/` (380,478,465 rows), `data/audit/dataset_versions/20261110T082656102066Z.json` |
 | Separation check | `make check-splits` | `scripts/check_split_separation.py` | instant | `OK: train, validation and test are separate` |
 | Stage 1 and LightGBM Stage 2 | `make chrono-train` | `make train TRAIN_TAG=chrono_h30 TRAIN_ARGS="--horizon-days 30 --keep-work-dir --save-scores"` | 20.5 min | MLflow `6ea7a5bcfb954deeb4a4208e4d802744`; frozen as `frozen_runs/6ea7a5bc…`; report, tiers and model card tagged `chrono_h30`; work dir `data/tmp/train_model_frame_4pf36rc4` (local) |
-| Stage 2 variants and the stack | `make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_4pf36rc4` | `make experiment-model EXPERIMENT_ARGS="--work-dir <work dir> --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack --two-stage-out data/audit/stack_chrono_h30"` | 27 min | `data/audit/stack_chrono_h30/` (nets 0.5 and 0.8, 3 seeds; MLflow `08aedf53015243a3a12b467468421163`). The experiment now also saves each seed's stack to `models/seed<k>_net0.80/`; this 2026-11-10 run predates that, so its models come from `make chrono-freeze` (seed 0) |
+| Stage 2 variants and the stack | `make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_4pf36rc4` | `make experiment-model EXPERIMENT_ARGS="--work-dir <work dir> --variants --skip-baseline --two-stage --stage2-kinds lightgbm cox stack --two-stage-out data/audit/stack_chrono_h30"` | 27 min | `data/audit/stack_chrono_h30/` (nets 0.5 and 0.8, 3 seeds; MLflow `08aedf53015243a3a12b467468421163`). This first run predates the experiment's model saving, so it saved no models; the re-run below did |
+| Stage 2 variants again, models saved | `make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_4pf36rc4 CHRONO_OUT=data/audit/stack_chrono_h30_rerun` | the same experiment, now saving each seed's stack | about 30 min | `data/audit/stack_chrono_h30_rerun/`: reproduces the first run to 2e-8; `models/seed<k>_net0.80/` for seeds 0, 1, 2 |
+| Freeze each seed's stack | `make chrono-freeze CHRONO_WORK_DIR=data/tmp/train_model_frame_4pf36rc4 CHRONO_SEED=<k>` | `scripts/freeze_stack_scorer.py` | 6 min per seed | `frozen_runs/stack_chrono_h30_seed<k>/` |
 | Figures | `make plot-chrono-split` | `scripts/plot_chrono_split.py` | seconds | `docs/figures/chrono_split/` |
 
-All of it is `make chrono-run` (Section "How to reproduce it" below). Code at git `4e37458`. The launcher
+All of it is `make chrono-run` (Section "How to reproduce it" below); the first four steps took 77 minutes
+(13:27 to 14:44 IST). Code at git `4e37458` for those steps. The launcher
 of this run and its logs are in `data/audit/chrono_logs/` (`run_chrono.sh`, `progress.log`). Test looks: 4
 (139 to 143 entries in `data/audit/test_access_log.jsonl`: one for `make train`, one per seed for the experiment),
 and 3 more for the re-run that saved the models (146).
@@ -1502,8 +1520,8 @@ drive-holdout model (0.59% base rate) migrate and drain needed 88.9% and 133% an
 | Drain | 0.935 | 226.4 | 43.6% / 15.4% (105, 136) | 52.4% / 20.4% (176, 160) | 336 |
 | Primary | 0.943 | | 51.5% / 10.2% (70, 66) | 59.9% / 13.3% (115, 77) | 192 |
 
-The tiers' thresholds are not frozen into a scorer; they are in
-`data/audit/data_quality_reports/action_tiers_chrono_h30.json`.
+The tiers' thresholds are frozen in `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/` (`action_tiers.json` and
+`frozen_spec.json`) and written to `data/audit/data_quality_reports/action_tiers_chrono_h30.json`.
 
 | Precision-recall (test) | Confusion matrices (test) |
 |---|---|
@@ -1633,6 +1651,26 @@ Drives isolated (share of all 864 failing drives / share of the Stage 1 pool):
   level, and 224 and 357 at 20% and 35%, never the most of the four. Its edge is precision at the 5% and 20% levels
   (64.0% and 46.7%), not the number of drives isolated.
 
+##### The frozen stack scorers
+
+The stack and its LightGBM and Cox members are frozen for each seed (`make chrono-freeze`), refitted on validation
+rows only. Each reproduces the experiment's report for that seed in 14 of 14 checks, opens no test data (the
+access log stays at 146 entries), and scores identically (at most 4e-15 apart) to the stack the re-run saved.
+They are **separate fits from the `make train` models** (a 396-, 401- or 400-tree Stage 1 against 339), so their
+thresholds differ from that run's.
+
+| Seed | Stage 1 trees | Candidate threshold | LightGBM / Cox Stage 2 trees | Blend weights (LightGBM / Cox) | Validation primary: stack P / R (flagged) | Test, 10% level: stack P / R |
+|---|---|---|---|---|---|---|
+| 0 | 396 | 0.1340 | 142 / 272 | 0.6 / 0.4 | 52.8% / 12.6% (163) | 58.6% / 16.2% |
+| 1 | 401 | 0.1467 | 354 / 355 | 0.4 / 0.6 | 52.8% / 11.1% (144) | 50.6% / 14.1% |
+| 2 | 400 | 0.1358 | 199 / 268 | 0.3 / 0.7 | 51.8% / 12.7% (168) | 57.0% / 18.4% |
+
+All four lift tiers fire for every arm of every seed (each folder's README has the tiers of the stack, LightGBM and
+Cox, and the cost-tier table). The validation primary threshold is the highest-precision point with recall of at
+least 10%, since 68% was unreachable; for the stack no seed gets above 53% (the LightGBM arm of seed 1 reaches
+54.8% at 10.1% recall, 126 drives). Which seed, if any, an agent should use is not
+decided (Section 8).
+
 ##### Train figures (in-sample)
 
 The train figures of the frozen run `6ea7a5bc`, for completeness: **in-sample and optimistic**, since the model saw
@@ -1653,6 +1691,13 @@ those rows. They are not evidence of performance; the validation and test figure
   The expectation of this section held for the transfer and does not rescue the goal.
 - **The stack does not help at the goal's operating point.** Its gains are at 5% and 20% recall, as in
   Section 1.1.4a; at 10% it is 1.4 points below LightGBM Stage 2.
+- **The seeds differ by several points, and none is near the goal.** The stack's test precision at the 10% level
+  is 58.6%, 50.6% and 57.0% (recall 16.2%, 14.1%, 18.4%), and its validation primary threshold gives 52.8%, 52.8%
+  and 51.8%. Three seeds is a small sample; the spread between seeds is as large as the gap between models.
+- **In counts, at the goal's 10% level every model flags 200 to 290 drives to catch 112 to 152 of the 864 failing
+  drives.** Stage 1 alone flags 201 (112 caught), LightGBM 207 (118), Cox 289 (152) and the stack 253 (140); the
+  rest are false alarms. To reach 68% precision with the same 140 caught, the stack would have to flag about 206
+  drives, 66 of them false alarms, against 113 now.
 - **Stage 1 works as designed,** and the agent's four tiers all fire on this split.
 - **What would change it.** The silent failures Stage 1 never passes (Section 1.2; about 15% of failing test
   drives here) cap recall, and the failing drives it passes look like the 9% of healthy drives beside them. A
@@ -1665,7 +1710,8 @@ those rows. They are not evidence of performance; the validation and test figure
 From the repository root, with the pinned Python (`.python-version`). **This replaces `data/gold/`**, which
 the drive-holdout design also reads; back it up first if you want to return to that design without a
 rebuild (`cp -a data/gold data/tmp/gold_drive_holdout_backup`, 6.2 GB), or restore the values in the
-comment of `configs/model.yaml` `splits` and run the same steps. About 80 minutes in all.
+comment of `configs/model.yaml` `splits` and run the same steps. The first four steps took 77 minutes;
+freezing three seeds adds about 18, so `make chrono-run` takes about 95.
 
 ```bash
 make chrono-run            # everything below, one log per step in data/audit/chrono_logs/ (CHRONO_LOGS=<dir> to move them)
@@ -1676,13 +1722,14 @@ The same, a step at a time (do not use `make -j`; each step needs the one before
 ```bash
 make chrono-data           # build-features (27 min), build-labels (2.4 min), check-splits; must print "OK: ..."
 make chrono-train          # Stage 1 + LightGBM Stage 2, 30 days, tag chrono_h30 (20 min); prints work_dir_kept
-make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # LightGBM, Cox and stack Stage 2 (27 min)
+make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # LightGBM, Cox and stack Stage 2 (27 min); saves each seed's stack
+make chrono-freeze CHRONO_WORK_DIR=data/tmp/train_model_frame_<id> CHRONO_SEED=<k>   # one seed's stack as a scorer (6 min)
 make plot-chrono-split     # the five new figures, from the files above; scores nothing
 ```
 
 `<id>` is the `work_dir_kept` path `make chrono-train` printed (`chrono-run` reads it from the log). The
 variables are `CHRONO_TAG` (default `chrono_h30`, the tag of the `make train` files), `CHRONO_OUT`
-(default `data/audit/stack_chrono_h30`), `CHRONO_WORK_DIR` (required by `chrono-stack` and `chrono-freeze`)
+(default `data/audit/stack_chrono_h30`), `CHRONO_WORK_DIR` (required by `chrono-stack` and `chrono-freeze`),
 `CHRONO_SEED` (0, 1 or 2, default 0; `chrono-freeze` only) and `CHRONO_FREEZE` (default
 `frozen_runs/stack_chrono_h30_seed<CHRONO_SEED>`). `chrono-stack` saves what it fits: each
 seed's stack, with Stage 1 and the LightGBM and Cox Stage 2 it blends, goes to
@@ -1702,7 +1749,8 @@ seed, so three). The launcher of the 2026-11-10 run is `data/audit/chrono_logs/r
 | Training report, tiers, model card | `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json`, `action_tiers_chrono_h30.json`; `data/audit/model_cards/v1_h30d_chrono_h30.json` and `.md` |
 | Stage 2 variants | `data/audit/stack_chrono_h30/` (`tables.md`, `experiment_two_stage.json`, `figures/`, `mlflow_run.json`): the results quoted here. `data/audit/stack_chrono_h30_rerun/`: the same experiment run again with the saving on, same results to 2e-8 (README), and `models/seed<k>_net0.80/` for seeds 0, 1 and 2 |
 | Stage 2 variants and the stack as scorers | `frozen_runs/stack_chrono_h30_seed0/`, `_seed1/`, `_seed2/` (`make chrono-freeze CHRONO_SEED=<k>`: Stage 1, the LightGBM and Cox Stage 2, the stack, validation tiers; each reproduces the experiment's report in 14 of 14 checks) |
-| Run launcher and logs | `data/audit/chrono_logs/` |
+| The LightGBM two-stage run, frozen | `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/` (both stages, spec, tiers, model card, figures, checksums) |
+| Run launcher and logs | `data/audit/chrono_logs/` (`run_chrono.sh`, `progress.log`, one log per step, including `freeze_stack*.log` and `stack_rerun.log`) |
 | Figures | `docs/figures/chrono_split/` (its README lists each source); `make plot-chrono-split` redraws the five new ones |
 | Every look at test | `data/audit/test_access_log.jsonl` |
 
