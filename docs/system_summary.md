@@ -402,7 +402,7 @@ were still in service when the data ended.
 
 | Topic | Document |
 |---|---|
-| The full project report | `docs/project_report.md` |
+| The full project report | `docs/report.md` |
 | All measured results, run history, how to reproduce | `docs/model_status_and_runbook.md` |
 | The Q1+Q2 -> Q3 runs: method, results, threats to validity | `docs/q3_horizon_and_cascade_run.md` |
 | The wide Stage 1 net and the cluster action policy | `docs/cascade_wide_net.md`, `docs/cluster_action_policy.md` |

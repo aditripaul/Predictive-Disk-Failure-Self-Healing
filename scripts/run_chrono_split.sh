@@ -6,8 +6,9 @@
 #
 # Rebuilds the gold features and labels under configs/model.yaml `splits` (this REPLACES data/gold/,
 # which the drive-holdout design also reads), checks the separation, trains the 30-day LightGBM
-# two-stage model, then runs the Stage 2 variants (LightGBM, Cox, stack) on its kept work directory.
-# About 80 minutes on the machine of the 2026-11-10 run. Each step logs to $CHRONO_LOGS (default
+# two-stage model, runs the Stage 2 variants (LightGBM, Cox, stack) on its kept work directory, freezes
+# each seed's stack, then builds the agent's point-in-time baseline and knowledge store from seed 0's
+# scorer (validation rows only). About 105 minutes on the machine of the 2026-11-10 run. Each step logs to $CHRONO_LOGS (default
 # data/audit/chrono_logs/); progress.log has the timings. Stops at the first failure and leaves a
 # FAILED marker, or a DONE marker when everything ran.
 #
@@ -56,6 +57,16 @@ for SEED in ${CHRONO_SEEDS:-0 1 2}; do
   fi
 done
 stamp "done $STEP"
+
+# The agent's evidence on the seed-0 scorer (runbook 1.1.9). The per-date partitions of an earlier run
+# would be reused by the point-in-time step, so they are removed first; the store is rebuilt with --overwrite.
+STEP=pit-validation; stamp "start $STEP"
+PIT_OUT="data/audit/agent_pit_validation_chrono_h30"
+for ARM in stack lightgbm cox cascade; do rm -rf "$PIT_OUT/$ARM"; done
+make chrono-pit-validation CHRONO_TAG="$TAG" CHRONO_SEED=0 > "$L/pit.log" 2>&1; stamp "done $STEP"
+
+STEP=knowledge; stamp "start $STEP"
+make chrono-knowledge CHRONO_TAG="$TAG" CHRONO_SEED=0 > "$L/knowledge.log" 2>&1; stamp "done $STEP"
 
 STEP=plots; stamp "start $STEP"
 make plot-chrono-split > "$L/plots.log" 2>&1; stamp "done $STEP"

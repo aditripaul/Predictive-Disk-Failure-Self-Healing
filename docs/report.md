@@ -95,8 +95,8 @@ chance to be right.
 Testing against real data also put the safety design to the test. A defect in
 one of its independent checks - a feature-confidence floor that no drive scored
 through the real pipeline could reach - made the system decline destructive
-actions, never take unsafe ones; it was found, fixed (86.1% of drive-days now
-clear the floor) and guarded in the build. Measured as the agent's policy would run, on
+actions, never take unsafe ones; it was found, fixed (86.1% of drive-days cleared the floor on the build of the time,
+92.8% on the current table) and guarded in the build. Measured as the agent's policy would run, on
 nine fixed weekly dates, the cordon tier and above is 23.4% precise at 29.3%
 recall, with precision following each month's failure rate and the model's
 ranking steady throughout.
@@ -181,12 +181,12 @@ whether a system can act safely on predictions that are uncertain.
 | Duplicate actions after crash recovery | 0 | **Met** in the replay test |
 | Human review of blocked or uncertain actions | approve and reject paths work | **Met** in the integration tests |
 | Every decision audited with a trust score | all | **Met** |
-| A safety-critical check actually enforces what it claims to | yes | **Found and fixed.** Testing on real data showed the feature-confidence floor was unreachable for drives scored through the real pipeline; 86.1% of drive-days now clear it, and the build refuses a table in which none can (Section 7.2) |
+| A safety-critical check actually enforces what it claims to | yes | **Found and fixed.** Testing on real data showed the feature-confidence floor was unreachable for drives scored through the real pipeline; 86.1% of drive-days cleared it on the build of the time and 92.8% do on the gold table rebuilt for the current model, and the build refuses a table in which none can (Section 7.2) |
 | Live agent driven by the trained model | yes | **Partly.** The agent and batch scoring now take their tier thresholds from the trained run through one shared path, and the agent's policy was measured offline against the real fleet (Section 10.5). The live service still runs on a two-drive demonstration snapshot |
-| An agent figure that can be quoted | measured point-in-time | **Met.** 23.4% precision at 29.3% recall at cordon and above, pooled over nine weekly snapshots (Sections 7.3, 10.5) |
+| An agent figure that can be quoted | measured point-in-time | **Met.** 23.4% precision at 29.3% recall at cordon and above, pooled over nine weekly snapshots (Sections 7.3, 10.5). On the current model, per drive-snapshot over nine snapshots of the validation window: cordon 14.9% precision at 35.7% recall (Section 9.1) |
 | Failures among false alarms over a longer horizon | measured | **Met.** 19.2% of the alerts the 30-day label counts as false went on to fail (Section 10.4) |
 | Second data source (SMART-Z) | evaluated | **Ready, pending data.** Supported in code, with a split reserved for it |
-| A final period held back from every modelling choice | yes | **Not met since 2026-11-06.** Q3 2026 was sealed; its single-shot evaluation was skipped by decision and it became the test set of the Q1+Q2 -> Q3 runs (runbook 1.1.4). No untouched period remains until new data arrives; 146 test looks are logged (Section 14) |
+| A final period held back from every modelling choice | yes | **Not met since 2026-11-06.** Q3 2026 was sealed; its single-shot evaluation was skipped by decision and it became the test set of the Q1+Q2 -> Q3 runs (runbook 1.1.4); the current test (07-17 to 08-31) lies inside it. No untouched period remains until new data arrives (the first Q4 2026 download is the clean test); 146 test looks are logged (Section 14) |
 | Train, validation and test kept strictly separate | yes | **Met on the chronological split.** A 30-day gap at each boundary, feature statistics from training rows only, and checks that fail the run (`make check-splits`, 27 unit tests). The earlier splits were not strict (Section 7.4) |
 
 ---
@@ -469,16 +469,17 @@ Section 11 and ADR 0002 give the result and why.
 A monotone isotonic map, fitted on validation, is reported beside the raw
 scores so that a number presented as a probability means what it says; it
 leaves every decision unchanged, because a monotone map preserves ranking.
-Above a calibrated probability of about 0.5 the bins hold too few drives to
-be read with confidence.
+On the current model the calibrated test curve follows the diagonal up to about 0.4; above that the bins hold 1 to
+146 drive-days and the calibrator over-predicts (0.55 predicted against 0.22 observed on 124 rows), so calibrated
+probabilities above 0.4 are not quoted (the limit was 0.5 on the previous model; runbook Section 1.3).
 
-![Calibration of the raw score on test](figures/calibration_test_quarter_aligned.png)
+![Reliability of the raw score on validation and test, and of the calibrated score on test](figures/chrono_split/chrono_calibration.png)
 
-*Figure 3. Reliability of the raw first-stage score on the test split,
-quarter-aligned run, per drive-day. The raw score is class-weighted, so it sits
-far below the diagonal: drive-days scored 0.9 fail about 30% of the time. This
-is why the raw score is never read as a probability and the isotonic map is
-reported beside it.*
+*Figure 3. Reliability of the LightGBM two-stage model's score per drive-day on the chronological run. Left, the raw
+class-weighted score on validation and test (ECE 0.035 and 0.037): it sits far below the diagonal, and drive-days
+scored 0.9 to 1.0 fail 28% and 27% of the time. This is why the raw score is never read as a probability and the
+isotonic map is reported beside it. Right, the calibrated score on test (ECE 0.0001): it tracks the diagonal to about
+0.4, and the hollow marker is a bin of fewer than 100 rows.*
 
 ---
 
@@ -506,7 +507,9 @@ reported beside it.*
   `sealed` and was read by no training, validation or test step until
   2026-11-06, when the single-shot evaluation of the frozen run was skipped by
   decision and Q3 became the test set of the Q1+Q2 -> Q3 runs (runbook 1.1.4).
-  `make evaluate-frozen` now refuses it. Nothing is sealed at present; the
+  `make evaluate-frozen` now refuses it. Nothing is sealed at present, and no period is fresh: the current test
+  (2026-07-17 to 08-31) lies inside Q3, rows from 07-01 to 07-16 still carry the `sealed` label but no model uses
+  them (the gap after validation), and 146 test looks are logged. The
   rules a future untouched period must apply are in
   `docs/q3_horizon_and_cascade_run.md` section 6.
 - **Precision is reported with its failure rate.** Precision depends on how
@@ -1167,6 +1170,32 @@ from the `make train` models:
 | 0 | 396 | 142 / 272 | 0.6 / 0.4 | 52.8% / 12.6% | 58.6% / 16.2% |
 | 1 | 401 | 354 / 355 | 0.4 / 0.6 | 52.8% / 11.1% | 50.6% / 14.1% |
 | 2 | 400 | 199 / 268 | 0.3 / 0.7 | 51.8% / 12.7% | 57.0% / 18.4% |
+
+**The agent's evidence on this split** (runbook Section 1.1.9, run 2026-11-10; the seed-0 stack scorer, validation
+window only, so no test row was read and the access log stayed at 146 looks). Nine point-in-time snapshots three days
+apart (05-23 to 06-16) judge each arm on every drive that reports, 3,182,259 drive-snapshots of 356,768 drives with a
+base rate of 0.089%. Precision and recall are per drive-snapshot, since a failing drive counts on every snapshot inside
+its 30-day window, so they sit below the per-drive figures above:
+
+| Arm | Warn precision / recall | Cordon precision [95% CI] / recall | Migrate precision / recall | Drain precision / recall |
+|---|---|---|---|---|
+| Stack (seed 0) | 8.1% / 48.5% | 14.9% [13, 17] / 35.7% | 22.2% / 23.3% | 34.8% / 11.1% |
+| LightGBM Stage 2 | 8.2% / 47.9% | 15.0% [13, 17] / 35.4% | 23.2% / 22.6% | 32.7% / 9.2% |
+| Cox Stage 2 | 8.0% / 49.2% | 14.8% [13, 17] / 35.4% | 23.4% / 23.1% | 35.3% / 11.2% |
+| Cascade `6ea7a5bc` | 8.2% / 48.6% | 14.9% [13, 17] / 35.7% | 22.0% / 22.4% | 32.6% / 7.2% |
+
+- **The arms are indistinguishable** within their intervals, and all four tiers fire for every arm.
+- **A second look does not help.** Flagging only drives above threshold at both T-3 and T changes recall by +0.1 points at
+  a 0.01% false-alarm rate and by -0.9 to -1.6 points at the budgets from 0.02% to 0.3%: a stricter threshold, not new
+  information.
+- **The knowledge store** (candidate days 05-21 to 06-16, presence and failures to 07-16) holds 511,170 candidate days of
+  356,811 drives, and passes all five of its self-checks (incremental equals batch, as-of replay, outcomes against the gold
+  labels with 0 disagreements in 510,183, idempotence, score agreement). It has **27 days of history**, since scores before
+  05-21 are in-sample, so no drive has 60 days, and any rule that needs weeks of history is limited by that. Of the 1,055
+  episodes with 7 or more days above cordon, 221 failed and 798 survived, 2.1 times the failure share of all resolved
+  episodes (10.2%), as on the 60-day store (2.0 times); whether promoting persistent drives raises drive-level precision
+  was not screened, and no knowledge rule is enabled. The store's drift flag (`retrain_recommended`) is an artifact of
+  comparing 13 and 14 daily values: the mean shares of drives passing each tier are the same in both halves.
 
 What the run shows:
 
@@ -1924,7 +1953,7 @@ drives.
 | 8 | **30-day horizon in place of 14 days** | **Gain: 33.6% to 46.3% precision near 10% recall, same test period** |
 | 9 | Survival model (time to failure) | Same as the classifier (0.216 against 0.213) |
 | 10 | Anomaly detection (isolation forest), alone, as a filter, as a feature | Alone far worse (24% against 46%); the others within noise |
-| 11 | Second-stage model | **Not confirmed.** See below |
+| 11 | Second-stage model | **Small, and confirmed at 30 days only.** See below |
 | 12 | One fleet-wide action-tier threshold against one per drive model | **Fleet-wide is better.** 7 of 81 models had enough failing validation drives to earn their own thresholds; against those, per-model thresholds lost 7-8 points of recall for under 1 point of precision at the lenient tiers, and lost on both axes at drain (64 caught from 173 alerts against 76 from 162) |
 | 13 | A wider, older training window (quarter-aligned, Q4 2025 and Q1 2026) | Same ranking: within 1.2-1.3 recall points of the frozen run at matched false-alarm rate, inside sampling error (Section 10.6) |
 | 14 | A second look a week apart before flagging | Lower recall at every budget: -0.5 to -3.3 points, clear of zero at the three looser budgets (Section 10.5) |
@@ -1954,12 +1983,14 @@ each other; each sits inside the other's interval, consistent with a true
 gain somewhere in the 3- to 8-point range that the first test happened to
 measure at its high end. What is no longer defensible is the earlier claim
 that one paired test had settled the question. The second stage stays the
-pipeline's default, on the standing five-seed evidence, reported now as
-"adopted, not confirmed" rather than "real, not noise." The Q3 runs (item 21,
+pipeline's default. The Q3 runs (item 21,
 Section 8.5) add a third measurement: three seeds and three horizons, paired
 against Stage 1 alone, show the gain only below about 20% recall (+5.1 points at
 10% recall for the 30-day model, one of three seeds clear of zero) and nothing
-above it, where the two curves coincide.
+above it, where the two curves coincide. The chronological run (Section 9.1) adds a
+fourth, per drive and paired over the same drives: +5.1 points [+0.9, +9.4] at 30 days, an interval
+that excludes zero, against +4.2 [-0.1, +8.5] on the previous model, and +1.1 and -3.8 at 44 and 60 days, whose
+intervals include zero. The gain is small, and confirmed at the 30-day horizon only (runbook Section 1.2).
 
 Items 17 and 18 are described, with figures, in Section 10.3.
 
@@ -1986,17 +2017,17 @@ automated tests, not on real hardware.
 
 | Test layer | Tests | What it covers |
 |---|---|---|
-| Unit | 777 | Features, labels, model code, the two-stage cascade and stack, guardrail rules, trust score, API, the sequence model and the late-hit figures |
+| Unit | 874 | Features, labels, the split checks, model code, the two-stage cascade and stack, guardrail rules, trust score, API, the knowledge store, the sequence model and the late-hit figures |
 | Property-based | 10 | Invariants of hysteresis, trust score and metrics over generated inputs |
 | Golden data | 3 | Feature pipeline against a fixed reference data set |
 | Integration | 16 | Full decision cycles with the real guardrail engine and simulator |
 | Chaos | 5 | Stale telemetry, correlated multi-drive failure, action timeout, human-review timeout, guardrail latency |
 | Smoke | 3 | End-to-end start-up |
 
-814 tests in total, all passing on 2026-11-07 with the optional PyTorch extra
-installed (657 when the earlier version of this report was written); `ruff`
-and `mypy` run with them in `make ci`. Without the extra the sequence-model
-tests skip.
+911 tests pass in total on 2026-11-10, with the optional PyTorch extra installed (the CPU
+build, torch 2.14.1; without it 903 pass and three sequence-model tests skip); 814 passed on 2026-11-07, and
+657 when the earlier version of this report was written. `ruff`
+and `mypy` run with them in `make ci`.
 
 Behaviours demonstrated by these tests:
 
@@ -2065,7 +2096,8 @@ the other side, beyond 30 days. The LSTM blend helps for a different reason:
 the two models catch partly different drives, so combining them recovers
 failures either would miss alone.
 The second stage appears to help, modestly, for a reason that still looks
-sound even though its significance is no longer confirmed: once the easy
+sound, and its paired interval on the chronological split now excludes zero at 30 days (+5.1 [+0.9, +9.4]),
+though not at 44 or 60 days: once the easy
 healthy drives are set aside, a model trained only on the hard cases can
 separate them slightly better. On Q3 that help is confined to the strict end of
 the list, below about 20% recall (Section 8.5).
@@ -2121,11 +2153,10 @@ same claim, and this project had, for a time, only checked the first one.
 - **A safety floor that no real drive could reach, found and fixed.**
   Section 7.2 and Section 13.5. The frozen run in Section 10.7 is the first one
   trained after the fix; the batch fleet scores on record predate it.
-- **The second-stage model's gain is not confirmed.** Two paired significance
-  tests on two different runs disagree about whether the interval excludes
-  zero (Section 11, item 11), and on Q3 it helps only below about 20% recall
-  (Section 8.5). It stays the default on five-seed evidence, not on any paired
-  test alone.
+- **The second-stage model's gain is small and confirmed at 30 days only.** At 30 days it is about 4 to 5 points, and
+  on the chronological split its interval excludes zero (+5.1 [+0.9, +9.4]), only just; at 44 and 60 days no gain is
+  shown (Section 11, item 11), and it helps only below about 20% recall (Section 8.5). The stack and the Cox variant
+  do not add at the goal's 10% level (Section 9.1).
 - **Migrate and drain did not operate on the previous model, and their targets are placeholders on the current one.**
   On the previous model the lift targets converted to 89% and 133% precision at the validation failure rate; migrate's
   was met only by the top 2 validation drives and drain's not at all, so both shared one cutoff that flagged 6 drives
@@ -2171,8 +2202,9 @@ same claim, and this project had, for a time, only checked the first one.
   the horizon, which is now the chronological run (`6ea7a5bc`), not `c459046e`; the stack is frozen for three seeds
   that are separate fits, and one safeguard is missing, a frozen record of thresholds and hashes before the test
   scorer runs (Section 7.4).
-- **The knowledge store and the point-in-time validation scripts were not adapted** to the chronological split; they
-  were built on drive-holdout validation drives, and their validation split is now a later period of all drives.
+- **The knowledge store and the point-in-time baseline were adapted to the chronological split, with limits**
+  (Section 9.1). The store holds 27 days of history, because the model's scores before the validation window are
+  in-sample, so the knowledge-rule screen was not run on it and no rule is enabled. They read the seed-0 stack only.
 - **A fifth of failing drives are invisible to daily SMART.** 98.6% of the drives
   Stage 1 never passes show no counter rise in their last 30 days, so recall has
   a ceiling that no model on this telemetry removes (Section 9.6).
@@ -2263,8 +2295,9 @@ same claim, and this project had, for a time, only checked the first one.
    silently, and decide which of the three frozen seeds, if any, the agent should use.
 14. Build the missing safeguard of Section 7.4: thresholds, blend weights and model hashes committed before the
    test scorer runs, with the access log counting every look.
-15. Adapt the knowledge store and the point-in-time validation scripts to a chronological validation period, and
-   repeat the horizon comparison under strict separation with gaps sized to each horizon.
+15. Repeat the horizon comparison under strict separation with gaps sized to each horizon, and run the knowledge-rule
+   screen on the chronological knowledge store once it holds enough history (it has 27 days; the point-in-time baseline
+   and the store themselves are done, Section 9.1).
 
 ---
 
@@ -2287,8 +2320,8 @@ recall at its primary threshold (on the first Q3 run: 60.9% at 17.3%, 42.4% at
 set by how rare failures are and by what daily SMART data reveals: twenty-four
 approaches agree on that ceiling. The two that moved it on the earlier model
 were the 30-day horizon, which took precision near 10% recall from 34% to 46%,
-and the second stage, which added about 5 points on five-seed evidence, not
-confirmed by a paired test; that model reached 48.6%, and its
+and the second stage, which added about 5 points on five-seed evidence (on the chronological split its paired
+interval at 30 days excludes zero); that model reached 48.6%, and its
 alerts were about 277 times more likely than chance to be right and 99% precise
 on a test set with the failure share of published work.
 
@@ -2406,15 +2439,19 @@ replaces `data/gold/`, which the drive-holdout design also reads (back it up fir
 comment of `configs/model.yaml` `splits` to return to that design):
 
 ```bash
-make chrono-run               # everything below, one log per step in data/audit/chrono_logs/ (about 95 minutes)
+make chrono-run               # everything below, one log per step in data/audit/chrono_logs/ (about 105 minutes)
 make chrono-data              # build-features, build-labels, check-splits (must print OK)
 make chrono-train             # Stage 1 and LightGBM Stage 2, 30 days, tag chrono_h30; prints work_dir_kept
 make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # LightGBM, Cox and stack Stage 2; saves each seed's stack
 make chrono-freeze CHRONO_WORK_DIR=data/tmp/train_model_frame_<id> CHRONO_SEED=<0|1|2>   # freeze one seed's stack
-make plot-chrono-split        # Figures 30 to 34, from the saved results
+make plot-chrono-split        # Figures 3 and 30 to 34, from the saved results
+make chrono-pit-validation    # the agent's point-in-time baseline on validation, four arms (about 3 minutes; in chrono-run)
+make chrono-knowledge         # the knowledge store: build, five self-checks, coverage, drift (about 8 minutes; in chrono-run)
+make chrono-pack-knowledge    # optional: the store as a 42 MB deterministic gzip; chrono-unpack-knowledge restores it
 ```
 
-Figures 30 to 34 are in `docs/figures/chrono_split/` (its README maps each to its source).
+Figures 3 and 30 to 34 are in `docs/figures/chrono_split/` (its README maps each to its source). The two agent steps
+read the seed-0 stack scorer that `chrono-freeze` writes and run on validation rows only.
 
 Model comparisons, on arrays kept from a training run:
 
@@ -2479,7 +2516,7 @@ section 1.1 is the record for it.
 | Second stage | LightGBM, at least 50 rows per leaf, candidates from the Stage 1 score at the validation threshold that keeps 80% of failing drives (50% before 2026-11-06) |
 | Memory cap | 20 GB resident per process |
 | Action-tier targets | lift 56.6 / 94.3 / 151.0 / 226.4 (warn / cordon / migrate / drain) |
-| Feature-confidence floor | 0.80 (`configs/agent.yaml`); 86.1% of drive-days clear it, against 0% before the Section 7.2 fixes |
+| Feature-confidence floor | 0.80 (`configs/agent.yaml`); 92.8% of drive-days clear it on the current table (86.1% on the build of Section 7.2), against 0% before the fixes |
 
 ## Appendix C. Where to find more
 
@@ -2488,6 +2525,7 @@ section 1.1 is the record for it.
 | Short overview | `docs/system_summary.md` |
 | Every measured result and the run history | `docs/model_status_and_runbook.md` |
 | The chronological split: design, run and result | runbook Sections 1.1.8 and 1.1.9, `docs/dataset_strategy.md` Section 9.6, `frozen_runs/README.md` |
+| The agent's point-in-time baseline and knowledge store on that split | runbook Section 1.1.9, `data/audit/agent_pit_validation_chrono_h30/`, `data/audit/agent_knowledge_chrono_h30/` |
 | The attribute screen and the confidence-floor bug, in full | `docs/adr/0002-attribute-selection-and-vendor-aware-confidence.md` |
 | Features and the reasons for them | `docs/feature_engineering.md` |
 | Commands and options | `docs/pipeline_usage.md` |

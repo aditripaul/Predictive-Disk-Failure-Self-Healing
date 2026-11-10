@@ -18,7 +18,7 @@ to about 2,000 points before drawing; marker values are exact).
 | `deep_dive_<name>.png` | `data/audit/deep_dive_q3_h30/figures/<name>.png` (`scripts/deep_dive_q3.py`) | Missed failures, false-alarm outcomes, weekly stability, validation against test; runbook section 1.1.5, project report Sections 9.4, 9.6 to 9.8 |
 | `cluster_<name>.png` | `data/audit/cluster_policy_h30/figures/<name>.png` (`scripts/cluster_action_policy.py`) | Tier lift targets and the cluster policy's Q3 comparison; runbook sections 1.1.6 and 1.9, project report Sections 9.3 and 9.9 |
 
-The `model_`, `deep_dive_` and `cluster_` copies exist so `docs/project_report.md`
+The `model_`, `deep_dive_` and `cluster_` copies exist so `docs/report.md`
 embeds only files under `docs/`, which editor previews will load.
 
 The per-run training figures (train, validation, test) are in

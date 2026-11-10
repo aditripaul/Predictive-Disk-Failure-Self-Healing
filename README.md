@@ -159,7 +159,7 @@ Because autonomous remediation can be operationally expensive or unsafe, the sys
 | Document | Purpose |
 |---|---|
 | `docs/system_summary.md` | **Start here.** What was built, how one decision flows through it, measured results, limitations |
-| `docs/project_report.md` | The full project report: objectives, design, data, method, results, discussion, limitations, future work |
+| `docs/report.md` | The full project report: objectives, design, data, method, results, discussion, limitations, future work |
 | `docs/model_status_and_runbook.md` | Every result measured on real data, what was learned, how to reproduce it, open items |
 | `docs/pipeline_usage.md` | Commands for each pipeline stage, training options and the model experiment tool |
 | `docs/feature_engineering.md` | What the model sees and why |
@@ -872,12 +872,12 @@ uvicorn src.api.main:app --reload
 
 The project uses a layered testing strategy.
 
-445 tests run in CI, all passing, alongside `ruff` and `mypy`. One further
-test is skipped unless the optional PyTorch extra is installed.
+911 tests run in CI, all passing, alongside `ruff` and `mypy`, with the optional PyTorch extra installed
+(903 pass and three sequence-model tests skip without it).
 
 | Test layer | Count | Purpose |
 |---|---:|---|
-| Unit | 408 | Feature logic, labels, model and evaluation code, guardrail rules, trust score, API |
+| Unit | 874 | Feature logic, labels, model and evaluation code, guardrail rules, trust score, API |
 | Integration | 16 | Real LangGraph graphs with the real guardrail engine and simulator; crash-recovery replay; approval and rejection paths |
 | Property-based | 10 | Invariants of hysteresis, trust score and calibration accounting, over generated inputs |
 | Chaos | 5 | Stale telemetry, correlated multi-drive failure, action timeout, human-review SLA timeout, guardrail latency budget |

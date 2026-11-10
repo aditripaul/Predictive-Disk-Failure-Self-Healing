@@ -7,7 +7,7 @@
 > Sections 1 to 17 are the original plan and are kept as written, so the plan
 > can be compared with what was built. Section 0 below records where each
 > objective and phase stands as of 2026-11-07 and which plan items the work
-> replaced. Measured outcomes and their evidence: `docs/project_report.md`,
+> replaced. Measured outcomes and their evidence: `docs/report.md`,
 > `docs/system_summary.md` and `docs/model_status_and_runbook.md` (the record
 > every number here comes from).
 
@@ -53,7 +53,7 @@ Each phase includes:
 | 8 Simulator and chaos | Done | Fleet simulator; chaos tests for stale telemetry, correlated multi-drive failure, action timeout, human-review timeout and guardrail latency | Trajectory-morphed synthetic telemetry was not built |
 | 9 Reliability checker | Partly | Trust score, veto, audit records | Batch resolution and drift checks are not scheduled |
 | 10 Dashboards and HITL | Done, not hardened | FastAPI approval queue and audit API, Streamlit dashboards | No authentication, no request locking |
-| 11 Evaluation and report | Partly | Final report (`docs/project_report.md`); a point-in-time evaluation of the agent's policy; a test on Q3 2026, a quarter nothing had seen | Cross-dataset evaluation not run; loop cycle time not measured; the sealed quarter became the Q3 test set on 2026-11-06, so no untouched period remains |
+| 11 Evaluation and report | Partly | Final report (`docs/report.md`); a point-in-time evaluation of the agent's policy; a test on Q3 2026, a quarter nothing had seen | Cross-dataset evaluation not run; loop cycle time not measured; the sealed quarter became the Q3 test set on 2026-11-06, so no untouched period remains |
 
 ## 0.3 Evaluation matrix (Phase 11): outcome
 

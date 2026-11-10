@@ -9,7 +9,7 @@
 > choices the work replaced, and how the targets came out. Short "Current
 > state" notes mark the sections that changed (12, 13, 26 and 28). Evidence
 > for every number: `docs/model_status_and_runbook.md`; the full account:
-> `docs/project_report.md`; phase by phase: `docs/project_plan.md` Section 0.
+> `docs/report.md`; phase by phase: `docs/project_plan.md` Section 0.
 
 ## Current state (2026-11-07)
 

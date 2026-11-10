@@ -35,14 +35,16 @@ check-splits:
 	uv run python scripts/check_split_separation.py $(ARGS)
 
 # The chronological split run (docs/model_status_and_runbook.md section 1.1.9), configs/model.yaml `splits`.
-# `chrono-run` does everything and logs each step to data/audit/chrono_logs/ (about 80 minutes;
+# `chrono-run` does everything and logs each step to data/audit/chrono_logs/ (about 105 minutes;
 # CHRONO_LOGS=<dir> to log elsewhere). It REPLACES data/gold/, which the drive-holdout design also reads.
 # The steps alone, in order (do not use make -j):
 #   make chrono-data                                   # build-features, build-labels, check-splits (about 30 minutes)
 #   make chrono-train                                  # 30-day LightGBM two-stage; prints work_dir_kept (about 20 minutes)
 #   make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # Stage 2: LightGBM, Cox, stack (about 30 minutes)
 #   make chrono-freeze CHRONO_WORK_DIR=data/tmp/train_model_frame_<id> CHRONO_SEED=<0|1|2>  # freeze that seed's LightGBM, Cox and stack Stage 2 as scorers (validation only)
-#   make plot-chrono-split                             # the five figures of docs/figures/chrono_split/
+#   make chrono-pit-validation                         # the agent's point-in-time baseline on validation, four arms (about 3 minutes)
+#   make chrono-knowledge                              # the knowledge store: build, check, coverage, drift (about 8 minutes)
+#   make plot-chrono-split                             # the six figures of docs/figures/chrono_split/
 CHRONO_TAG ?= chrono_h30
 CHRONO_OUT ?= data/audit/stack_chrono_h30
 CHRONO_SEED ?= 0

@@ -595,3 +595,18 @@ R2b changes 2 drive-days at either delta (60 days of history is barely available
 | Wall times (UTC, 2026-11-07) | scorer 13:40-13:44; baseline 13:53-13:54; store 14:12-14:16; screen about 2 minutes |
 | Tests | 846 pass (unit and agent-graph integration) at the end of the work; lint and types clean |
 | Outputs | Each folder has a README and `CHECKSUMS.sha256`; logs tracked since 2026-11-08, with repo-relative paths (`scripts/scrub_paths.py`) |
+
+## 14. Addendum (2026-11-10): the same component on the chronological split
+
+Sections 1 to 13 describe the 60-day store built on drive-holdout validation drives and are not changed. On the
+chronological split of runbook 1.1.9 the point-in-time baseline and the store were rebuilt for the 30-day horizon
+(`make chrono-pit-validation`, `make chrono-knowledge`; reports in `data/audit/agent_pit_validation_chrono_h30/` and
+`data/audit/agent_knowledge_chrono_h30/`, the packed store beside them), from the seed-0 stack scorer's validation
+scores (2026-05-21 to 06-16) and presence to 07-16, with no test row read. All five self-checks pass.
+
+What differs, and what limits it: **the store holds 27 days of history, against about four months**, because the
+model's scores before the validation window are in-sample, so no drive has 60 days of history and the rules of
+section 8 that need weeks of it cannot be screened. The screen of section 8 was **not** run on this store and no rule
+is enabled. Episodes with 7 or more days above cordon failed 2.1 times as often as all resolved episodes (221 of 1,019
+against 10.2%), the same relative lift as the 60-day store's 2.0 times (138 of 221 against 30.6%); that does not say
+whether promoting them would raise drive-level precision. Results: runbook 1.1.9, "The agent's evidence on this split".

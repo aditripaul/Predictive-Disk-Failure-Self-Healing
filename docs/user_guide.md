@@ -320,7 +320,7 @@ typical one; it is retired and kept only as history.
 This is why a low score only warns, why migrate and drain need the highest
 scores plus the safety checks in §7, and why uncertain cases are sent to a
 person. The measured figures and how they were obtained are in
-`docs/system_summary.md` and `docs/project_report.md`.
+`docs/system_summary.md` and `docs/report.md`.
 
 One thing these numbers are **not**: a statement about generalization. They
 come from one fleet. Q3 2026 was a quarter the model never saw, but it has now

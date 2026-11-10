@@ -20,8 +20,9 @@ measured on real data, it says so.
 
 ## 1. Where things stand
 
-The pipeline runs end to end on real Q1 + Q2 2026 data (62.6 million
-drive-days, 363,548 drives) within the 20 GB memory cap: ingest, silver,
+The pipeline runs end to end on real data from Q4 2025 to Q3 2026 (126.8 million
+drive-days in the gold table of the 2026-11-10 build; the first two-quarter build had 62.6 million, from 363,548 drives)
+within the 20 GB memory cap: ingest, silver,
 features, labels, training, fleet scoring, plots and the final report.
 **The stated goal is not met.** It was 95% precision at 35-50% recall, then
 90% at >= 10% recall, and since 2026-11-10 68% at >= 10% recall on the stacked cascade, all per drive on the
@@ -1389,7 +1390,7 @@ reported with its test base rate, a drive-bootstrap interval, and the number of 
 #### How to run it
 
 From the repository root, with the pinned Python (`.python-version`). Every step is a Makefile target, and
-`make chrono-run` runs them all and logs each one (about 95 minutes; the section "How to reproduce it" at
+`make chrono-run` runs them all and logs each one (about 105 minutes; the section "How to reproduce it" at
 the end of the result has the variables and what each step overwrites).
 
 ```bash
@@ -1400,8 +1401,8 @@ make chrono-train                                                   # Stage 1 + 
 make chrono-stack CHRONO_WORK_DIR=data/tmp/train_model_frame_<id>   # LightGBM, Cox and stack Stage 2; saves each seed's stack
 make chrono-freeze CHRONO_WORK_DIR=data/tmp/train_model_frame_<id> CHRONO_SEED=<0|1|2>   # freeze one seed's stack as a scorer
 make plot-chrono-split                                              # the five figures of docs/figures/chrono_split/
-make chrono-pit-validation                                          # point-in-time snapshots on validation, four arms (about 3 minutes)
-make chrono-knowledge                                               # build, check, coverage and drift of the knowledge store (about 8 minutes)
+make chrono-pit-validation                                          # point-in-time snapshots on validation, four arms (about 3 minutes; in chrono-run)
+make chrono-knowledge                                               # build, check, coverage and drift of the knowledge store (about 8 minutes; in chrono-run)
 make chrono-pack-knowledge                                          # optional: the deterministic gzip of the store (42 MB)
 ```
 
@@ -1814,7 +1815,7 @@ From the repository root, with the pinned Python (`.python-version`). **This rep
 the drive-holdout design also reads; back it up first if you want to return to that design without a
 rebuild (`cp -a data/gold data/tmp/gold_drive_holdout_backup`, 6.2 GB), or restore the values in the
 comment of `configs/model.yaml` `splits` and run the same steps. The first four steps took 77 minutes;
-freezing three seeds adds about 18, so `make chrono-run` takes about 95.
+freezing three seeds adds about 18 and the agent's point-in-time baseline and knowledge store about 11, so `make chrono-run` takes about 105.
 
 ```bash
 make chrono-run            # everything below, one log per step in data/audit/chrono_logs/ (CHRONO_LOGS=<dir> to move them)
@@ -2073,7 +2074,7 @@ Where each section's numbers come from:
 | 1.1.6 (cluster action policy) | `data/audit/cluster_policy_h30/` |
 | 1.1.1 - 1.1.3 (April-May runs) | `frozen_runs/839d92bc.../`, `frozen_runs/fb58d957.../`; `data/audit/recall_policy_h30_seed0_v2/` and `data/audit/cascade_wide_net_h30/` |
 | 4.7 - 4.10 (point-in-time policy, family calibration) | `data/audit/agent_point_in_time*`, `agent_pit_validation*`, `family_calibration.json` |
-| 1.1.9 (chronological split run) | Training report `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json` and `action_tiers_chrono_h30.json`; model card `data/audit/model_cards/v1_h30d_chrono_h30.md`; Stage 2 variants `data/audit/stack_chrono_h30/`; frozen runs `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/` (`make train`) and `frozen_runs/stack_chrono_h30_seed{0,1,2}/` (Stage 2 variants and stack); launcher and logs `data/audit/chrono_logs/`; figures `docs/figures/chrono_split/`; reproduce with `make chrono-run` |
+| 1.1.9 (chronological split run) | Training report `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json` and `action_tiers_chrono_h30.json`; model card `data/audit/model_cards/v1_h30d_chrono_h30.md`; Stage 2 variants `data/audit/stack_chrono_h30/`; frozen runs `frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/` (`make train`) and `frozen_runs/stack_chrono_h30_seed{0,1,2}/` (Stage 2 variants and stack); the agent's point-in-time baseline `data/audit/agent_pit_validation_chrono_h30/` and knowledge store `data/audit/agent_knowledge_chrono_h30/` (reports, packed store); launcher and logs `data/audit/chrono_logs/`; figures `docs/figures/chrono_split/`; reproduce with `make chrono-run` (which includes the two agent steps) |
 | Every look at test | `data/audit/test_access_log.jsonl` (tracked, append-only) |
 
 What git tracks under `data/audit/` and what stays local is listed in its
@@ -2084,19 +2085,19 @@ README; the Q1+Q2 -> Q3 results are all tracked.
 The agent's four action tiers (warn, cordon, migrate, drain) are four thresholds on
 one score. Stage 2 does not create them; it produces the score, and the thresholds
 are chosen on the validation holdout to meet a precision target each. For the
-previous 30-day model (frozen run `c459046e`; the current model's tiers, from the same rule at a validation
-failure rate of 0.19% with all four reachable, are in Section 1.1.9):
+current model (frozen run `6ea7a5bc`, Section 1.1.9); the previous drive-holdout model (frozen run `c459046e`),
+whose tiers behaved differently, is given for contrast:
 
 1. **The score.** Stage 1 scores every drive-day; at or above the candidate
-   threshold (0.235, `frozen_runs/c459046e.../two_stage.json` `candidate_threshold`)
-   Stage 2 re-scores it and the combined score is `0.235 + 0.765 x stage2`;
+   threshold (0.1431, `frozen_runs/6ea7a5bc.../two_stage.json` `candidate_threshold`;
+   0.235 on the previous model) Stage 2 re-scores it and the combined score is `0.1431 + 0.8569 x stage2`;
    below, the Stage 1 score stands (`src/models/two_stage.py::TwoStageModel.final_scores`).
    Per drive, the highest score in its window: a failing drive over the 30 days
    before failure, a healthy drive over the whole period
    (`src/models/evaluation.py::drive_level_table`).
 2. **Lift to precision target.** `configs/model.yaml` `threshold.action_tier_lift`
-   gives a lift per tier; times the validation drive failure rate (0.589%, 418 of
-   70,977 drives) it is the precision the tier must earn
+   gives a lift per tier; times the validation drive failure rate (0.19%, 684 of
+   356,811 drives; 0.589% on the previous model) it is the precision the tier must earn
    (`src/models/threshold.py::precision_targets_from_lift`). Lift is used so a target
    keeps its meaning when the failure rate changes between windows (Section 1.7).
 3. **Threshold per tier.** On the validation drive-level precision-recall curve,
@@ -2104,27 +2105,32 @@ failure rate of 0.19% with all four reachable, are in Section 1.1.9):
    target (`tune_action_tiers`). A target no cutoff meets falls back to the curve's
    most precise point:
 
-| Tier | Lift | Target on validation | Threshold | Validation precision / recall | Q3 test precision / recall |
+| Tier | Lift | Target on validation | Threshold | Validation precision / recall | Test precision / recall |
 |---|---|---|---|---|---|
-| warn | 56.6 | 33.3% | 0.653 | 33.3% / 63.6% | 17.3% / 60.9% |
-| cordon | 94.3 | 55.5% | 0.836 | 55.7% / 44.7% | 34.8% / 42.4% |
-| migrate | 151.0 | 88.9% | 0.926 | 100% / 0.5% (2 drives) | 33.3% / 0.2% |
-| drain | 226.4 | 133% (stored capped at 100%), unreachable | 0.926 | same cutoff | same |
+| warn | 56.6 | 10.9% | 0.530 | 10.9% / 59.9% | 10.8% / 65.2% |
+| cordon | 94.3 | 18.1% | 0.734 | 18.1% / 49.4% | 18.1% / 56.1% |
+| migrate | 151.0 | 28.9% | 0.857 | 29.0% / 38.0% | 28.0% / 44.4% |
+| drain | 226.4 | 43.4% | 0.935 | 43.6% / 15.4% | 52.4% / 20.4% |
 
-   Source: `data/audit/data_quality_reports/model_evaluation_report_h30_q1q2_q3.json`
+   Source: `data/audit/data_quality_reports/model_evaluation_report_chrono_h30.json`
    (`action_tiers`: `threshold`, `target_lift`, `target_precision`, `validation`,
-   `test`) and `action_tiers_h30_q1q2_q3.json`. Migrate's target is met only at the
-   very top of the curve and drain's is impossible, so both share 0.926 and flag 6
-   drives on Q3: on this model they are not usable tiers.
+   `test`) and `action_tiers_chrono_h30.json`. Every target is reachable and the four
+   thresholds differ. **On the previous model** (base rate 0.589%) the same lifts converted to
+   33.3%, 55.5%, 88.9% and 133%: warn (0.653) and cordon (0.836) worked (17.3% / 60.9% and
+   34.8% / 42.4% on Q3), but migrate's target was met only by the top two validation drives and
+   drain's not at all, so both shared 0.926 and flagged 6 drives on Q3 and were not usable tiers
+   (`model_evaluation_report_h30_q1q2_q3.json`).
 4. **The primary threshold is separate** (`tune_drive_level_threshold`): it aims at
-   90% precision with at least 10% recall, cannot reach it, and takes the most
-   precise cutoff with 10% recall: 0.919, giving 75.0% on validation and 59.0% on Q3
-   (`model_evaluation_report_h30_q1q2_q3.json` `threshold`).
+   68% precision (90% until 2026-11-10) with at least 10% recall, cannot reach it, and takes the most
+   precise cutoff with 10% recall: 0.943, giving 51.5% at 10.2% recall on validation and 59.9% at 13.3% on
+   test (`model_evaluation_report_chrono_h30.json` `threshold`; on the previous model 0.919, 75.0% on
+   validation and 59.0% on Q3).
 5. **Run-time gates** (`src/models/action_tiers.py::determine_action_tier`): migrate
    and drain need feature confidence >= 0.80 (`configs/agent.yaml`
    `feature_confidence.min_confidence_for_destructive_action`), a mature drive and
    fresh telemetry, otherwise they become cordon. Then `src/agent/nodes.py::make_plan_node`
-   applies hysteresis (2 consecutive cycles before escalating) and a cooldown after
+   applies hysteresis (`loop.hysteresis_cycles_required`, 1 since 2026-11-10 as ADR 0003
+   recommends, so a tier takes effect on the first cycle that scores it; it was 2) and a cooldown after
    an action (3,600 s), both in `configs/agent.yaml` `loop`.
 6. **Where the cluster policy enters** (`docs/cluster_action_policy.md`): between 3
    and 5, the drive's (cluster, tier) cell can move it one band up or down, by how
@@ -2132,9 +2138,11 @@ failure rate of 0.19% with all four reachable, are in Section 1.1.9):
    sees the score, so Stage 2's precision shapes which drives sit in each tier, not
    the clusters.
 
-**The same thresholds give lower precision on Q3** because fewer drives fail there
-(0.300% against 0.589%); recall holds (Section 1.1.5). Lift times each base rate
-gives the precision each tier would be expected to reach:
+**On the current model the thresholds transfer:** validation and test base rates are close (0.19% and
+0.23%), and the primary threshold gives 51.5% on validation and 59.9% on test. **On the previous model they
+gave lower precision on Q3** because fewer drives failed there (0.300% against 0.589%); recall held
+(Section 1.1.5). Lift times each base rate gives the precision each tier would be expected to reach (figures of
+the previous model):
 
 | How the tiers are set (validation curve, lift-derived targets) | Lift x base rate = target |
 |---|---|
