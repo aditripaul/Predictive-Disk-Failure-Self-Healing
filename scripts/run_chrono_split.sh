@@ -45,6 +45,15 @@ echo "work dir: $WORK" >> "$L/progress.log"
 STEP=stack; stamp "start $STEP"
 make chrono-stack CHRONO_WORK_DIR="$WORK" CHRONO_OUT="$OUT" > "$L/stack_h30.log" 2>&1; stamp "done $STEP"
 
+STEP=freeze-stack; stamp "start $STEP"
+FREEZE="${CHRONO_FREEZE:-frozen_runs/stack_chrono_h30_seed0}"
+if [ -e "$FREEZE" ]; then
+  echo "$FREEZE exists; a frozen scorer is never overwritten, skipping" >> "$L/progress.log"
+else
+  make chrono-freeze CHRONO_WORK_DIR="$WORK" CHRONO_OUT="$OUT" CHRONO_TAG="$TAG" CHRONO_FREEZE="$FREEZE" > "$L/freeze_stack.log" 2>&1
+fi
+stamp "done $STEP"
+
 STEP=plots; stamp "start $STEP"
 make plot-chrono-split > "$L/plots.log" 2>&1; stamp "done $STEP"
 

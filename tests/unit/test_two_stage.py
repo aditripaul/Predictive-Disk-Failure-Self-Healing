@@ -695,3 +695,70 @@ def test_stack_needs_two_members():
         candidate_threshold=0.5,
     )
     assert model is None and "at least two" in report["status"]
+
+
+def test_two_stage_experiment_saves_the_stack_it_measured(tmp_path):
+    """With `model_dir`, the stack of each net is saved with its members and loads back to
+    the same scores; without the stack kind nothing is saved."""
+    from src.models.stacking import load_stacked_two_stage
+
+    x_train, y_train, train_drives = _split(1, 900, tmp_path, "tr")
+    x_val, y_val, val_drives = _split(2, 500, tmp_path, "va")
+    x_test, y_test, test_drives = _split(3, 500, tmp_path, "te")
+    data = {
+        "horizon_days": 30,
+        "x_train": np.asarray(x_train),
+        "y_train": y_train,
+        "train_drives": train_drives,
+        "train_ids": _ids(train_drives, y_train),
+        "x_val": x_val,
+        "y_val": y_val,
+        "val_drives": val_drives,
+        "x_test": x_test,
+        "y_test": y_test,
+        "test_drives": test_drives,
+        "test_ids": _ids(test_drives, y_test, start="2026-07-01"),
+        "es_idx": early_stopping_subset(y_val),
+    }
+    models = tmp_path / "models"
+    reports = two_stage_experiment(
+        data,
+        candidate_recalls=(0.8,),
+        recall_levels=(0.10, 0.50),
+        stage2_kinds=("lightgbm", "cox", "stack"),
+        n_boot=30,
+        model_dir=models,
+    )
+    stack = reports[-1]
+    assert stack["stage2_kind"] == "stack" and stack["status"] == "ok"
+    saved = models / "seed0_net0.80"
+    assert stack["saved_model_dir"] == saved.as_posix()
+    assert all("saved_model_dir" not in r for r in reports[:-1])  # members save inside the stack
+    assert {p.name for p in saved.iterdir()} >= {
+        "stage1",
+        "stage2_lightgbm",
+        "stage2_cox",
+        "stack.json",
+        "references.npz",
+    }
+    loaded = load_stacked_two_stage(saved)
+    stage1_scores = np.asarray(loaded.stage1.predict_proba(np.asarray(x_val))[:, 1])
+    again = loaded.final_scores(x_val, stage1_scores)
+    assert again.shape == (len(y_val),) and np.isfinite(again).all()
+    below = stage1_scores < loaded.candidate_threshold
+    np.testing.assert_allclose(
+        again[below], stage1_scores[below]
+    )  # non-candidates keep Stage 1's score
+    assert (again[~below] >= loaded.candidate_threshold - 1e-12).all()  # candidates rank above them
+
+    # no stack kind, no folder
+    models_none = tmp_path / "models_none"
+    two_stage_experiment(
+        data,
+        candidate_recalls=(0.8,),
+        recall_levels=(0.10,),
+        stage2_kinds=("lightgbm", "cox"),
+        n_boot=30,
+        model_dir=models_none,
+    )
+    assert not models_none.exists()

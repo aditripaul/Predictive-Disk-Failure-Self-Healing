@@ -42,7 +42,7 @@ from src.models.evaluation import (
     top_k_from_drive_table,
 )
 from src.models.logistic_regression_baseline import train_logistic_regression_baseline
-from src.models.stacking import STACK_KIND, fit_stack
+from src.models.stacking import STACK_KIND, fit_stack, save_stacked_two_stage
 from src.models.survival import AftModel, drive_concordance, survival_bounds, train_aft
 from src.models.threshold import tune_drive_level_threshold
 from src.models.training import (
@@ -702,6 +702,7 @@ def two_stage_experiment(
     top_k: tuple[int, ...] = (),
     observation_end: str | None = None,
     figure_dir: Path | None = None,
+    model_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Does a second model trained only on the hard cases beat the pooled model?
 
@@ -712,7 +713,11 @@ def two_stage_experiment(
     `top_k`, precision and recall at K flagged drives; with `observation_end`
     and the test ids, the per-drive C-index of the cascade and of Stage 1 on
     the test candidates (`src/models/survival.py::drive_concordance`); with
-    `figure_dir`, precision-recall curves and confusion matrices.
+    `figure_dir`, precision-recall curves and confusion matrices; with `model_dir`,
+    each net's stack is saved to `model_dir/seed<seed>_net<net>/` with Stage 1 and the
+    LightGBM and Cox members it blends (`save_stacked_two_stage`; load with
+    `load_stacked_two_stage`), so the variants a run measured are kept, not refitted.
+    Only the `stack` kind saves; a run without it saves nothing.
 
     Uses the same code `make train TRAIN_ARGS=--two-stage` runs
     (src/models/two_stage.py): Stage 1 is the pooled model; Stage 2 is trained
@@ -866,6 +871,11 @@ def two_stage_experiment(
         if model is None:
             reports.append(report)
             continue
+        if kind == STACK_KIND and model_dir is not None:
+            saved = model_dir / f"seed{seed}_net{net:.2f}"
+            save_stacked_two_stage(model, saved)
+            report["saved_model_dir"] = saved.as_posix()
+            logger.info("two_stage_stack_saved", seed=seed, net=net, path=saved.as_posix())
         threshold = model.candidate_threshold
         test_candidates = test_s1 >= threshold
         report["candidates"]["test_rows"] = int(test_candidates.sum())
@@ -1796,6 +1806,14 @@ def main() -> None:
         help="With --two-stage: directory for experiment_two_stage.json and tables.md "
         "(default data/audit/cascade_wide_net_h<horizon>). Refuses to overwrite.",
     )
+    parser.add_argument(
+        "--no-save-models",
+        action="store_true",
+        help="With --two-stage and the stack kind: do not save the fitted models. By default "
+        "each seed's stack (Stage 1 and its LightGBM and Cox members) is saved to "
+        "<--two-stage-out>/models/seed<k>_net<net>/, and the run refuses to start if that "
+        "folder exists (saved models are never overwritten).",
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
         "--no-mlflow",
@@ -1947,6 +1965,14 @@ def main() -> None:
         )
     if args.two_stage:
         two_stage_reports: list[dict[str, Any]] = []
+        model_dir: Path | None = None
+        if STACK_KIND in two_stage_settings["stage2_kinds"] and not args.no_save_models:
+            model_dir = two_stage_out / "models"
+            if model_dir.exists():
+                raise SystemExit(
+                    f"{model_dir} exists; saved stack models are never overwritten. Move it, "
+                    "use another --two-stage-out, or pass --no-save-models."
+                )
         for seed in range(two_stage_settings["seeds"]):
             for report in two_stage_experiment(
                 data,
@@ -1971,6 +1997,7 @@ def main() -> None:
                 # Figures for the first seed only: the curves of the other seeds
                 # differ by sampling noise the tables already summarise.
                 figure_dir=two_stage_out / "figures" if seed == 0 else None,
+                model_dir=model_dir,
             ):
                 _print_two_stage(report)
                 two_stage_reports.append(report)
