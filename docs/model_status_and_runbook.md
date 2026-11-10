@@ -553,6 +553,43 @@ repository; every file is checked by `cd frozen_runs/<run id> && sha256sum -c SH
 *Test looks:* `data/audit/test_access_log.jsonl` lines 114-126 (3 training runs, 1
 horizon comparison, 9 cascade seeds).
 
+**More figures from the Q3 runs.** The funnel of the 30-day model from the fleet to each operating point:
+failing drives reached (left), healthy drives flagged (centre, log scale) and precision (right) at the Stage 1
+net and at each threshold of the combined score. It is drawn by `scripts/plot_cascade_funnel.py` from the counts
+of Sections 1.1.4, 1.1.5 and 1.9; no data is read.
+
+![The two-stage funnel of the 30-day model on Q3 2026](figures/q3_2026/cascade_funnel_h30.png)
+
+The validation and train figures of the other runs, for completeness (the 30-day validation figures are above).
+**Train is in-sample and optimistic**: the model saw those rows. The curve is the drive-level curve (solid) and the
+drive-day curve (dashed), with the primary threshold, the tiers and the top-K points marked.
+
+*44-day model, run `a2cd06d5`*
+
+| Precision-recall | Confusion matrices |
+|---|---|
+| ![44-day model: validation precision-recall](../frozen_runs/a2cd06d53e624c09b0d12f81076def8a/figures/validation_precision_recall.png) | ![44-day model: validation confusion matrices](../frozen_runs/a2cd06d53e624c09b0d12f81076def8a/figures/validation_confusion.png) |
+
+| Precision-recall (train, in-sample) | Confusion matrices (train, in-sample) |
+|---|---|
+| ![44-day model: train precision-recall (in-sample)](../frozen_runs/a2cd06d53e624c09b0d12f81076def8a/figures/train_precision_recall.png) | ![44-day model: train confusion matrices (in-sample)](../frozen_runs/a2cd06d53e624c09b0d12f81076def8a/figures/train_confusion.png) |
+
+*60-day model, run `804a20ce`*
+
+| Precision-recall | Confusion matrices |
+|---|---|
+| ![60-day model: validation precision-recall](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/validation_precision_recall.png) | ![60-day model: validation confusion matrices](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/validation_confusion.png) |
+
+| Precision-recall (train, in-sample) | Confusion matrices (train, in-sample) |
+|---|---|
+| ![60-day model: train precision-recall (in-sample)](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/train_precision_recall.png) | ![60-day model: train confusion matrices (in-sample)](../frozen_runs/804a20cec10048abb1bc3ccf510f96e1/figures/train_confusion.png) |
+
+*30-day model, run `c459046e`: train (in-sample)*
+
+| Precision-recall (train, in-sample) | Confusion matrices (train, in-sample) |
+|---|---|
+| ![30-day model: train precision-recall (in-sample)](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/train_precision_recall.png) | ![30-day model: train confusion matrices (in-sample)](../frozen_runs/c459046e4f1645169151e7be25ff064d/figures/train_confusion.png) |
+
 ### 1.1.4a A stacked Stage 2: LightGBM + Cox (run 2026-11-06, small strict-end gain, not confirmed, outputs frozen)
 
 Question: does a blend of the LightGBM and Cox Stage 2 re-rank the Stage 1
@@ -978,6 +1015,38 @@ uv run python scripts/cluster_action_policy.py --run-dir x --scores x --figures-
 
 The validation step resumes from `ablation_partial.json` if interrupted (and was
 rerun once with `--overwrite` after a naming fix, resuming all 35 candidates).
+
+**More figures of the cluster policy** (`data/audit/cluster_policy_h30/figures/`, redrawn from the saved JSON
+without reading data; `scripts/cluster_action_policy.py`).
+
+![Clustering ablation on the validation suspects: failure-rate separation, stability and silhouette for five methods at 3 to 10 clusters](../data/audit/cluster_policy_h30/figures/clustering_ablation.png)
+
+*The clustering ablation on the validation suspects (chosen: Gaussian mixture, 4 clusters). Left, failure-rate
+separation within a score band, cross-half; centre, stability as the adjusted Rand index of one half of the suspects
+against the other, with the 0.7 floor; right, silhouette. Five methods (agglomerative, Gaussian mixture, HDBSCAN,
+k-means, spectral) at 3 to 10 clusters; the star is the chosen one.*
+
+![Drive family per cluster](../data/audit/cluster_policy_h30/figures/cluster_families.png)
+
+*The drive-family mix of each cluster beside all suspects. C1 is almost all Seagate and C2 has almost none (mostly
+HGST, Western Digital and Toshiba); C0 and C3 are mixed.*
+
+![Share of suspects and failure rate per cluster, validation against Q3](../data/audit/cluster_policy_h30/figures/cluster_stability.png)
+
+*Left, the share of suspects in each cluster on validation and on Q3. Right, the failure rate per cluster: it falls
+by about half on Q3 (C3 33.4% to 16.1%, C2 11.7% to 4.5%) with the order C3 > C2 > C1 > C0 intact.*
+
+![Days from decision to failure for the failing drives in the warn and cordon bands, by cluster](../data/audit/cluster_policy_h30/figures/lead_time_by_cell.png)
+
+*Days from the decision to the failure of the failing drives in the warn band (left) and the cordon band (right),
+by cluster, with the number of failing drives per cluster in the label.*
+
+![Outcome of every flagged drive, tier-only against the cluster policy](../data/audit/cluster_policy_h30/figures/action_outcomes_by_cell.png)
+
+*The outcome of every flagged drive at warn and above, cordon and above, migrate and above and drain and above, for
+the tier-only policy and the cluster policy: correct, early (failed in days 31 to 60), later (failed after that),
+removed (left service with no recorded failure) or still active. Most drives the policy dropped were still running; migrate and drain are the
+same 6 drives under both.*
 
 ### 1.1.7 A Knowledge component for the agent (2026-11-07; no rule passed, outputs frozen)
 
@@ -1562,6 +1631,15 @@ Drives isolated (share of all 864 failing drives / share of the Stage 1 pool):
   level, and 224 and 357 at 20% and 35%, never the most of the four. Its edge is precision at the 5% and 20% levels
   (64.0% and 46.7%), not the number of drives isolated.
 
+##### Train figures (in-sample)
+
+The train figures of the frozen run `6ea7a5bc`, for completeness: **in-sample and optimistic**, since the model saw
+those rows. They are not evidence of performance; the validation and test figures above are.
+
+| Precision-recall (train, in-sample) | Confusion matrices (train, in-sample) |
+|---|---|
+| ![Chronological run: train precision-recall (in-sample)](../frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/figures/train_precision_recall.png) | ![Chronological run: train confusion matrices (in-sample)](../frozen_runs/6ea7a5bcfb954deeb4a4208e4d802744/figures/train_confusion.png) |
+
 ##### What it shows
 
 - **Strict separation did not move the result.** Test AUROC is 0.923 here against 0.926 in Section 1.1.4,
@@ -1670,6 +1748,14 @@ monotone map preserves ranking.
 **Caveat.** The calibrated test curve is close to the diagonal up to about
 0.5. Above that the bins hold 21 to 70 rows, so their observed rates are
 noisy. **Do not quote calibrated probabilities above 0.5.**
+
+**Figures** (the quarter-aligned run of Section 4.6, `make plots`; per drive-day). The raw score is class-weighted,
+so it sits far below the diagonal on both splits: drive-days scored 0.9 fail about 30% of the time on test. That is
+why the raw score is never read as a probability and the isotonic map is reported beside it.
+
+| Reliability on test | Reliability on validation |
+|---|---|
+| ![Calibration of the raw score on test](figures/calibration_test_quarter_aligned.png) | ![Calibration of the raw score on validation (ECE 0.0375, Brier 0.0078)](../data/audit/plots/calibration_validation.png) |
 
 ### 1.4 Sealed, and not yet measured
 
@@ -2714,6 +2800,34 @@ sits 1.2 to 1.3 recall points below the frozen run's at matched false-alarm
 rate, inside that snapshot's sampling error. That weakens the case that the
 wider window cost anything real, though it does not settle it.
 
+**Figures from `make plots` for this run** (`data/audit/plots/`; drive-day level unless a caption says drive level).
+
+![Failed drives by drive family over the quarter-aligned window](figures/failures_by_family.png)
+
+*Failed drives by drive family. Bar length is the count; the label is the share of that family's drives that failed.
+Four hard-drive vendors account for almost every failure; the SSD families have none in this period.*
+
+![The 20 features with the largest share of the first-stage model's gain](figures/variable_importance_quarter_aligned.png)
+
+*The 20 features with the largest share of the first stage's total gain. The total of active defect counters carries
+over a third of the gain on its own; pending-sector windows, age and the velocity of new defects follow. The ranking
+is gain, not a causal claim, and it describes the first stage only.*
+
+![ROC curves on the quarter-aligned test split](figures/roc_curves_quarter_aligned.png)
+
+*ROC curves on the test split, per drive-day and per drive, for LightGBM and the logistic-regression sanity baseline.
+The LightGBM drive-level curve (AUC 0.923) rises steeply at the very low false-alarm rates where the action tiers
+operate. ROC compares runs because neither axis depends on how common failures are.*
+
+| Failure rate by split and horizon | Validation against test metrics | Precision at the top K |
+|---|---|---|
+| ![Class imbalance by split and horizon](../data/audit/plots/class_imbalance.png) | ![Validation against test: AUPRC, precision, recall, FPR, FNR](../data/audit/plots/metric_comparison.png) | ![Precision at the top 1, 5 and 10 percent of drive-days on test](../data/audit/plots/precision_at_k_test.png) |
+
+*Left, the failure rate (%) per split for the 7-, 14- and 30-day horizons that the config computed then (it now
+computes 30, 44 and 60). Centre, the headline drive-day metrics at the chosen threshold on validation and on test.
+Right, precision at the top 1%, 5% and 10% of drive-days on test, which is low because 1% of drive-days is far more
+than the failing drive-days there are.*
+
 ### 4.7 The agent backtest is not point-in-time (2026-10-18): do not quote it
 
 First run of the agent over the test window (`make agent-fleet`, Apr-May
@@ -3091,6 +3205,35 @@ for that group, measured point-in-time before it ships. What would not: a
 small group, a one-snapshot effect, or a precision gain bought with an equal
 loss of recall, which is a threshold move with extra steps.
 
+**Figures** (`data/audit/plots/late_hits_*.png`; `scripts/plot_late_hits.py`).
+
+![What became of every alert at cordon and above](figures/late_hits_outcomes.png)
+
+*What became of every alert at cordon and above, each followed to the end of the data. Blue is counted correct by the
+30-day label; orange (solid and hatched) is counted false, but the drive failed later.*
+
+![Days from the alert to the failure](figures/late_hits_lead_time.png)
+
+*Days from the alert to the failure, one bar per day, for every alert on a drive that went on to fail. The vertical
+line is the 30-day label boundary.*
+
+![Thirty alerts that were early, sampled across lead times](figures/late_hits_timelines.png)
+
+*Thirty of the 137 drives whose alert was early, sampled evenly across lead times: the alert at day 0, the failure at
+day N, the 30-day label window shaded. Labels are the drive model and a serial-number prefix.*
+
+| Precision by tier, two horizons | False alarms against the background |
+|---|---|
+| ![Precision of each tier by the 30-day label and counting failures within 60 days](figures/late_hits_by_tier.png) | ![Share of each tier's false alarms that failed in days 31 to 60, against the background](figures/late_hits_vs_background.png) |
+
+*Left, precision of each tier's alerts by the 30-day label (blue) and counting failures within 60 days (orange).
+Right, the share of each tier's 30-day false alarms that failed in days 31 to 60, against the same share across every
+drive the label calls healthy (0.10%, the grey line).*
+
+![Median defect counters at the alert, by what became of the drive](figures/late_hits_profile.png)
+
+*The median value of three defect counters at the moment of the alert, cordon and above, by what became of the drive.*
+
 ### 4.10 Per-family recalibration (built and run 2026-10-18: no gain)
 
 Section 4.9 found ranking quality varies 73-fold by drive family, so the same
@@ -3406,6 +3549,12 @@ untuned; trained on a 3,000,000-row sample (LightGBM: 5,000,000).
   representation) to the same ceiling, which points at the telemetry, not the
   model. The run adds one entry to `data/audit/test_access_log.jsonl`.
 
+**Figure** (`data/audit/plots/sequence_training_curves.png`; `scripts/plot_sequence_comparison.py`).
+
+![LSTM training curves](figures/sequence_training_curves.png)
+
+*Validation average precision per epoch for all seven training runs, with the epoch whose weights were kept.*
+
 ### 5.10 The LSTM catches some different drives; a blend gains a little (run 2026-10-23)
 
 Same rows as Section 5.9 (the 30-day horizon, 1,479 failing and 353,552 healthy
@@ -3445,6 +3594,16 @@ by recall at a 5e-4 false-alarm rate) and applied to test:
   at the margin; nothing here approaches the 95% target.
 - This run added two entries to `data/audit/test_access_log.jsonl` (the
   LightGBM re-run and the comparison).
+
+**Figures** (`data/audit/plots/`; `scripts/plot_sequence_comparison.py`).
+
+| Which failing drives each model catches | Recall at fixed false-alarm rates |
+|---|---|
+| ![Failing test drives caught by LightGBM alone, the LSTM alone and both](figures/sequence_catch_overlap.png) | ![Test recall at three false-alarm rates for LightGBM, the LSTM ensemble and the blend](figures/sequence_recall_at_budgets.png) |
+
+*Left, the failing test drives each model catches alone at the same false-alarm rate, split into those both catch,
+only LightGBM catches and only the LSTM catches. Right, test recall at three false-alarm rates for LightGBM, the
+LSTM ensemble alone and the blend.*
 
 ### 5.11 The blend gain holds across four LSTM seeds, but stays small (run 2026-10-23)
 
@@ -3491,6 +3650,13 @@ rates of 1e-4, 5e-4 and 1e-3.
   comparison. Any further use of these test numbers
   to choose a method (including this blend) needs a period not yet used (Q3
   2026 was spent on the LightGBM-only runs of Section 1.1.4).
+
+**Figure** (`data/audit/plots/sequence_blend_gain.png`).
+
+![Blend minus LightGBM recall on test for each LSTM run and the ensemble](figures/sequence_blend_gain.png)
+
+*Blend minus LightGBM recall on test for each LSTM run and the ensemble, with the 95% paired drive-level bootstrap
+interval.*
 
 ### 5.12 Precision and recall of the blend at each operating point
 
