@@ -1734,10 +1734,12 @@ gold 0, none a failure); idempotence (re-ingesting 06-16 changes nothing); the s
 
 - **Episodes:** 4,170 on 3,756 drives, median 9 days flagged, 90th percentile 27.
   Resolved to 07-16: 421 failed, 3,687 survived, 59 pending, 3 censored. Of the 1,055 episodes with 7 or more
-  days above cordon, 221 failed and 798 survived (21.7% of the resolved). The 60-day store had 138 of 222 (62%),
-  so the persistence signal behind its rule is not here. The two are not like for like (a 30-day horizon is a
-  stricter outcome than 60 days, and a 27-day window cuts episodes short), but nothing here supports a
-  persistence rule. **The knowledge-rule screen (Phase 2) was not run on this store.**
+  days above cordon, 221 failed and 798 survived (21.7% of the resolved, against 10.2% of all resolved episodes, 2.1
+  times as often). The 60-day store had 138 of 222 (62%, against 30.6% of its resolved episodes, 2.0 times). The
+  absolute share is lower here because a 30-day outcome is stricter than a 60-day one, and a 27-day window cuts
+  episodes short; the relative lift is the same. Episodes are not drives scored at a threshold, so this does not
+  say whether promoting persistent drives would raise drive-level precision. **The knowledge-rule screen (Phase 2)
+  was not run on this store**, and no rule is enabled.
 - **History is 27 days.** Coverage as of 06-16: all 354,852 reporting drives have some history, none has 60 days,
   all were first seen within 30 days, and 3,404 have an episode. Scores before 05-21 are in-sample, so the store
   cannot be started earlier; any rule that needs weeks of history is limited by that.
@@ -1888,19 +1890,30 @@ The raw score is class-weighted and is not a failure probability: a score of
 calibrator fitted on validation (`src/models/calibration.py`) reports
 calibrated test metrics beside the raw ones (`test_calibrated_*` in MLflow)
 and is stored in `frozen_spec.json`. Decisions are unchanged, because a
-monotone map preserves ranking.
+monotone map preserves ranking. Calibration is per drive-day, the grain the
+model scores; the drive-level precision and recall of Section 1.1.9 are a
+different quantity.
 
-**Caveat.** The calibrated test curve is close to the diagonal up to about
-0.5. Above that the bins hold 21 to 70 rows, so their observed rates are
-noisy. **Do not quote calibrated probabilities above 0.5.**
+On the current model (frozen run `6ea7a5bc`, Section 1.1.9; `model_evaluation_report_chrono_h30.json`):
 
-**Figures** (the quarter-aligned run of Section 4.6, `make plots`; per drive-day). The raw score is class-weighted,
-so it sits far below the diagonal on both splits: drive-days scored 0.9 fail about 30% of the time on test. That is
-why the raw score is never read as a probability and the isotonic map is reported beside it.
+| Per drive-day | Validation | Test |
+|---|---|---|
+| Raw score: ECE / Brier | 0.0352 / 0.00642 | 0.0373 / 0.00696 |
+| Raw score 0.9 to 1.0: share of drive-days that fail | 28.1% (4,762 rows) | 27.2% (8,656 rows) |
+| Calibrated score: ECE / Brier | | 0.0001 / 0.00078 |
 
-| Reliability on test | Reliability on validation |
-|---|---|
-| ![Calibration of the raw score on test](figures/calibration_test_quarter_aligned.png) | ![Calibration of the raw score on validation (ECE 0.0375, Brier 0.0078)](../data/audit/plots/calibration_validation.png) |
+**Caveat.** The calibrated test curve follows the diagonal up to about 0.4 (the 0.3 to 0.4 bin: predicted 0.34,
+observed 0.38, 1,936 rows). Above that the bins are tiny and the calibrator over-predicts: the 0.4 to 0.5 bin holds
+1 row, the 0.5 to 0.6 bin 124 rows (predicted 0.55, observed 0.22) and the 0.6 to 0.7 bin 146 rows (0.61 against
+0.38), and no test drive-day is calibrated above 0.7. **Do not quote calibrated probabilities above 0.4.** (The
+earlier run's limit was 0.5.) The raw score sits far below the diagonal on both splits, which is why it is never
+read as a probability and the isotonic map is reported beside it; the previous model's raw score gave the same
+picture (ECE 0.0375 on validation, drive-days scored 0.9 failing about 30% of the time on test).
+
+![Reliability of the raw score on validation and test, and of the calibrated score on test, with the bins of fewer than 100 rows marked](figures/chrono_split/chrono_calibration.png)
+
+`make plot-chrono-split` redraws it from the evaluation report. (`make plots` reads the untagged
+`model_evaluation_report.json`, which is an earlier run's, so its calibration figures are not this model's.)
 
 ### 1.4 Sealed, and not yet measured
 
@@ -1938,8 +1951,8 @@ why the raw score is never read as a probability and the isotonic map is reporte
   per-family action-tier thresholds.
 - **Also did not move it (Section 1.1.9, chronological split):** strict train, validation and test separation
   (test AUROC 0.923 against 0.926; 59.9% at 13.3% against 59.0% at 12.5%), the Cox Stage 2 and the LightGBM + Cox
-  stack at the goal's 10% recall level (the stack is 1.4 points below the LightGBM Stage 2). The goal (68% at 10% or more recall on the stack) is not met on
-  validation, where the stack gives about 52%, or on test.
+  stack at the goal's 10% recall level (the stack is 1.4 points below the LightGBM Stage 2). The goal (68% at 10% or
+  more recall on the stack) is not met on validation, where the stack gives about 52%, or on test.
 - **Per-family thresholds made it worse** (ADR 0002): 7 of 81 models cleared
   the 50-failing-drive gate, and against fleet-wide thresholds on the same
   test drives they lost 7 to 8 points of recall for under 1 point of
@@ -2004,9 +2017,11 @@ why the raw score is never read as a probability and the isotonic map is reporte
   windows (`configs/model.yaml`, `splits`) decide which rows are scored, and the last 30 days of the data are
   censored for healthy drives, so the label table keeps only the failing drives' positives there. The label
   report's rate therefore counts positives the evaluation never scores. The rate the evaluation scores is in
-  `data_build.evaluated_failure_rate` of the evaluation report: on the chronological split (test ends 08-31, 30 days
-  before the data ends) it is 0.19% on validation (684 of 356,811 drives) and 0.23% on test (864 of 368,124). (The
-  retired quarter-aligned run had 0.132% and 0.094%.) Quote the evaluated rate, and compare models across splits
+  `data_build.evaluated_failure_rate` of the evaluation report, per drive-day; the per-drive rate is
+  `fleet_failure_rate` in `validation_drive_level` and `test_drive_level`. On the chronological split (test ends 08-31,
+  30 days before the data ends) the per-drive-day rate is 0.089% on validation and 0.083% on test, and the per-drive
+  rate 0.19% (684 of 356,811 drives) and 0.23% (864 of 368,124). (The retired quarter-aligned run had 0.132% and
+  0.094% per drive-day.) Quote the evaluated rate at the grain of the metric, and compare models across splits
   on drive-level lift rather than on raw precision.
 - **The length of the TEST WINDOW moves the base rate, so precision is not
   comparable across split dates.** A drive counts as failing if any of its

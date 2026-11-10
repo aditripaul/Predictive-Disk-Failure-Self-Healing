@@ -1,6 +1,6 @@
 """Figures of the chronological split run (runbook sections 1.1.8 and 1.1.9).
 
-Five figures, drawn from files the run already wrote (no model is scored, no test row is read):
+Six figures, drawn from files the run already wrote (no model is scored, no test row is read):
 
 - `chrono_split_timeline.png`: the chronological split with gaps (runbook 1.1.9) on a date
   axis. Dates and failing-drive counts are the ones
@@ -15,6 +15,9 @@ Five figures, drawn from files the run already wrote (no model is scored, no tes
 - `chrono_true_positives_isolated.png`: how many of the failing test drives (count and share) each
   stage isolates: the Stage 1 net, then Stage 1 alone, the LightGBM and Cox Stage 2 and the stack at
   the 10, 20 and 35% recall levels, from `experiment_two_stage.json` (mean of 3 seeds).
+- `chrono_calibration.png`: reliability of the LightGBM two-stage model's score per drive-day
+  (runbook 1.3): the raw score on validation and test, and the isotonic-calibrated score on test
+  with its bin sizes, from the `calibration` blocks of the evaluation report.
 
     uv run python scripts/plot_chrono_split.py
 """
@@ -478,6 +481,112 @@ def true_positives_isolated(path: Path) -> None:
     _save(fig, path)
 
 
+def _bins(calibration: dict, *, min_rows: int = 1) -> list[tuple[float, float, int]]:
+    return [
+        (b["mean_predicted_probability"], b["observed_fraction_positive"], b["count"])
+        for b in calibration["bins"]
+        if b["count"] >= min_rows and b["mean_predicted_probability"] is not None
+    ]
+
+
+def calibration(path: Path) -> None:
+    """Reliability per drive-day: the raw class-weighted score (it is not a probability) and the
+    isotonic-calibrated score on test, whose bins above 0.4 hold a handful of rows."""
+
+    def find(node, key):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k == key:
+                    return v
+                found = find(v, key)
+                if found is not None:
+                    return found
+        return None
+
+    report = json.loads(REPORT.read_text())
+    val_raw = report["validation_metrics"]["calibration"]
+    test_raw = report["test_metrics"]["calibration"]
+    test_cal = find(report, "test_calibrated_calibration")
+    fig, axes = plt.subplots(1, 2, figsize=(9.2, 4.3))
+    left, right = axes
+    for ax in axes:
+        _style(ax)
+        ax.grid(axis="x", color=GRID, linewidth=1, zorder=0)
+        ax.plot([0, 1], [0, 1], linestyle="--", color=MUTED, linewidth=1, zorder=1)
+        ax.set_xlabel("Mean predicted probability", fontsize=9, color=INK_2)
+        ax.set_ylabel("Observed fraction of failing drive-days", fontsize=9, color=INK_2)
+    for calib, colour, name in (
+        (val_raw, ORANGE, "validation"),
+        (test_raw, AQUA, "test"),
+    ):
+        pts = _bins(calib)
+        left.plot(
+            [p for p, _, _ in pts],
+            [o for _, o, _ in pts],
+            marker="o",
+            markersize=5,
+            color=colour,
+            linewidth=2,
+            label=f"{name} (ECE {calib['expected_calibration_error']:.3f})",
+            zorder=3,
+        )
+    top = _bins(test_raw)[-1]
+    left.annotate(
+        f"scored 0.9 to 1.0:\n{top[1]:.0%} fail on test",
+        xy=(top[0], top[1]),
+        xytext=(0.45, 0.42),
+        fontsize=8.5,
+        color=INK,
+        arrowprops={"arrowstyle": "-", "color": MUTED},
+    )
+    left.text(0.52, 0.86, "perfectly calibrated", fontsize=8, color=MUTED, rotation=33)
+    left.set_xlim(0, 1)
+    left.set_ylim(0, 1)
+    left.set_title("Raw score: far below the diagonal", fontsize=10, color=INK, loc="left")
+    left.legend(loc="upper left", frameon=False, fontsize=9)
+    pts = _bins(test_cal)
+    big = [(p, o, n) for p, o, n in pts if n >= 100]
+    small = [(p, o, n) for p, o, n in pts if n < 100]
+    right.plot(
+        [p for p, _, _ in big],
+        [o for _, o, _ in big],
+        marker="o",
+        markersize=5,
+        color=AQUA,
+        linewidth=2,
+        zorder=3,
+        label=f"test, calibrated (ECE {test_cal['expected_calibration_error']:.4f})",
+    )
+    for p, o, n in big:
+        if p >= 0.5:
+            right.annotate(
+                f"{n} rows", xy=(p, o), xytext=(p + 0.03, o - 0.08), fontsize=8, color=INK_2
+            )
+    right.scatter(
+        [p for p, _, _ in small],
+        [o for _, o, _ in small],
+        s=36,
+        facecolor=SURFACE,
+        edgecolor=AQUA,
+        zorder=4,
+        label="bin of fewer than 100 rows",
+    )
+    right.set_xlim(0, 0.8)
+    right.set_ylim(0, 0.8)
+    right.set_title("Calibrated: usable to about 0.4", fontsize=10, color=INK, loc="left")
+    right.legend(loc="upper left", frameon=False, fontsize=9)
+    fig.suptitle(
+        "The score is not a probability; the calibrated one is, up to about 0.4",
+        x=0.01,
+        ha="left",
+        fontsize=11,
+        color=INK,
+        fontweight="bold",
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    _save(fig, path)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=OUT)
@@ -487,6 +596,7 @@ def main(argv: list[str] | None = None) -> None:
     goal_validation_vs_test(args.out / "chrono_goal_validation_vs_test.png")
     base_rate_transfer(args.out / "chrono_base_rate_transfer.png")
     true_positives_isolated(args.out / "chrono_true_positives_isolated.png")
+    calibration(args.out / "chrono_calibration.png")
 
 
 if __name__ == "__main__":
