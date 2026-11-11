@@ -281,7 +281,7 @@ def resolve_cost_ratios(threshold_cfg: dict[str, Any]) -> tuple[dict[str, float]
         return {t: float(threshold_cfg["action_cost_ratio"][t]) for t in ACTION_TIERS}, (
             "action_cost_ratio (placeholders)"
         )
-    if any(v is None for v in inputs):
+    if failure_cost is None or any(v is None for v in inputs):
         raise ValueError(
             "threshold.cost_model is partly filled: set failure_cost and every tier's "
             "action_cost and p_save, or leave all of them null"
